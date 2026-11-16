@@ -666,6 +666,19 @@ public final class CampusScene: WorldScene {
     }
 
     override func wheel(_ dy: CGFloat, precise: Bool) -> Bool { stackWheel(dy, precise: precise) }
+    /// A right-click picks what a click would, but a storey counts even on a building you have not opened (D72).
+    override func contextTarget(at p: CGPoint) -> ContextTarget? {
+        let a = artPoint(p)
+        if let s = storeys.first(where: { storeyHit($0.storey, a) }) { return .project(s.project) }
+        switch target(at: p) {
+        case .building(let k)?: return .building(k)
+        case .storey(let id)?: return .project(id)
+        case .walker(let id)?: return .session(id)
+        case .rack(let c)?: return .server(c)
+        case .fountain?: return .fountain
+        case nil: return nil
+        }
+    }
     public override func up() {
         if closeStacks() { return }
         if focus != nil { focus(on: nil); onFocus?(nil) }

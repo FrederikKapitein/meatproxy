@@ -10,7 +10,8 @@ import SpriteKit
 /// a real mouse event, so the HUD panels still catch it), "uiclick:x,y" (a click through the window: HUD buttons), "move:<session>:<room>" (a person on the open floor walks to
 /// another room), "walker:<k>" / "clickwalker:<k>" (the pointer on campus walker k), "person:<id>" / "clickperson:<id>" (the pointer on a
 /// person on the open floor), "apart:<tower>" / "mark:<k>" (a tower held apart, storey k marked, D65), "life:demo"
-/// (all of the campus's life at night, D66), "hour:<h>" (the campus clock) and "wait:<seconds>". SF_WINDOW_SHOT_BURST="4@0.25" takes four
+/// (all of the campus's life at night, D66), "hour:<h>" (the campus clock), "layer:status" and "idea" (D69, D68),
+/// "commands", "search:<text>" and "context:x,y" (a right-click; D72) and "wait:<seconds>". SF_WINDOW_SHOT_BURST="4@0.25" takes four
 /// shots a quarter second apart (out-0.png … out-3.png), to judge motion.
 enum WindowShot {
     static var active: Bool { ProcessInfo.processInfo.environment["SF_WINDOW_SHOT"] != nil }
@@ -46,6 +47,8 @@ enum WindowShot {
             // through the window, so whatever is on top there (a HUD button) gets it, as from a real mouse
             if let d = ev(.leftMouseDown) { window.sendEvent(d) }
             if let u = ev(.leftMouseUp) { window.sendEvent(u) }
+        } else if kind == "right" {
+            if let d = ev(.rightMouseDown) { sk.rightMouseDown(with: d) }
         } else if kind == "click" {
             if let d = ev(.leftMouseDown) { sk.mouseDown(with: d) }
             if let u = ev(.leftMouseUp) { sk.mouseUp(with: u) }
