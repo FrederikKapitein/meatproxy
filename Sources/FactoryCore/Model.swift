@@ -149,6 +149,8 @@ public struct Project: Identifiable, Sendable, Hashable {
     public var logo: String?
     /// What its sessions would have cost at API prices (D61), when known.
     public var cost: ProjectCost?
+    /// What GitHub says about its repos (D67), when it has any there and gh can read them.
+    public var github: GitHubStatus?
 
     public init(id: String, provider: Provider, root: String, name: String, isChat: Bool, sessions: [Session], factory: Factory? = nil) {
         self.id = id; self.provider = provider; self.root = root; self.name = name; self.isChat = isChat; self.sessions = sessions
@@ -338,4 +340,16 @@ public enum NeedsYou: Sendable, Identifiable {
         case .decision(_, let d): d.asked ?? .distantPast
         }
     }
+}
+
+/// What GitHub says about a project's repos (D67): the repos whose newest CI run on main (or master, develop) failed,
+/// and when its pull requests were merged lately. Read with your own gh login; only what the campus needs.
+public struct GitHubStatus: Sendable, Hashable {
+    public var failing: [String]
+    public var merged: [Date]
+    public var checkedAt: Date
+    public init(failing: [String] = [], merged: [Date] = [], checkedAt: Date) {
+        self.failing = failing; self.merged = merged.sorted(); self.checkedAt = checkedAt
+    }
+    public var ciFailing: Bool { !failing.isEmpty }
 }

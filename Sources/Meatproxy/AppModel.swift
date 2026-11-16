@@ -135,8 +135,9 @@ final class AppModel: ObservableObject {
             }
             heartbeats.checkCI(projectSettings)
             ciTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-                Task { @MainActor in guard let self else { return }; self.heartbeats.checkCI(self.projectSettings) }
+                Task { @MainActor in guard let self else { return }; self.heartbeats.checkCI(self.projectSettings); self.checkGitHub() }
             }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.checkGitHub() }
         }
         if !fixture {
             sourcesTimer = Timer.scheduledTimer(withTimeInterval: WakeSources.interval, repeats: true) { [weak self] _ in
@@ -260,6 +261,19 @@ final class AppModel: ObservableObject {
         costQueue.async {
             collector.costs.update()
             DispatchQueue.main.async { self.costing = false }
+        }
+    }
+
+    /// CI and merged pull requests per project (D67), every five minutes, off the main queue.
+    private var githubChecking = false
+    private func checkGitHub() {
+        guard let collector, !githubChecking else { return }
+        let roots = world.projects.filter { !$0.isChat }.map(\.root)
+        guard !roots.isEmpty else { return }
+        githubChecking = true
+        costQueue.async {
+            collector.github.update(roots: roots)
+            DispatchQueue.main.async { self.githubChecking = false }
         }
     }
 

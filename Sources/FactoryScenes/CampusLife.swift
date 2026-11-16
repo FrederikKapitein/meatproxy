@@ -90,7 +90,7 @@ extension CampusScene {
                 if !fresh.isEmpty { ride(s.storey.building, to: s.storey.index) }
             }
         } else {
-            for p in world.projects where p.factory != nil { life.delivered[p.id] = now }
+            for p in world.projects { life.delivered[p.id] = now }
         }
         life.helpers = Set(world.projects.flatMap { CampusSignals.helpers($0) })
         life.building = building

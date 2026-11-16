@@ -852,7 +852,8 @@ public final class CampusScene: WorldScene {
                 return (p.name, "Factory · \(f.autonomy?.level.rawValue ?? "assistant")" + (q > 0 ? " · \(q) question\(q == 1 ? "" : "s")" : ""))
             }
             let waiting = p.count(.waiting, now: w.now), working = p.count(.working, now: w.now)
-            return (p.name, "\(p.sessions.count) session\(p.sessions.count == 1 ? "" : "s")" + (working > 0 ? " · \(working) working" : "") + (waiting > 0 ? " · \(waiting) waiting" : ""))
+            let ci = p.github?.ciFailing == true ? " · CI failing" : ""
+            return (p.name, "\(p.sessions.count) session\(p.sessions.count == 1 ? "" : "s")" + (working > 0 ? " · \(working) working" : "") + (waiting > 0 ? " · \(waiting) waiting" : "") + ci)
         case .fountain:
             let n = w.needsYou.count
             return ("Needs you", n == 0 ? "nothing waits" : "\(n) waiting · N for the next")
