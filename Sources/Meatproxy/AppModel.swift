@@ -70,6 +70,9 @@ final class AppModel: ObservableObject {
     /// the cost ledger reads on its own queue: the first pass reads weeks of session files
     private let costQueue = DispatchQueue(label: "dev.tuinstra.meatproxy.costs", qos: .background)
     private var costing = false
+    /// Sentry and Tracker, every 15 minutes (D61)
+    private let wakeSources = WakeSources()
+    private var sourcesTimer: Timer?, sourcesChecking = false
     private var reading = false
     /// the settings file as last read or written by the app: a newer one was edited outside it
     private var settingsStamp: Date?
@@ -132,6 +135,12 @@ final class AppModel: ObservableObject {
             ciTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
                 Task { @MainActor in guard let self else { return }; self.heartbeats.checkCI(self.projectSettings) }
             }
+        }
+        if !fixture {
+            sourcesTimer = Timer.scheduledTimer(withTimeInterval: WakeSources.interval, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.checkSources() }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.checkSources() }
         }
         if !fixture {
             updateCosts()
@@ -217,6 +226,26 @@ final class AppModel: ObservableObject {
                 w.opsState = self.opsOrbitState(w.ops)
                 self.markLiveRuns(&w)
                 self.apply(w)
+            }
+        }
+    }
+
+    /// Asks each factory's Sentry and Tracker project what is new (D61), off the main queue, and wakes its CEO.
+    private func checkSources() {
+        guard !sourcesChecking else { return }
+        let factories: [(root: String, sources: FactorySources, heartbeat: Heartbeat, bugsAllowed: Bool)] = projectSettings.projects.filter(\.factory).compactMap { e in
+            guard let f = world.projects.first(where: { $0.root == e.root })?.factory, f.takesSources,
+                  f.sources.hasSentry || f.sources.tracker != nil else { return nil }
+            return (e.root, f.sources, e.heartbeat, (f.mandate?.mode(.bugs) ?? .ask) != .off)
+        }
+        guard !factories.isEmpty, !projectSettings.pauseAll else { return }
+        sourcesChecking = true
+        let sources = wakeSources
+        DispatchQueue.global(qos: .utility).async {
+            let wakes = sources.check(factories, tokens: (Secrets.get(.sentry), Secrets.get(.tracker)))
+            DispatchQueue.main.async {
+                self.sourcesChecking = false
+                for (root, reason) in wakes { self.heartbeats.wake(root, reason) }
             }
         }
     }

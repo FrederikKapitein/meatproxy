@@ -74,6 +74,8 @@ public final class HeartbeatCenter {
 
     /// this many CI wakes in a row trip the breaker: the factory waits for you
     public static let ciBreaker = 2
+    /// this many Sentry wakes in a row trip the same kind of breaker (D61)
+    public static let sentryBreaker = 3
 
     static func automaticToday(_ runs: [HeartbeatRun], now: Date, calendar cal: Calendar = .current) -> Int {
         runs.filter { cal.isDate($0.started, inSameDayAs: now) && $0.reason != .runNow }.count
@@ -120,6 +122,13 @@ public final class HeartbeatCenter {
             if case .ciFailed = reason, runs.suffix(Self.ciBreaker).count == Self.ciBreaker,
                runs.suffix(Self.ciBreaker).allSatisfy({ if case .ciFailed = $0.reason { return true }; return false }) {
                 runner.setHold(e.root, "Held: CI woke the CEO \(Self.ciBreaker) times in a row and still fails")
+                pending[e.root] = nil
+                continue
+            }
+            // the Sentry breaker: three Sentry wakes in a row and still new errors. It waits for you.
+            if case .sentry = reason, runs.suffix(Self.sentryBreaker).count == Self.sentryBreaker,
+               runs.suffix(Self.sentryBreaker).allSatisfy({ if case .sentry = $0.reason { return true }; return false }) {
+                runner.setHold(e.root, "Held: Sentry woke the CEO \(Self.sentryBreaker) times in a row and errors keep coming")
                 pending[e.root] = nil
                 continue
             }

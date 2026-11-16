@@ -94,6 +94,10 @@ private struct GeneralSettings: View {
                 SwitchRow("Heartbeat when closed", "A launch agent keeps the heartbeat going while Meatproxy is closed. Off: only while the app runs.",
                           isOn: Binding(get: { model.projectSettings.heartbeatWhenClosed }, set: { model.setHeartbeatWhenClosed($0) }))
             }
+            SettingsCard("Wake-up sources") {
+                TokenRow(key: .sentry, text: "A token with read access to issues (Sentry › Settings › Auth tokens). Factories name their project in contract.yml.")
+                TokenRow(key: .tracker, text: "A read token from Tracker › Account settings › MCP access. Kept in the Keychain, never in a file.")
+            }
             SettingsCard("Alerts") {
                 SwitchRow("Notifications on this Mac", "A server or site that goes down or warns, and comes back. Push to your phone comes with the iPhone app.",
                           isOn: Binding(get: { model.projectSettings.devops.notify }, set: { v in model.updateDevOps { $0.notify = v } }))
@@ -571,7 +575,7 @@ private struct ProjectPage: View {
                 }
             }
             if factory, let hb = e?.heartbeat {
-                HeartbeatCards(hb: hb, factoryWakes: true) { change in model.updateHeartbeat(root, change) }
+                HeartbeatCards(hb: hb, factoryWakes: true, factory: model.world.projects.first { $0.root == root }?.factory) { change in model.updateHeartbeat(root, change) }
                 HStack(spacing: 6) {
                     Eyebrow("Contract")
                     Text(contract.map { "meatproxy-factory v\($0)" } ?? "read when its floor is on the campus").font(.system(size: 12, design: .monospaced)).foregroundStyle(Color.muted)
@@ -586,6 +590,8 @@ private struct HeartbeatCards: View {
     let hb: Heartbeat
     /// a factory also wakes on your answers, ideas and a failed CI run
     let factoryWakes: Bool
+    /// the factory, for its wake-up sources (contract v4, D61)
+    var factory: Factory? = nil
     let update: (@escaping (inout Heartbeat) -> Void) -> Void
 
     private static let rhythms: [(Int, String)] = [(0, "At times"), (60, "Hourly"), (120, "Every 2 h"), (240, "Every 4 h")]
@@ -623,6 +629,17 @@ private struct HeartbeatCards: View {
                           isOn: Binding(get: { hb.wakeOnAnswer }, set: { v in update { $0.wakeOnAnswer = v } }))
                 SwitchRow("A failed CI run", "A new failed run on main, master or develop, read with your own gh.",
                           isOn: Binding(get: { hb.wakeOnCI }, set: { v in update { $0.wakeOnCI = v } }))
+                if let f = factory {
+                    let src = f.sources, v4 = f.takesSources
+                    SwitchRow("A new Sentry error", !v4 ? "Needs factory contract v4: the CEO names its Sentry project in factory/contract.yml."
+                              : src.hasSentry ? "New or returning errors (error, fatal) in \(src.sentryOrg!)/\(src.sentryProject!), every 15 minutes. Not when the mandate has bugs off."
+                              : "Name the project in factory/contract.yml: sentry: org/project.",
+                              isOn: Binding(get: { hb.wakeOnSentry }, set: { v in update { $0.wakeOnSentry = v } }), disabled: !v4 || !src.hasSentry)
+                    SwitchRow("A Tracker story", !v4 ? "Needs factory contract v4: the CEO names its Tracker project in factory/contract.yml."
+                              : src.tracker.map { "A story in \($0) that is rejected or ready to pick up, every 15 minutes." }
+                              ?? "Name the project in factory/contract.yml: tracker: <slug>.",
+                              isOn: Binding(get: { hb.wakeOnTracker }, set: { v in update { $0.wakeOnTracker = v } }), disabled: !v4 || src.tracker == nil)
+                }
             }
         }
         SettingsCard("Limits on automatic runs") {
@@ -788,6 +805,41 @@ private struct SettingsCard<C: View>: View {
 }
 
 /// A switch with its name and one line on what it does.
+/// A token for a wake-up source (D61): typed once, kept in the macOS Keychain, shown only as saved.
+private struct TokenRow: View {
+    @EnvironmentObject private var model: AppModel
+    let key: Secrets.Key
+    let text: String
+    @State private var saved = false
+    @State private var value = ""
+    @FocusState private var focused: Bool
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(key.label) token").font(.system(size: 13.5, weight: .semibold))
+                Text(text).font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            if saved {
+                Label("In the Keychain", systemImage: "checkmark.seal").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.done)
+                Button { if !model.fixture { Secrets.set(key, nil) }; saved = false } label: { Text("Remove") }.buttonStyle(SettingsButton())
+            } else {
+                SecureField("Paste token", text: $value).focused($focused).font(.system(size: 12, design: .monospaced))
+                    .textFieldStyle(.plain).padding(.horizontal, 10).padding(.vertical, 6).frame(width: 170).lifted(focused: focused)
+                    .onSubmit(save)
+                Button(action: save) { Text("Save") }.buttonStyle(SettingsButton()).disabled(value.isEmpty)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .onAppear { saved = !model.fixture && Secrets.get(key) != nil }
+    }
+    /// demo data saves nothing, also not in the Keychain
+    private func save() {
+        guard !value.isEmpty else { return }
+        saved = model.fixture ? true : Secrets.set(key, value); value = ""
+    }
+}
+
 private struct SwitchRow: View {
     let title: String, text: String
     @Binding var isOn: Bool

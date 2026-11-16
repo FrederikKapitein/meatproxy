@@ -9,11 +9,29 @@ import Foundation
 public enum FactoryContract {
     public static let name = "meatproxy-factory"
     /// the newest version this Meatproxy knows
-    public static let current = 3
+    public static let current = 4
     /// the first version with ideas (factory/ideas/)
     public static let ideas = 2
     /// the first version with your mandate (factory/mandate.yml), written by Meatproxy
     public static let mandate = 3
+    /// the first version with wake-up sources in contract.yml (Sentry, Tracker), D61
+    public static let sources = 4
+}
+
+/// Where a factory's bugs and stories come from (contract v4, D61): its Sentry project and its Tracker project. Meatproxy
+/// looks there every 15 minutes and wakes the CEO for a new error or a story that changed; the CEO reads the rest itself.
+public struct FactorySources: Sendable, Hashable {
+    /// "org/project" slugs
+    public var sentryOrg: String?
+    public var sentryProject: String?
+    /// the Sentry host the organization lives on: sentry.io, or a region such as de.sentry.io
+    public var sentryHost: String = "sentry.io"
+    /// the Tracker project's slug
+    public var tracker: String?
+    public init(sentryOrg: String? = nil, sentryProject: String? = nil, sentryHost: String = "sentry.io", tracker: String? = nil) {
+        self.sentryOrg = sentryOrg; self.sentryProject = sentryProject; self.sentryHost = sentryHost; self.tracker = tracker
+    }
+    public var hasSentry: Bool { sentryOrg != nil && sentryProject != nil }
 }
 
 public struct Factory: Sendable, Hashable {
@@ -32,6 +50,9 @@ public struct Factory: Sendable, Hashable {
     public var takesMandate: Bool { contractVersion >= FactoryContract.mandate }
     /// your mandate (factory/mandate.yml), when there is one
     public var mandate: FactoryMandate?
+    /// where its bugs and stories come from (contract.yml, v4)
+    public var sources = FactorySources()
+    public var takesSources: Bool { contractVersion >= FactoryContract.sources }
     /// it declares a contract this Meatproxy does not know yet
     public var newerContract: Bool { contractVersion > FactoryContract.current }
     /// files that could not be read, by name, so the HUD can say so instead of hiding them
@@ -237,7 +258,7 @@ public enum FactoryText {
                 f.mandate = FactoryMandate.parse(text)
             } else if path == "factory/contract.yml" {
                 f.contract = contract(text)
-                if f.contract == nil { f.problems.append(name) }
+                if f.contract == nil { f.problems.append(name) } else { f.sources = sources(text) }
             } else if path == "factory/autonomy.yml" {
                 f.autonomy = autonomy(text)
             }
@@ -412,6 +433,26 @@ public enum FactoryText {
         }
         guard name == FactoryContract.name else { return nil }
         return version
+    }
+
+    /// The wake-up sources in contract.yml (v4): `sentry: org/project`, `sentry-host: de.sentry.io`, `tracker: slug`.
+    /// A slug is letters, digits, dots, dashes and underscores; anything else is ignored.
+    public static func sources(_ text: String) -> FactorySources {
+        var s = FactorySources()
+        func slug(_ v: String) -> String? { v.range(of: #"^[A-Za-z0-9._-]{1,80}$"#, options: .regularExpression) != nil ? v : nil }
+        for line in text.components(separatedBy: "\n") {
+            guard let (k, v) = keyValue(line), v != "null", !v.isEmpty else { continue }
+            switch k {
+            case "sentry":
+                let parts = v.split(separator: "/").map(String.init)
+                if parts.count == 2, let o = slug(parts[0]), let p = slug(parts[1]) { s.sentryOrg = o; s.sentryProject = p }
+            case "sentry-host":
+                if v.range(of: #"^([a-z0-9-]+\.)*sentry\.io$"#, options: .regularExpression) != nil { s.sentryHost = v }
+            case "tracker": s.tracker = slug(v)
+            default: break
+            }
+        }
+        return s
     }
 
     public static func workstream(_ text: String) -> Workstream? {
