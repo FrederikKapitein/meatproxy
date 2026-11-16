@@ -96,10 +96,10 @@ public final class WakeSources: @unchecked Sendable {
 
     /// Stories that became rejected, or newly ready to pick up (unstarted), as "NTF-3 rejected: title".
     func tracker(_ root: String, slug: String, token: String) -> [String]? {
-        let mcp = MCPClient(url: URL(string: "https://tracker.tuinstra.dev/mcp/delivery")!, token: token, transport: transport)
+        let mcp = MCPClient(url: Self.trackerMCP, token: token, transport: transport)
         var now: [String: String] = [:], names: [String: String] = [:]
         for state in ["rejected", "unstarted"] {
-            guard let result = mcp.call("list_stories", ["project": slug, "state": state, "limit": 50]),
+            guard let result = try? mcp.call("list_stories", ["project": slug, "state": state, "limit": 50]).get(),
                   let items = result["items"] as? [[String: Any]] else { return nil }
             for s in items {
                 guard let key = s["key"] as? String else { continue }
@@ -120,7 +120,7 @@ public final class WakeSources: @unchecked Sendable {
         let named = projects.filter(\.hasSentry)
         if named.isEmpty {
             guard let (_, status, _) = transport(Self.request("https://sentry.io/api/0/", token: token)) else { return (false, "Sentry did not answer") }
-            return status == 200 ? (true, "Token accepted. No factory names a Sentry project yet.") : (false, Self.reason(status))
+            return status == 200 ? (true, "Token accepted. No factory names a Sentry project yet.") : (false, "Sentry: " + Self.reason(status))
         }
         var ok: [String] = []
         for s in named {
@@ -136,15 +136,23 @@ public final class WakeSources: @unchecked Sendable {
 
     /// Whether a Tracker token works: one small read of each project the factories name, or a hello when none does.
     public func testTracker(token: String, slugs: [String]) -> (ok: Bool, line: String) {
-        let mcp = MCPClient(url: URL(string: "https://tracker.tuinstra.dev/mcp/delivery")!, token: token, transport: transport)
+        let mcp = MCPClient(url: Self.trackerMCP, token: token, transport: transport)
         if slugs.isEmpty {
-            return mcp.hello() ? (true, "Token accepted. No factory names a Tracker project yet.") : (false, "Tracker refused the token or did not answer")
+            if case .failure(let e) = mcp.hello() { return (false, e.line) }
+            return (true, "Token accepted. No factory names a Tracker project yet.")
         }
-        for slug in slugs where mcp.call("list_stories", ["project": slug, "limit": 1]) == nil {
-            return (false, "Could not read the Tracker project \(slug)")
+        for slug in slugs {
+            switch mcp.call("list_stories", ["project": slug, "limit": 1]) {
+            case .success: continue
+            case .failure(.refused(let why)): return (false, "\(slug): \(why)")
+            case .failure(let e): return (false, e.line)
+            }
         }
         return (true, "Works: reads " + slugs.joined(separator: ", "))
     }
+
+    /// Tracker's MCP endpoint: the address Claude Code's own tracker server uses.
+    static let trackerMCP = URL(string: "https://tracker.tuinstra.dev/mcp")!
 
     static func request(_ url: String, token: String) -> URLRequest {
         var r = URLRequest(url: URL(string: url)!, timeoutInterval: 15)
@@ -156,7 +164,7 @@ public final class WakeSources: @unchecked Sendable {
         case 401: return "the token was refused (401)"
         case 403: return "the token may not read this (403)"
         case 404: return "not found, or the token cannot see it (404)"
-        default: return "Sentry answered \(status)"
+        default: return "answered \(status)"
         }
     }
 
@@ -177,13 +185,25 @@ public final class WakeSources: @unchecked Sendable {
     }
 }
 
+/// Why an MCP exchange failed, in words for the Settings test line.
+enum MCPError: Error, Equatable {
+    case noAnswer, status(Int), refused(String)
+    var line: String {
+        switch self {
+        case .noAnswer: return "Tracker did not answer"
+        case .status(let s): return "Tracker: " + WakeSources.reason(s)
+        case .refused(let why): return "Tracker: " + why
+        }
+    }
+}
+
 /// A small MCP client over streamable HTTP: initialize, then one tool call; reads a JSON or an event-stream answer.
 struct MCPClient {
     let url: URL
     let token: String
     let transport: HTTPTransport
 
-    private func post(_ body: [String: Any], session: String?) -> (Any?, [String: String])? {
+    private func post(_ body: [String: Any], session: String?) -> Result<(Any?, [String: String]), MCPError> {
         var r = URLRequest(url: url, timeoutInterval: 20)
         r.httpMethod = "POST"
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -192,8 +212,9 @@ struct MCPClient {
         r.setValue("2025-06-18", forHTTPHeaderField: "MCP-Protocol-Version")
         if let session { r.setValue(session, forHTTPHeaderField: "Mcp-Session-Id") }
         r.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        guard let (data, status, headers) = transport(r), (200..<300).contains(status) else { return nil }
-        return (Self.message(data), headers)
+        guard let (data, status, headers) = transport(r) else { return .failure(.noAnswer) }
+        guard (200..<300).contains(status) else { return .failure(.status(status)) }
+        return .success((Self.message(data), headers))
     }
 
     /// The JSON-RPC message in an answer: the body itself, or the last `data:` line of an event stream.
@@ -206,29 +227,47 @@ struct MCPClient {
         return nil
     }
 
-    /// Says hello (initialize): true when the server takes the token.
-    func hello() -> Bool {
-        let hello: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "initialize",
-                                    "params": ["protocolVersion": "2025-06-18", "capabilities": [String: Any](),
-                                               "clientInfo": ["name": "meatproxy", "version": "1"]]]
-        guard let (reply, _) = post(hello, session: nil) else { return false }
-        return (reply as? [String: Any])?["result"] != nil
+    private static let initialize: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                                    "params": ["protocolVersion": "2025-06-18", "capabilities": [String: Any](),
+                                                               "clientInfo": ["name": "meatproxy", "version": "1"]]]
+
+    /// The text of a JSON-RPC error or a tool's error block, short.
+    private static func why(_ reply: Any?) -> String {
+        let o = reply as? [String: Any]
+        if let m = (o?["error"] as? [String: Any])?["message"] as? String { return String(m.prefix(140)) }
+        let blocks = (o?["result"] as? [String: Any])?["content"] as? [[String: Any]]
+        if let t = blocks?.first(where: { $0["type"] as? String == "text" })?["text"] as? String { return String(t.prefix(140)) }
+        return "the server gave no answer it could use"
+    }
+
+    /// Says hello (initialize): succeeds when the server takes the token.
+    func hello() -> Result<Void, MCPError> {
+        post(Self.initialize, session: nil).flatMap { reply, _ in
+            (reply as? [String: Any])?["result"] != nil ? .success(()) : .failure(.refused(Self.why(reply)))
+        }
     }
 
     /// Calls a tool and returns its result as JSON: the structured content, or the JSON in its first text block.
-    func call(_ tool: String, _ arguments: [String: Any]) -> [String: Any]? {
-        let hello: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "initialize",
-                                    "params": ["protocolVersion": "2025-06-18", "capabilities": [String: Any](),
-                                               "clientInfo": ["name": "meatproxy", "version": "1"]]]
-        guard let (_, headers) = post(hello, session: nil) else { return nil }
-        let session = headers["mcp-session-id"]
-        _ = post(["jsonrpc": "2.0", "method": "notifications/initialized"], session: session)
-        guard let (reply, _) = post(["jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": ["name": tool, "arguments": arguments]], session: session),
-              let result = (reply as? [String: Any])?["result"] as? [String: Any], result["isError"] as? Bool != true else { return nil }
-        if let s = result["structuredContent"] as? [String: Any] { return s }
-        if let text = ((result["content"] as? [[String: Any]])?.first { $0["type"] as? String == "text" })?["text"] as? String {
-            return (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
+    func call(_ tool: String, _ arguments: [String: Any]) -> Result<[String: Any], MCPError> {
+        let session: String?
+        switch post(Self.initialize, session: nil) {
+        case .failure(let e): return .failure(e)
+        case .success(let (_, headers)): session = headers["mcp-session-id"]
         }
-        return nil
+        _ = post(["jsonrpc": "2.0", "method": "notifications/initialized"], session: session)
+        let reply: Any?
+        switch post(["jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": ["name": tool, "arguments": arguments]], session: session) {
+        case .failure(let e): return .failure(e)
+        case .success(let (r, _)): reply = r
+        }
+        guard let result = (reply as? [String: Any])?["result"] as? [String: Any], result["isError"] as? Bool != true else {
+            return .failure(.refused(Self.why(reply)))
+        }
+        if let s = result["structuredContent"] as? [String: Any] { return .success(s) }
+        if let text = ((result["content"] as? [[String: Any]])?.first { $0["type"] as? String == "text" })?["text"] as? String,
+           let o = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
+            return .success(o)
+        }
+        return .failure(.refused("the answer was not JSON"))
     }
 }

@@ -148,6 +148,30 @@ import FactoryCore
         let refused = WakeSources { _ in (Data(), 401, [:]) }
         #expect(!refused.testTracker(token: "x", slugs: []).ok && !refused.testTracker(token: "x", slugs: ["pebble"]).ok)
     }
+
+    /// The Tracker MCP lives at /mcp (what Claude Code uses); /mcp/delivery answers 405.
+    @Test func trackerTalksToItsMCPEndpoint() {
+        let seen = TestLog()
+        let ws = WakeSources { r in seen.add(r.url!.absoluteString); return (Data(), 401, [:]) }
+        _ = ws.testTracker(token: "x", slugs: [])
+        #expect(seen.items == ["https://tracker.tuinstra.dev/mcp"])
+    }
+
+    @Test func trackerSaysWhyItFailed() {
+        #expect(WakeSources { _ in (Data(), 401, [:]) }.testTracker(token: "x", slugs: []) == (false, "Tracker: the token was refused (401)"))
+        #expect(WakeSources { _ in (Data(), 405, [:]) }.testTracker(token: "x", slugs: ["pebble"]) == (false, "Tracker: answered 405"))
+        #expect(WakeSources { _ in nil }.testTracker(token: "x", slugs: []) == (false, "Tracker did not answer"))
+        // the server takes the token but the tool refuses: say what it said
+        let unknown = WakeSources { r in
+            let body = String(decoding: r.httpBody ?? Data(), as: UTF8.self)
+            if body.contains("initialize") { return (Data(#"{"jsonrpc":"2.0","id":1,"result":{}}"#.utf8), 200, [:]) }
+            if body.contains("list_stories") {
+                return (Data(#"{"jsonrpc":"2.0","id":2,"result":{"isError":true,"content":[{"type":"text","text":"Project not found: pebble"}]}}"#.utf8), 200, [:])
+            }
+            return (Data(), 202, [:])
+        }
+        #expect(unknown.testTracker(token: "x", slugs: ["pebble"]) == (false, "pebble: Project not found: pebble"))
+    }
 }
 
 final class TestLog: @unchecked Sendable {
