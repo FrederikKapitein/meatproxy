@@ -632,7 +632,14 @@ private struct HeartbeatCards: View {
                     update { $0.cooldownMinutes = m }
                 }
             }
-            Text("A run is one wake of the CEO: its heartbeat, your answers or ideas, a failed CI run. One run can handle several stories or bugs. Run now is yours and does not count.")
+            ChoiceRow("API price per day") {
+                // D61: a cap on what the factory's work costs today at API list prices; 0 means no cap
+                LiftedSegments(items: [0, 5, 20, 50].map { .init(id: $0, title: $0 == 0 ? "No cap" : "$\($0)") },
+                               selected: Int(hb.maxCostPerDay ?? 0), fontSize: 11.5, padding: segInset) { v in
+                    update { $0.maxCostPerDay = v == 0 ? nil : Double(v) }
+                }
+            }
+            Text("A run is one wake of the CEO: its heartbeat, your answers or ideas, a failed CI run. One run can handle several stories or bugs. Run now is yours and does not count. The API price is what this floor's sessions would have cost at list prices today, also under a subscription.")
                 .font(.system(size: 11.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 14).padding(.bottom, 12)
         }
     }

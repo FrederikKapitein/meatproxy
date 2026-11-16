@@ -186,6 +186,25 @@ struct HeartbeatGuardTests {
     }
     private let ok: HeartbeatRunner.Resolve = { _ in HeartbeatRunner.Launch(executable: URL(fileURLWithPath: "/usr/bin/true"), arguments: []) }
 
+    @Test func costCapHoldsAutomaticRunsButNotRunNow() throws {
+        let p = try tempDir()
+        let center = HeartbeatCenter(runner: HeartbeatRunner(folder: try tempDir(), resolve: ok))
+        var hb = Heartbeat(paused: false); hb.maxCostPerDay = 5
+        let s = ProjectSettings(projects: [.init(root: p.path, factory: true, heartbeat: hb)])
+        center.costToday = { _ in 6.5 }
+        let t0 = Date()
+        center.wake(p.path, .ciFailed(repo: "app", run: "1"), now: t0)
+        #expect(center.tick(s, now: t0).isEmpty)
+        #expect(center.state(p.path, heartbeat: hb, now: t0).blocked == .costCap(spent: 6.5, cap: 5))
+        // under the cap it runs
+        center.costToday = { _ in 1 }
+        #expect(center.tick(s, now: t0) == [p.path]); center.runner.wait(p.path)
+        // no cap set: never held for cost
+        center.costToday = { _ in 1000 }
+        var free = hb; free.maxCostPerDay = nil
+        #expect(center.state(p.path, heartbeat: free, now: t0.addingTimeInterval(3 * 3600)).blocked == nil)
+    }
+
     @Test func cooldownDailyCapAndRunNow() throws {
         let p = try tempDir()
         let center = HeartbeatCenter(runner: HeartbeatRunner(folder: try tempDir(), resolve: ok))
