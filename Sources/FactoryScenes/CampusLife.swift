@@ -24,6 +24,9 @@ struct CampusLife {
     var streamAcc = 0.0
     /// a deploy's packets run on the ground, under everything that stands
     let ground = SKNode()
+    /// the alarm lights on broken storeys (D75): their rotating beams and lenses, turned every frame
+    var alarms: [AlarmLight] = []
+    var alarmAngle = 0.0
     /// what has been seen, so only what is new plays: deliveries and helpers
     var primed = false
     var delivered: [String: Date] = [:]
@@ -37,9 +40,11 @@ struct CampusLife {
     var layerLamps: [(node: SKNode, glow: SKNode, state: ServiceStatus.State)] = []
 
     struct Lift { var z: CGFloat = 0, target: CGFloat = 0, hold = 0.0, queue: [Int] = [] }
+    /// A rotating alarm light: where its lens sits (art units), its two beams, the lens faces that flare, a glow.
+    struct AlarmLight { var lens: CGPoint; var beams: [SKShapeNode]; var faces: [SKShapeNode]; var glow: SKSpriteNode; var phase: Double }
 
     /// The campus was drawn anew: what hung on it is gone, the moments in the air and the rides stay.
-    mutating func reset() { nodes = []; sig = ""; shafts = [:]; cars = [:]; ground.removeAllChildren(); layerNodes = []; layerLamps = []; hotspots = [] }
+    mutating func reset() { nodes = []; sig = ""; shafts = [:]; cars = [:]; alarms = []; ground.removeAllChildren(); layerNodes = []; layerLamps = []; hotspots = [] }
 }
 
 extension CampusScene {
@@ -120,14 +125,14 @@ extension CampusScene {
         let keep = Set(life.layerNodes.map(ObjectIdentifier.init))
         life.hotspots.removeAll { h in h.node.parent == nil || (!keep.contains(ObjectIdentifier(h.node)) && h.node.name != "moment") }
         let w = shownWorld
-        // 5B: a red alarm light where a storey meets its plaque, blinking while the project is broken
-        for (st, id) in storeys {
-            guard let why = alarms[id], let host = layer(st.building, storey: st.index),
-                  let rects = art?.plaques[st.building], st.index < rects.count else { continue }
-            let r = rects[st.index]
-            let a = alarmLight(at: CGPoint(x: r.minX - 1, y: r.midY))
-            host.addChild(a); life.nodes.append(a)
-            explain(a, ("Alarm · \(w.project(id: id)?.name ?? "a project")", why))
+        // 5B: a rotating red alarm light on the front corner of a broken storey, on a bracket out of the wall
+        life.alarms = []
+        for (k, (st, id)) in storeys.enumerated() {
+            guard let why = alarms[id], let host = layer(st.building, storey: st.index), let mount = Self.frontCorner(st) else { continue }
+            let (fixture, beams, light) = alarmLight(at: mount, phase: Double(k) * 1.3)
+            host.addChild(beams); host.addChild(fixture); life.nodes.append(contentsOf: [beams, fixture])
+            life.alarms.append(light)
+            explain(fixture, ("Alarm · \(w.project(id: id)?.name ?? "a project")", why))
         }
         // 5E: a glass lift on each tower, its car parked below
         for (key, st) in stacks {
@@ -157,26 +162,83 @@ extension CampusScene {
         return nil
     }
 
-    /// A red alarm light: a dark base, a red lamp that blinks and a glow that pulses (steady when motion is reduced).
-    private func alarmLight(at c: CGPoint) -> SKNode {
-        let n = SKNode(); n.zPosition = 1.35
-        let red = SKColor(red: 0.93, green: 0.16, blue: 0.14, alpha: 1), dim = SKColor(red: 0.55, green: 0.08, blue: 0.08, alpha: 1)
-        let glowNode = glow(c, size: CGSize(width: 56, height: 56), color: red); glowNode.zPosition = -0.05
-        let base = SKShapeNode(rectOf: CGSize(width: 14 * px, height: 4 * px))
-        base.fillColor = Self.ink; base.strokeColor = Self.ink; base.position = scenePoint(CGPoint(x: c.x, y: c.y + 7))
-        let lamp = SKShapeNode(rectOf: CGSize(width: 11 * px, height: 11 * px))
-        lamp.fillColor = red; lamp.strokeColor = Self.ink; lamp.lineWidth = 1 * px; lamp.position = scenePoint(c)
-        let shine = SKShapeNode(rectOf: CGSize(width: 3.5 * px, height: 3.5 * px))
-        shine.fillColor = SKColor(white: 1, alpha: 0.8); shine.strokeColor = .clear; shine.position = CGPoint(x: -2.2 * px, y: 2.2 * px)
-        lamp.addChild(shine)
-        n.addChild(glowNode); n.addChild(base); n.addChild(lamp)
+    /// Where a storey's two front faces meet, a little above its middle (art units): the alarm light's bracket.
+    static func frontCorner(_ st: CampusArt.Storey) -> CGPoint? {
+        guard st.faces.count == 2 else { return nil }
+        let shared = st.faces[0].filter { p in st.faces[1].contains { hypot(p.x - $0.x, p.y - $0.y) < 0.6 } }
+        guard shared.count >= 2, let top = shared.min(by: { $0.y < $1.y }), let bottom = shared.max(by: { $0.y < $1.y }) else { return nil }
+        return CGPoint(x: top.x, y: bottom.y + (top.y - bottom.y) * 0.58)
+    }
+
+    /// A point `di`, `dj` tiles and `dz` model units from `o`, in art units (the campus's own projection).
+    private static func iso(_ o: CGPoint, _ di: CGFloat, _ dj: CGFloat, _ dz: CGFloat) -> CGPoint {
+        CGPoint(x: o.x + (di - dj) * 16, y: o.y + (di + dj) * 8 - dz * 1.08)
+    }
+
+    /// An iso box round `o` (half a side `h` tiles, from `z0` to `z1` model units): its two visible sides and its top.
+    private func isoBox(_ o: CGPoint, h: CGFloat, z0: CGFloat, z1: CGFloat, top: SKColor, left: SKColor, right: SKColor) -> [SKShapeNode] {
+        let P = Self.iso
+        let l = shape([P(o, -h, h, z0), P(o, h, h, z0), P(o, h, h, z1), P(o, -h, h, z1)], fill: left, stroke: Self.ink, width: 0.5 * px)
+        let r = shape([P(o, h, h, z0), P(o, h, -h, z0), P(o, h, -h, z1), P(o, h, h, z1)], fill: right, stroke: Self.ink, width: 0.5 * px)
+        let t = shape([P(o, -h, -h, z1), P(o, h, -h, z1), P(o, h, h, z1), P(o, -h, h, z1)], fill: top, stroke: Self.ink, width: 0.5 * px)
+        return [l, r, t]
+    }
+
+    static let alarmRed = SKColor(red: 0.95, green: 0.18, blue: 0.15, alpha: 1)
+
+    /// A rotating alarm light on a bracket out of the storey's corner: a steel bracket, a dark base, a red lens and a
+    /// cap, with two beams that sweep round it over the ground plane (turned in `tickLife`); the lens flares when a
+    /// beam points at you. With reduced motion it is a steady red light.
+    private func alarmLight(at corner: CGPoint, phase: Double) -> (SKNode, SKNode, CampusLife.AlarmLight) {
+        let P = Self.iso
+        let steel = SKColor(red: 0.32, green: 0.34, blue: 0.4, alpha: 1), dark = SKColor(red: 0.13, green: 0.13, blue: 0.16, alpha: 1)
+        let out = P(corner, 0.2, 0.2, 0)                     // the light stands a little out from the wall, towards you
+        let fixture = SKNode(); fixture.zPosition = 1.35
+        // the bracket: a flat arm from the wall to under the base
+        for n in isoBox(P(corner, 0.1, 0.1, 0), h: 0.1, z0: -1.2, z1: 0, top: steel, left: steel.withBrightness(0.8), right: steel.withBrightness(0.62)) { fixture.addChild(n) }
+        for n in isoBox(out, h: 0.1, z0: 0, z1: 1.6, top: dark, left: dark, right: dark.withBrightness(0.8)) { fixture.addChild(n) }
+        let red = Self.alarmRed
+        let lens = isoBox(out, h: 0.075, z0: 1.6, z1: 6.2, top: red.withBrightness(1.05), left: red.withBrightness(0.82), right: red.withBrightness(0.62))
+        for n in lens { fixture.addChild(n) }
+        for n in isoBox(out, h: 0.095, z0: 6.2, z1: 7.2, top: dark.withBrightness(1.4), left: dark, right: dark.withBrightness(0.8)) { fixture.addChild(n) }
+        // a highlight on the lens's left face
+        fixture.addChild(shape([P(out, -0.05, 0.075, 3.4), P(out, -0.02, 0.075, 3.4), P(out, -0.02, 0.075, 5.6), P(out, -0.05, 0.075, 5.6)],
+                               fill: SKColor(white: 1, alpha: 0.55)))
+        let center = P(out, 0, 0, 3.9)
+        let g = glow(center, size: CGSize(width: 34, height: 34), color: red); g.zPosition = 0.05; fixture.addChild(g)
+        // the beams: drawn under the fixture, added to on screen, pointed every frame
+        let beamsNode = SKNode(); beamsNode.zPosition = 1.3
+        var beams: [SKShapeNode] = []
         if animationsEnabled {
-            let blink = SKAction.repeatForever(.sequence([
-                .run { lamp.fillColor = red }, .wait(forDuration: 0.45), .run { lamp.fillColor = dim }, .wait(forDuration: 0.35)]))
-            lamp.run(blink)
-            glowNode.run(.repeatForever(.sequence([.fadeAlpha(to: 1, duration: 0.4), .fadeAlpha(to: 0.45, duration: 0.4)])))
+            for _ in 0..<2 {
+                let b = SKShapeNode(); b.fillColor = red.withAlphaComponent(0.32); b.strokeColor = .clear; b.blendMode = .add
+                beamsNode.addChild(b); beams.append(b)
+            }
         }
-        return n
+        let light = CampusLife.AlarmLight(lens: center, beams: beams, faces: Array(lens.prefix(2)), glow: g, phase: phase)
+        pointAlarm(light, angle: phase)
+        return (fixture, beamsNode, light)
+    }
+
+    /// Turns an alarm light's beams to `angle` (radians, in the ground plane) and flares its lens towards you.
+    private func pointAlarm(_ a: CampusLife.AlarmLight, angle: Double) {
+        let P = Self.iso, reach: CGFloat = 1.9, spread = 0.22
+        for (k, b) in a.beams.enumerated() {
+            let t = angle + Double(k) * .pi
+            let p1 = P(a.lens, reach * CGFloat(cos(t - spread)), reach * CGFloat(sin(t - spread)), 0)
+            let p2 = P(a.lens, reach * CGFloat(cos(t + spread)), reach * CGFloat(sin(t + spread)), 0)
+            let path = CGMutablePath(); path.addLines(between: [a.lens, p1, p2].map(scenePoint)); path.closeSubpath()
+            b.path = path
+            // a beam into the wall is hidden by it: it fades out as it turns away from the street
+            let out = cos(t - .pi / 4), fade = min(1, max(0, (out - 0.15) / 0.45))
+            b.alpha = CGFloat(fade)
+        }
+        // towards you is +i +j (down the screen): a beam there lights the lens and the glow
+        let toYou = a.beams.isEmpty ? 1 : (0..<2).map { max(0, cos(angle + Double($0) * .pi - .pi / 4)) }.max() ?? 0
+        let f = CGFloat(0.55 + 0.45 * toYou)
+        a.faces.enumerated().forEach { k, n in n.fillColor = Self.alarmRed.withBrightness((k == 0 ? 0.82 : 0.62) * (0.7 + 0.5 * f)) }
+        a.glow.alpha = 0.35 + 0.65 * f
+        a.glow.setScale(0.8 + 0.5 * f)
     }
 
     /// A glass lift up the left end of a tower's front, from the plinth to the roof, with its car (named "car").
@@ -292,6 +354,11 @@ extension CampusScene {
         life.shade?.size = full; life.shade?.alpha = (1 - life.daylight) * 0.3
         content.childNode(withName: "lamplight")?.alpha = 0.3 + 0.65 * (1 - life.daylight)
         animateLayer(clock)
+        // 5B: the alarm lights turn (about a turn every two seconds)
+        if animationsEnabled, !life.alarms.isEmpty {
+            life.alarmAngle += dt * 3.1
+            for a in life.alarms { pointAlarm(a, angle: life.alarmAngle + a.phase) }
+        }
         // 5E: the lifts
         for (key, var l) in life.lifts {
             if l.hold > 0 { l.hold -= dt; if l.hold <= 0 { l.target = 0 } }
@@ -319,5 +386,14 @@ extension CampusScene {
             life.ground.addChild(packet)
             packet.run(.sequence([.follow(path, asOffset: false, orientToPath: false, duration: Double(length) / 70), .fadeOut(withDuration: 0.2), .removeFromParent()]))
         }
+    }
+}
+
+extension SKColor {
+    /// The same colour, its RGB scaled by `f` (shading the faces of a box).
+    func withBrightness(_ f: CGFloat) -> SKColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        (usingColorSpace(.deviceRGB) ?? self).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return SKColor(red: min(1, r * f), green: min(1, g * f), blue: min(1, b * f), alpha: a)
     }
 }
