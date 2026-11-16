@@ -522,7 +522,13 @@ private struct InspectorPanel: View {
                 Button { model.controller.enterFloor(p.id) } label: {
                     HStack(spacing: 10) {
                         Text("\(k + 1)").font(.system(size: 11, weight: .bold).monospacedDigit()).foregroundStyle(Color.muted).frame(width: 16)
-                        Text(p.name).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(p.name).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
+                            // a factory says how its CEO stands, so a CEO that does not wake is seen from the building
+                            if p.factory != nil, let line = model.factoryLine(p) {
+                                Text(line.text).font(.system(size: 11)).foregroundStyle(line.warn ? Color.warn : Color.muted).lineLimit(1)
+                            }
+                        }
                         Spacer()
                         HStack(spacing: 3) { ForEach(p.sessions.prefix(8)) { Rectangle().fill(Color.state($0.state(now: model.world.now))).frame(width: 6, height: 6) } }
                             .help("One per session, coloured by what it is doing")

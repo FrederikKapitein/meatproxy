@@ -132,6 +132,14 @@ final class AppModel: ObservableObject {
         // a notification opens its server (a site's alert opens the server that serves it)
         alerts.onOpen = { [weak self] key in
             guard let self else { return }
+            // a factory's notification (a failed run, a source that stopped) opens its floor at the CEO tab
+            for prefix in ["ceo:", "source:"] where key.hasPrefix(prefix) {
+                let root = String(key.dropFirst(prefix.count)).components(separatedBy: ":").first ?? ""
+                if let p = self.world.projects.first(where: { $0.root == root }) {
+                    self.settingsOpen = false; self.factoryTabs[p.id] = .ceo; self.controller.enterFloor(p.id)
+                }
+                return
+            }
             let id = self.serverConfigs.first(where: { $0.id == key || $0.siteURLs.contains(key) })?.id
             if let id { self.settingsOpen = false; self.controller.select(server: id) }
         }
@@ -777,6 +785,19 @@ final class AppModel: ObservableObject {
         catch { status = "Could not write the allowlist: \(error.localizedDescription)" }
     }
 
+    /// A factory's one line on a building's floor list: not set up, its CEO running, held or blocked (amber), the last
+    /// run failed (amber), or when it beats next.
+    func factoryLine(_ p: Project) -> (text: String, warn: Bool)? {
+        guard p.factory != nil else { return nil }
+        if !isSetUp(p.root) { return ("Factory · not set up yet", true) }
+        guard let hb = heartbeat(p) else { return nil }
+        if hb.running { return ("CEO at work", false) }
+        if let b = hb.blocked { return (b.text, b.waitsForYou || b == .notSetUp) }
+        if let last = hb.last, last.outcome == .failed || last.outcome == .timedOut { return ("Last CEO run failed", true) }
+        if let n = hb.next { return ("Next beat " + HeartbeatCard.when(n), false) }
+        return ("Heartbeat paused: Run now only", false)
+    }
+
     func runNow(_ project: Project) { runNow(root: project.root) }
     func runNow(root: String) {
         heartbeats.wake(root, .runNow)
@@ -787,7 +808,18 @@ final class AppModel: ObservableObject {
     func beat() {
         if projectSettings.devops.enabled, heartbeats.state(EngineRoom.folder.path, heartbeat: projectSettings.devops.heartbeat).next != nil { prepareEngineRoomIfStale() }
         let names = Dictionary(world.projects.map { ($0.root, $0.name) }, uniquingKeysWith: { a, _ in a })
-        heartbeats.tick(projectSettings, names: names) { [weak self] _, _ in Task { @MainActor in self?.refresh() } }
+        heartbeats.tick(projectSettings, names: names) { [weak self] root, run in
+            Task { @MainActor in
+                guard let self else { return }
+                self.refresh()
+                // a CEO run that failed says so, naming the factory; the notification opens its CEO tab
+                if run.outcome == .failed || run.outcome == .timedOut, root != EngineRoom.folder.path {
+                    let name = names[root] ?? (root as NSString).lastPathComponent
+                    self.alerts.post(title: "\(name): the CEO run \(run.outcome == .timedOut ? "timed out" : "failed")",
+                                     body: (run.detail ?? "See the log") + ". Its CEO tab has the log.", key: "ceo:\(root)", kind: .warn)
+                }
+            }
+        }
         objectWillChange.send()
     }
 
