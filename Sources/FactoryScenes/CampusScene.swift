@@ -1,7 +1,7 @@
 import SpriteKit
 import FactoryCore
 
-/// The campus (D22, D33) in blocky: a floating island with a tower per provider (a storey per project), the Engine room,
+/// The campus (D22, D33) in blocky: a floating island with a tower per provider (a storey per project), the Server room,
 /// the fountain that counts what waits for you, and people walking the roads. Every object is its own sprite, sorted by
 /// depth. Level: All → Provider (a building) → into a storey, which opens the floor.
 public final class CampusScene: WorldScene {
@@ -9,7 +9,7 @@ public final class CampusScene: WorldScene {
     var onEnterFloor: ((String) -> Void)?       // project id
     var onNext: (() -> Void)?
     var onSelectSession: ((String) -> Void)?    // a walker: their floor, with them selected
-    var onSelectServer: ((Int) -> Void)?        // a rack in the Engine room: the server in that slot (rack order)
+    var onSelectServer: ((Int) -> Void)?        // a rack in the Server room: the server in that slot (rack order)
     /// what the pointer is on, as a title and a line, and where (view points from the top left); nil when nothing
     var onHoverTitle: ((HoverTitle?) -> Void)?
     private var shownWorld: World = .empty
@@ -96,7 +96,7 @@ public final class CampusScene: WorldScene {
             }
         }
         if let l = place(art.light, z: 3000, blend: .screen) { l.alpha = 0.9; content.addChild(l) }
-        // each sign just in front of what it hangs on (a building's roof sign and plaques, the Engine room's board, the
+        // each sign just in front of what it hangs on (a building's roof sign and plaques, the Server room's board, the
         // plot's board, the fountain's count): people in front of a building pass in front of its plaques too
         for sg in art.signs {
             let parts = sg.id.split(separator: ":").map(String.init)
@@ -183,7 +183,7 @@ public final class CampusScene: WorldScene {
         content.addChild(g); fountainGlow = g
     }
 
-    /// The Engine room's racks (D26): rack c is server c in rack order (problems first). The top LED says the state, the
+    /// The Server room's racks (D26): rack c is server c in rack order (problems first). The top LED says the state, the
     /// bottom one blinks with activity; a warning or a server down also lights the beacon on the roof. Nothing
     /// connected: every lens dark (the chip on the roof sign says "not connected").
     private func addEngineLights(_ world: World) {
@@ -699,7 +699,9 @@ public final class CampusScene: WorldScene {
         let titled = cam.hasActions() ? nil : p.flatMap(target(at:))
         if let titled, let p, let v = view, let words = title(for: titled) {
             let q = convertPoint(toView: p)
-            onHoverTitle?(HoverTitle(title: words.0, line: words.1, at: CGPoint(x: q.x, y: v.bounds.height - q.y)))
+            var left = false
+            switch titled { case .storey, .building: left = true; default: break }
+            onHoverTitle?(HoverTitle(title: words.0, line: words.1, at: CGPoint(x: q.x, y: v.bounds.height - q.y), left: left))
         } else { onHoverTitle?(nil) }
         guard t != hoverTarget else { return }
         let had = hoverTarget != nil
@@ -799,7 +801,7 @@ public final class CampusScene: WorldScene {
         case .building(let key):
             if key == "engine" {
                 let m = w.serverSummary
-                return ("Engine room", m.connected ? "\(w.servers.count) server\(w.servers.count == 1 ? "" : "s") · \(m.down) down · \(m.warn) warning" : "no servers connected")
+                return ("Server room", m.connected ? "\(w.servers.count) server\(w.servers.count == 1 ? "" : "s") · \(m.down) down · \(m.warn) warning" : "no servers connected")
             }
             guard let p = Provider(rawValue: key), let b = w.building(p) else { return nil }
             let waiting = b.projects.filter { $0.waits(now: w.now) }.count
@@ -825,7 +827,7 @@ public final class CampusScene: WorldScene {
         }
     }
 
-    // MARK: the Engine room's slots
+    // MARK: the Server room's slots
 
     /// The art's projection (blocky-cast.js projWith, S = 1, T = 16): tile i, j and height z to art units.
     static func artP(_ i: CGFloat, _ j: CGFloat, _ z: CGFloat) -> CGPoint { CGPoint(x: (i - j) * 16, y: (i + j) * 8 - z * 1.08) }
@@ -838,7 +840,7 @@ public final class CampusScene: WorldScene {
     /// One pulled-out rack unit: its box faces, the dark opening it leaves, the details on its front, its tag.
     private struct Slot { var rack: Int; var node: SKNode; var faces: [SKShapeNode]; var front: [SKShapeNode]; var tag: SKNode }
 
-    /// Pulls a server's whole rack unit out of the Engine room (D52): the full-height unit slides towards you on its
+    /// Pulls a server's whole rack unit out of the Server room (D52): the full-height unit slides towards you on its
     /// runners, leaving a dark opening, with its state light and vents on the front and its name on a tag above.
     /// nil slides the open one back in.
     public func showSlot(_ c: Int?, name: String = "", state: String = "ok", animated: Bool = true) {
@@ -932,4 +934,6 @@ public final class CampusScene: WorldScene {
 /// What a hover is on, for the HUD's tooltip: a title, one line, and where the pointer is (view points, top left).
 public struct HoverTitle: Equatable, Sendable {
     public var title: String, line: String, at: CGPoint
+    /// left of the pointer: over a tower, whose plaques hang to the right and must stay readable
+    public var left = false
 }

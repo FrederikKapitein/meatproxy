@@ -3,7 +3,7 @@ import Testing
 import FactoryCore
 @testable import FactoryCollector
 
-/// The Engine room's live source: servers checked over SSH, never with a password, read-only.
+/// The Server room's live source: servers checked over SSH, never with a password, read-only.
 struct ServerProbeTests {
     private let web = ServerConfig(id: "w", name: "web-01", host: "deploy@web-01.example.com")
 
@@ -132,7 +132,7 @@ struct AlertTrackerTests {
     }
 }
 
-/// The Engine room's DevOps agent (docs/contracts/engine-room.md): the ops tool decides, not the agent.
+/// The Server room's DevOps agent (docs/contracts/engine-room.md): the ops tool decides, not the agent.
 struct EngineRoomTests {
     private func temp() throws -> URL {
         let u = FileManager.default.temporaryDirectory.appendingPathComponent("sf-ops-\(UUID().uuidString)")

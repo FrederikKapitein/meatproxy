@@ -90,7 +90,7 @@ struct ServerDetail: View {
                 Spacer()
                 Text(model.projectSettings.devops.enabled ? c.opsAutonomy.label : "off").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted)
             }
-            Text(model.projectSettings.devops.enabled ? c.opsAutonomy.explanation : "Switch the DevOps agent on in Settings › Engine room.")
+            Text(model.projectSettings.devops.enabled ? c.opsAutonomy.explanation : "Switch the DevOps agent on in Settings › Server room.")
                 .font(.system(size: 11.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
             ForEach(alerts, id: \.id) { a in
                 Label("\(a.id) \(a.title)", systemImage: "exclamationmark.triangle.fill").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.warn).lineLimit(1)

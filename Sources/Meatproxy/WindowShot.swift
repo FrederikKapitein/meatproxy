@@ -5,7 +5,7 @@ import SpriteKit
 /// and quits: the world from SpriteKit first, the SwiftUI HUD on top. An environment variable, because AppKit treats
 /// a path on the command line as a document to open. SF_WINDOW_SHOT_AFTER sets the wait, SF_WINDOW_SHOT_ACTION
 /// can do a few things first, comma-separated, two seconds apart: "next" (fly to the next one that waits), "up",
-/// "building:claude", "engine" (the Engine room), "floor:<project id>", "session:<id>", "decision:<project id>|<D-id>", "workstream:<project id>|<W-id>", "orbit", "office",
+/// "building:claude", "engine" (the Server room), "floor:<project id>", "session:<id>", "decision:<project id>|<D-id>", "workstream:<project id>|<W-id>", "orbit", "office",
 /// "zoom:<factor>" (below 1 zooms in), "hover:x,y" or "click:x,y" (the pointer at x, y view points from the top left, as
 /// a real mouse event, so the HUD panels still catch it), "uiclick:x,y" (a click through the window: HUD buttons), "move:<session>:<room>" (a person on the open floor walks to
 /// another room), "walker:<k>" / "clickwalker:<k>" (the pointer on campus walker k), "person:<id>" / "clickperson:<id>" (the pointer on a

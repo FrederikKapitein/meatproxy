@@ -1,7 +1,7 @@
 import SpriteKit
 import simd
 
-/// The Engine room's black hole on the GPU (D26): the same picture as orbit-gen.js holeSprite (shadow, photon ring, the
+/// The Server room's black hole on the GPU (D26): the same picture as orbit-gen.js holeSprite (shadow, photon ring, the
 /// near and far disk, both lensed arcs, beaming and the soft glow), but per frame, so the disk can turn and it stays sharp
 /// at any zoom. The disk's streaks come from the generator as a table (phase across, radius down), the node's texture.
 /// The quad is 9.4 × 5.8 shadow radii round the hole, like the sprite.

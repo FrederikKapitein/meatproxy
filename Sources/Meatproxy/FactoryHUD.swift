@@ -777,7 +777,7 @@ struct IdeaBox: View {
     }
 }
 
-/// The Engine room's DevOps agent (D49): its rhythm and last run, Run now and the log, its open alerts and questions,
+/// The Server room's DevOps agent (D49): its rhythm and last run, Run now and the log, its open alerts and questions,
 /// and what its last journal said.
 struct OpsCard: View {
     @EnvironmentObject private var model: AppModel

@@ -5,7 +5,7 @@ import FactoryCollector
 import FactoryScenes
 
 /// The Mac window as the Game HUD (D31): the world fills the window and everything floats over it as glass panels.
-/// Breadcrumb top-left, Campus/Orbit in the middle, the Engine room top-right; Needs you as a quest log on the left,
+/// Breadcrumb top-left, Campus/Orbit in the middle, the Server room top-right; Needs you as a quest log on the left,
 /// the selection as character cards on the right; level chips, Up and zoom at the bottom, and the yellow counter (D25).
 struct HUDView: View {
     @EnvironmentObject private var model: AppModel
@@ -141,6 +141,7 @@ struct HUDView: View {
                 }
                 else if step.hasPrefix("runnow:") { model.runNow(root: String(step.dropFirst(7))) }
                 else if step.hasPrefix("settings:page:") { model.settingsPage = String(step.dropFirst(14)); model.settingsOpen = true }
+                else if step.hasPrefix("settings:scroll:") { model.settingsScrollTo = String(step.dropFirst(16)) }
                 else if step == "settings:projects" { model.settingsAtProjects = true; model.settingsOpen = true }
                 else if step.hasPrefix("settings:test:") { model.debugTestHost = String(step.dropFirst(14)); model.settingsAtForm = true; model.settingsOpen = true }
                 else if step == "office" { model.controller.showOrbit(false) }
@@ -210,7 +211,7 @@ private struct TopBar: View {
                 Button { model.controller.focusBuilding("engine") } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "server.rack").foregroundStyle(Color.muted)
-                        Text("Engine room").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color.inkText)
+                        Text("Server room").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color.inkText)
                         ServerLine(summary: model.world.serverSummary)
                     }
                     .padding(.horizontal, 12).frame(height: 30)
@@ -385,8 +386,8 @@ private struct InspectorPanel: View {
     }
 
     private func eyebrow(_ s: WorldSelection) -> String {
-        if s.engineRoom, s.decisionID == nil, let id = s.serverID, let sv = model.world.servers.first(where: { $0.id == id }) { return "ENGINE ROOM · \(sv.kind.label.uppercased())" }
-        if s.engineRoom && s.decisionID == nil { return "ENGINE ROOM" }
+        if s.engineRoom, s.decisionID == nil, let id = s.serverID, let sv = model.world.servers.first(where: { $0.id == id }) { return "SERVER ROOM · \(sv.kind.label.uppercased())" }
+        if s.engineRoom && s.decisionID == nil { return "SERVER ROOM" }
         if let id = s.decisionID, let pid = s.projectID, let (p, d) = model.world.decision(project: pid, id) {
             return "\(d.id) · \(p.name.uppercased()) · \(d.kind.uppercased())"
         }
@@ -771,9 +772,10 @@ private struct HoverTip: View {
     var body: some View {
         let w: CGFloat = 240
         // worked out step by step: as one expression it takes the CI compiler too long to type-check
-        let left: CGFloat = title.at.x + 16 + w / 2
-        let x: CGFloat = min(max(left, w / 2 + 8), bounds.width - w / 2 - 8)
-        let y: CGFloat = min(max(title.at.y + 30, 24), bounds.height - 24)
+        // beside the pointer, never on the plaques: over a tower it sits to the left (the plaques hang to the right)
+        let beside: CGFloat = title.left ? title.at.x - 16 - w / 2 : title.at.x + 16 + w / 2
+        let x: CGFloat = min(max(beside, w / 2 + 8), bounds.width - w / 2 - 8)
+        let y: CGFloat = min(max(title.at.y + (title.left ? 0 : 30), 24), bounds.height - 24)
         VStack(alignment: .leading, spacing: 2) {
             Text(title.title).font(.system(size: 12.5, weight: .bold)).lineLimit(1)
             if !title.line.isEmpty { Text(title.line).font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(2) }
@@ -783,7 +785,7 @@ private struct HoverTip: View {
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.divider))
         .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
         .fixedSize()
-        .frame(maxWidth: w, alignment: .leading)
+        .frame(width: w, alignment: title.left ? .trailing : .leading)
         .position(x: x, y: y)
     }
 }

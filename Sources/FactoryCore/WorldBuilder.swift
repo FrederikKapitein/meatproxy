@@ -41,6 +41,15 @@ public enum WorldBuilder {
         return World(now: now, buildings: buildings)
     }
 
+    /// Takes the floors you hid off the campus (a factory stays: it is never hidden).
+    public static func hide(_ roots: [String], in world: inout World) {
+        guard !roots.isEmpty else { return }
+        let hidden = Set(roots)
+        for b in world.buildings.indices {
+            world.buildings[b].projects.removeAll { !$0.isChat && $0.factory == nil && hidden.contains($0.root) }
+        }
+    }
+
     /// Puts every factory you switched on on its project's floor. It stays on the campus with or without a session in the last
     /// hours: its questions wait for you whether its CEO runs now or ran this morning. A project at two providers gets it on
     /// the floor with the latest session (so its questions count once); a factory without sessions lives in `provider`.
@@ -145,7 +154,7 @@ public enum Fixture {
         return world
     }
 
-    /// A small, made-up Engine room: four servers, a deploy and a backup, one of them warning and one down.
+    /// A small, made-up Server room: four servers, a deploy and a backup, one of them warning and one down.
     public static let servers: [Server] = [
         Server(id: "web-01", name: "web-01", kind: .server, state: .ok, detail: "load 0.4 · disk 61% · memory 42%", metrics: ServerMetrics(load: 0.4, cores: 4, disk: 61, memory: 42, diskUsedBytes: 52398601011, diskTotalBytes: 85899345920, memoryUsedBytes: 3607772528, memoryTotalBytes: 8589934592)),
         Server(id: "api-01", name: "api-01", kind: .server, state: .warn, detail: "disk 91% full", metrics: ServerMetrics(load: 0.62, cores: 2, disk: 91, memory: 58, diskUsedBytes: 39084202393, diskTotalBytes: 42949672960, memoryUsedBytes: 2491081031, memoryTotalBytes: 4294967296)),

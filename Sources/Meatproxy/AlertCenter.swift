@@ -42,7 +42,7 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
             if !asked { asked = true; center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in } }
             let c = UNMutableNotificationContent()
             c.title = title; c.body = body
-            c.subtitle = kind == .down ? "Engine room · down" : kind == .warn ? "Engine room · needs a look" : "Engine room · fine again"
+            c.subtitle = kind == .down ? "Server room · down" : kind == .warn ? "Server room · needs a look" : "Server room · fine again"
             c.sound = kind == .recovered ? nil : .default
             c.threadIdentifier = key                       // grouped per server or site
             c.categoryIdentifier = Self.category

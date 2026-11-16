@@ -4,7 +4,7 @@ import FactoryCollector
 import FactoryScenes
 
 /// Polls the collector every 3 seconds on a background queue and feeds the world; checks the servers set up in the
-/// settings once a minute over SSH (the Engine room). With --fixture it shows fictional data instead, for demos and
+/// settings once a minute over SSH (the Server room). With --fixture it shows fictional data instead, for demos and
 /// screenshots that may be shared: made-up servers too, and nothing is read from or written to the real settings.
 @MainActor
 final class AppModel: ObservableObject {
@@ -16,6 +16,8 @@ final class AppModel: ObservableObject {
     @Published var settingsOpen = false
     /// Open the settings at the form to add a server (and, for window shots, test this host there at once).
     @Published var settingsAtForm = false
+    /// a card in settings to scroll to, by its id ("wakes": a factory's "Also wakes on")
+    @Published var settingsScrollTo: String?
     @Published var settingsAtProjects = false
     /// what the pointer is on in the world, for the tooltip
     @Published var hoverTitle: HoverTitle?
@@ -55,7 +57,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var siteChecks: [String: SiteCheck] = [:]
     private var siteTimer: Timer?
     private var heartbeatTimer: Timer?, ciTimer: Timer?
-    /// The servers set up for the Engine room, in the order you added them.
+    /// The servers set up for the Server room, in the order you added them.
     @Published private(set) var serverConfigs: [ServerConfig]
     @Published private(set) var checkingServers = false
     let controller = WorldController()
@@ -163,7 +165,7 @@ final class AppModel: ObservableObject {
             // the demo shows the DevOps agent at the black hole without reading any real workspace
             w.opsState = .working
             // and one made-up question of the DevOps agent's, answered like any other (nothing is written in the demo)
-            w.ops = Project(id: World.opsID, provider: .claude, root: "/demo/engine-room", name: "Engine room", isChat: false, sessions: [],
+            w.ops = Project(id: World.opsID, provider: .claude, root: "/demo/engine-room", name: "Server room", isChat: false, sessions: [],
                             factory: FactoryText.factory(root: "/demo/engine-room", files: ["factory/decisions/D-0001-prune-api-01.md": """
                             ---
                             id: D-0001
@@ -198,6 +200,7 @@ final class AppModel: ObservableObject {
             // the project settings shape the demo campus as they shape the real one: the Chats floor, pinned projects
             if !projectSettings.showChats { for b in w.buildings.indices { w.buildings[b].projects.removeAll(where: \.isChat) } }
             WorldBuilder.pin(projectSettings.pinnedRoots, to: &w)
+            WorldBuilder.hide(projectSettings.hidden, in: &w)
             // the made-up factory is read from its temporary folder; any other demo project you switch on is an empty one
             for b in w.buildings.indices {
                 for k in w.buildings[b].projects.indices where !w.buildings[b].projects[k].isChat {
@@ -395,7 +398,7 @@ final class AppModel: ObservableObject {
     func prepareEngineRoom() {
         guard !fixture, projectSettings.devops.enabled else { return }
         do { try EngineRoom.prepare(servers: serverConfigs, checks: world.servers, sites: siteChecks, opsTool: HeartbeatRunner.opsToolPath) }
-        catch { status = "Could not prepare the Engine room: \(error.localizedDescription)" }
+        catch { status = "Could not prepare the Server room: \(error.localizedDescription)" }
     }
 
     /// A factory whose CEO run is going (here or in the launch agent): its CEO works on the floor, whatever the session
@@ -411,7 +414,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The DevOps agent as the world holds it: its questions in Needs you, its journal in the Engine room.
+    /// The DevOps agent as the world holds it: its questions in Needs you, its journal in the Server room.
     func opsProject() -> Project? {
         guard projectSettings.devops.enabled, !fixture else { return nil }
         return Project(id: World.opsID, provider: .claude, root: EngineRoom.folder.path, name: EngineRoom.displayName, isChat: false,
@@ -424,7 +427,7 @@ final class AppModel: ObservableObject {
         return devopsState?.running == true ? .working : .done
     }
 
-    /// The DevOps agent's heartbeat, for the Engine room's card.
+    /// The DevOps agent's heartbeat, for the Server room's card.
     var devopsState: HeartbeatState? {
         guard projectSettings.devops.enabled else { return nil }
         return heartbeats.state(EngineRoom.folder.path, heartbeat: projectSettings.devops.heartbeat, pauseAll: projectSettings.pauseAll)
@@ -494,6 +497,13 @@ final class AppModel: ObservableObject {
     /// Keeps a project on the campus without a recent session (D46).
     func setPinned(_ root: String, on: Bool) { changeProjects { $0.update(root) { $0.pinned = on } } }
     func setShowChats(_ on: Bool) { changeProjects { $0.showChats = on } }
+    /// Hides a floor from the campus, or shows it again; a hidden project is not kept on the campus either.
+    func setHidden(_ root: String, on: Bool) {
+        changeProjects { s in
+            s.hidden.removeAll { $0 == root }
+            if on { s.update(root) { $0.pinned = false }; s.hidden.append(root) }
+        }
+    }
     func updateHeartbeat(_ root: String, _ change: @escaping (inout Heartbeat) -> Void) { changeProjects { $0.update(root) { change(&$0.heartbeat) } } }
 
     /// The heartbeat beats while the app is closed, through a launch agent (D47), or only while it runs.

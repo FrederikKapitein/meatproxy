@@ -35,6 +35,7 @@ public final class Collector: @unchecked Sendable {
         var w = WorldBuilder.build(sessions(now: now, factories: factories), now: now, showChats: settings.showChats, resolve: resolver.resolve)
         WorldBuilder.attach(factories.map { FactoryFinder.read(root: $0) }, to: &w)
         WorldBuilder.pin(settings.pinnedRoots, to: &w)
+        WorldBuilder.hide(settings.hidden, in: &w)
         for b in w.buildings.indices { for p in w.buildings[b].projects.indices where !w.buildings[b].projects[p].isChat {
             w.buildings[b].projects[p].logo = ProjectLogo.find(root: w.buildings[b].projects[p].root)
         } }
@@ -65,6 +66,8 @@ public final class Collector: @unchecked Sendable {
             if provider == .chatgpt, r.title == nil, let name = codexNames[r.id] { r.title = name }
             if r.isSubAgentSession { continue }
             if var s = r.session(), now.timeIntervalSince(s.lastAt) < Self.window {
+                // the DevOps agent works in the Server room, never on a floor of a provider tower
+                if EngineRoom.contains(s.cwd) { continue }
                 if !factories.isEmpty, resolver.resolve(s.cwd).isChat, let root = factories.first(where: { r.mentions($0, home: home.path) }) {
                     s.projectRoot = root
                 }

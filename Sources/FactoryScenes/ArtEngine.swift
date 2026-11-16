@@ -272,7 +272,7 @@ public struct CampusArt {
     public var storeys: [Storey], fountain: CGPoint
     /// what you can click, in tiles: "building:claude", "building:chatgpt", "building:engine", "fountain"
     public var footprints: [String: CGRect]
-    /// the Engine room's rack LEDs (art units, on its front face) and the roof beacon's lens
+    /// the Server room's rack LEDs (art units, on its front face) and the roof beacon's lens
     public var racks: [Rack], beacon: [CGPoint], beaconAt: CGPoint
     /// where each tower's storey plaques are, in art units, so the camera can frame them
     public var plaques: [String: [CGRect]]

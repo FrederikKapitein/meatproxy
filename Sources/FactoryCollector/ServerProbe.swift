@@ -1,7 +1,7 @@
 import Foundation
 import FactoryCore
 
-/// A server you set up in the app's settings: where to reach it over SSH and what it is in the Engine room.
+/// A server you set up in the app's settings: where to reach it over SSH and what it is in the Server room.
 public struct ServerConfig: Codable, Sendable, Hashable, Identifiable {
     public var id: String
     /// the name on its rack and its body in Orbit
@@ -14,7 +14,7 @@ public struct ServerConfig: Codable, Sendable, Hashable, Identifiable {
     public var check: String?
     /// alerts for this server (default on): a notification when it goes down or warns, and back up
     public var alerts: Bool?
-    /// what the Engine room's DevOps agent may do here on its own (default: diagnose, ask for every fix)
+    /// what the Server room's DevOps agent may do here on its own (default: diagnose, ask for every fix)
     public var autonomy: OpsAutonomy?
     /// public addresses served from here, checked for uptime and their TLS certificate
     public var urls: [String]?
@@ -95,7 +95,7 @@ public enum UserEnvironment {
     }
 }
 
-/// What the Engine room's DevOps agent may do on a server without asking you, set per server.
+/// What the Server room's DevOps agent may do on a server without asking you, set per server.
 public enum OpsAutonomy: String, Codable, Sendable, CaseIterable {
     /// the agent leaves this server alone
     case off
