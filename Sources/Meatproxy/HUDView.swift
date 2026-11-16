@@ -770,6 +770,10 @@ private struct HoverTip: View {
     let bounds: CGSize
     var body: some View {
         let w: CGFloat = 240
+        // worked out step by step: as one expression it takes the CI compiler too long to type-check
+        let left: CGFloat = title.at.x + 16 + w / 2
+        let x: CGFloat = min(max(left, w / 2 + 8), bounds.width - w / 2 - 8)
+        let y: CGFloat = min(max(title.at.y + 30, 24), bounds.height - 24)
         VStack(alignment: .leading, spacing: 2) {
             Text(title.title).font(.system(size: 12.5, weight: .bold)).lineLimit(1)
             if !title.line.isEmpty { Text(title.line).font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(2) }
@@ -780,8 +784,7 @@ private struct HoverTip: View {
         .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
         .fixedSize()
         .frame(maxWidth: w, alignment: .leading)
-        .position(x: min(max(title.at.x + 16 + w / 2, w / 2 + 8), bounds.width - w / 2 - 8),
-                  y: min(max(title.at.y + 30, 24), bounds.height - 24))
+        .position(x: x, y: y)
     }
 }
 

@@ -176,7 +176,7 @@
   /* ---------- the campus (D22, D33): the island, the provider towers, the Engine room ---------- */
   async function campus(input) {
     const R = input.R || 3, svg = scratch();
-    const floors = list => list.map(f => ({name: String(f.name).toUpperCase(), wait: !!f.wait}));
+    const floors = list => list.map(f => ({name: String(f.name).toUpperCase(), wait: !!f.wait, logo: /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(f.logo || "") ? f.logo : null}));
     const c = W.campus(svg, {claude: floors(input.claude || []), chatgpt: floors(input.chatgpt || []), waiting: input.waiting || 0, people: [], engine: input.engine});
     const parts = c.parts, view = viewBox(svg);
     const ground = image([...parts.under, parts.base], R);
