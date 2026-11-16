@@ -131,6 +131,10 @@ public class WorldScene: SKScene {
     /// The level follows the zoom: subclasses decide what is "in" at this zoom.
     func didZoom(zoomingIn: Bool) {}
     func didPan() {}
+    /// What a right-click at a scene point is on (D72): a scene answers with a target, or nil for the empty world.
+    func contextTarget(at scenePoint: CGPoint) -> ContextTarget? { nil }
+    /// The right-click's way out: what it is on, and where (view points from the top left).
+    public var onContext: ((ContextTarget?, CGPoint) -> Void)?
     /// The wheel turned (points, or lines when not precise): a scene that uses it for something else says true and
     /// nothing zooms.
     func wheel(_ dy: CGFloat, precise: Bool) -> Bool { false }
@@ -180,6 +184,11 @@ public class WorldScene: SKScene {
         pan(dx: event.deltaX, dy: event.deltaY)
     }
     public override func mouseUp(with event: NSEvent) { if !dragged { click(at: event.location(in: self)) } }
+    public override func rightMouseDown(with event: NSEvent) {
+        guard let v = view else { return }
+        let q = v.convert(event.locationInWindow, from: nil)
+        onContext?(contextTarget(at: event.location(in: self)), CGPoint(x: q.x, y: v.isFlipped ? q.y : v.bounds.height - q.y))
+    }
     public override func scrollWheel(with event: NSEvent) {
         if wheel(event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas) { return }
         let k: CGFloat = event.hasPreciseScrollingDeltas ? 0.006 : 0.06
@@ -196,4 +205,13 @@ public class WorldScene: SKScene {
         }
     }
     #endif
+}
+
+/// What a right-click is on (D72): the HUD turns it into a menu.
+public enum ContextTarget: Equatable, Sendable {
+    case building(String)          // claude, chatgpt, engine
+    case project(String)           // a storey, or the floor you are on
+    case session(String)           // someone on the roads or at a desk
+    case server(Int)               // a rack, by rack order
+    case fountain
 }

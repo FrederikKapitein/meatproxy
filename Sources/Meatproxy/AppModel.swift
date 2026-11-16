@@ -16,6 +16,14 @@ final class AppModel: ObservableObject {
     @Published var settingsOpen = false
     /// the ⌘I panel: an idea for Meatproxy itself (D68)
     @Published var ideaOpen = false
+    /// D72: ⌘K search, the ? sheet of commands, and the open right-click menu
+    @Published var paletteOpen = false
+    /// window shots: what the search starts with
+    var paletteSeed = ""
+    @Published var commandsOpen = false
+    @Published var contextMenuState: ContextMenuState?
+    /// a panel of the HUD is open over the world: plain keys (N, Esc) belong to it, not to the world
+    var overlayOpen: Bool { paletteOpen || commandsOpen || ideaOpen || contextMenuState != nil }
     /// the Status layer on the campus (D69), remembered between launches
     @Published var statusLayer = !ProcessInfo.processInfo.arguments.contains("--fixture") && UserDefaults.standard.bool(forKey: "statusLayer")
     /// the status pages you watch (D69)
@@ -122,6 +130,9 @@ final class AppModel: ObservableObject {
         }
         alerts.onRunDevOps = { [weak self] in self?.runDevOpsNow() }
         controller.onHoverTitle = { [weak self] t in if self?.hoverTitle != t { self?.hoverTitle = t } }
+        controller.onContext = { [weak self] t, p in
+            MainActor.assumeIsolated { guard let self else { return }; self.contextMenuState = self.contextMenu(for: t, at: p) }
+        }
         // a factory's cost cap (D61) reads today's API price of its floors (the CEO may run on either provider)
         // a factory waits while its provider is down on its status page (D69)
         heartbeats.providerDown = { [weak self] runtime in

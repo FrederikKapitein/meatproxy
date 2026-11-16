@@ -146,6 +146,7 @@ public final class WorldController {
             scene.onSelect = { [weak self] s, a in self?.selectInFloor(s, a) }
             scene.onExit = { [weak self] in self?.exitFloor() }
             scene.onNext = { [weak self] in self?.nextWaiting() }
+            scene.onContext = onContext
             scene.apply(art, project: p, figures: figures, now: world.now)
             if present {
                 floor = scene
@@ -241,6 +242,11 @@ public final class WorldController {
             else if let p = Provider(rawValue: key) { selection.provider = p; selection.level = .provider }
         }
         emit()
+    }
+
+    /// A right-click in any world (D72): what it was on and where, for the HUD's menu.
+    public var onContext: ((ContextTarget?, CGPoint) -> Void)? {
+        didSet { campus.onContext = onContext; floor?.onContext = onContext }
     }
 
     /// The Status layer on the campus (D69).

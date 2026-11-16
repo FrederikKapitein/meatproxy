@@ -531,6 +531,15 @@ public final class FloorScene: WorldScene {
         return art.rooms.first { $0.rect.contains(CGPoint(x: i, y: j)) }.map { .room($0.id) }
     }
 
+    /// A right-click on someone is their session; anywhere else on the floor is the project (D72).
+    override func contextTarget(at p: CGPoint) -> ContextTarget? {
+        if case .person(let id)? = target(at: p) {
+            if id.hasPrefix(Project.standingCEOPrefix) { return .project(projectID) }
+            return .session(people[id]?.owner ?? id)
+        }
+        return .project(projectID)
+    }
+
     override func click(at p: CGPoint) {
         switch target(at: p) {
         case .person(let id)?:

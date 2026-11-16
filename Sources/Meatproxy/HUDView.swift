@@ -31,8 +31,31 @@ struct HUDView: View {
                     .padding(.bottom, Shell.gutter + 52)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            // D72: a right-click menu at the pointer, ⌘K search and the ? sheet; a click outside closes them
+            if !model.settingsOpen && !loading {
+                if let m = model.contextMenuState {
+                    Color.black.opacity(0.001).ignoresSafeArea().onTapGesture { model.contextMenuState = nil }
+                    GeometryReader { geo in
+                        ContextMenuView(menu: m)
+                            .position(x: min(m.at.x + 140, geo.size.width - 140), y: min(m.at.y + CGFloat(m.items.count) * 15 + 30, geo.size.height - CGFloat(m.items.count) * 15 - 40))
+                    }
+                    .ignoresSafeArea()
+                    .onExitCommand { model.contextMenuState = nil }
+                }
+                if model.paletteOpen || model.commandsOpen {
+                    Color.ink.opacity(0.35).ignoresSafeArea().contentShape(Rectangle())
+                        .onTapGesture { model.paletteOpen = false; model.commandsOpen = false }.transition(.opacity)
+                    // each its own view with a steady identity, so what you typed survives the world's refreshes
+                    VStack {
+                        if model.paletteOpen { CommandPalette().id("palette").padding(.top, 96) }
+                        else { CommandSheet().id("commands").padding(.top, 96) }
+                        Spacer()
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
             // what the pointer is on in the world, beside the pointer (one tooltip style for everything, D54)
-            if !model.settingsOpen && !loading, let t = model.hoverTitle {
+            if !model.settingsOpen && !loading && model.contextMenuState == nil, let t = model.hoverTitle {
                 GeometryReader { geo in HoverTip(title: t, bounds: geo.size) }.ignoresSafeArea().allowsHitTesting(false)
             }
             // the settings drawer slides in from the right over the dimmed world; a click on the world closes it
@@ -122,7 +145,7 @@ struct HUDView: View {
             // "hover:x,y" and "click:x,y" carry a comma of their own
             var steps: [String] = []
             for t in action.split(separator: ",").map(String.init) {
-                if Double(t) != nil, let last = steps.last, last.hasPrefix("hover:") || last.hasPrefix("click:") || last.hasPrefix("uiclick:"), !last.contains(";") { steps[steps.count - 1] += ";" + t }
+                if Double(t) != nil, let last = steps.last, last.hasPrefix("hover:") || last.hasPrefix("click:") || last.hasPrefix("uiclick:") || last.hasPrefix("context:"), !last.contains(";") { steps[steps.count - 1] += ";" + t }
                 else { steps.append(t) }
             }
             for (n, step) in steps.enumerated() {
@@ -137,6 +160,12 @@ struct HUDView: View {
                 else if step.hasPrefix("hour:"), let h = Double(step.dropFirst(5)) { model.controller.campus.setHour(h) }
                 else if step == "layer:status" { model.setStatusLayer(true) }
                 else if step == "idea" { model.ideaOpen = true }
+                else if step == "commands" { model.commandsOpen = true }
+                else if step.hasPrefix("search:") { model.paletteOpen = true; model.paletteSeed = String(step.dropFirst(7)) }
+                else if step.hasPrefix("context:") {
+                    let xy = step.dropFirst(8).split(separator: ";").compactMap { Double($0) }
+                    if xy.count == 2 { WindowShot.mouse("right", x: xy[0], y: xy[1]) }
+                }
                 else if step.hasPrefix("building:") { model.controller.focusBuilding(String(step.dropFirst(9))) }
                 // "tab:<overview|work|ceo>": that tab in the open factory's inspector
                 else if step.hasPrefix("tab:"), let id = model.selection.projectID, let t = FactoryOverview.Tab(rawValue: String(step.dropFirst(4))) { model.factoryTabs[id] = t }
@@ -702,7 +731,11 @@ private struct BottomBar: View {
                 .buttonStyle(TactileButtonStyle(kind: n == 0 ? .neutral : .primary, pulse: nextPulse)).disabled(n == 0)
                 .background {
                     Button("") { nextPulse += 1; model.controller.nextWaiting() }.disabled(n == 0).opacity(0)
-                        .keyboardShortcut(model.typing || model.terminalShown ? nil : KeyboardShortcut("n", modifiers: []))
+                        .keyboardShortcut(model.typing || model.terminalShown || model.overlayOpen ? nil : KeyboardShortcut("n", modifiers: []))
+                    // D72: ⌘K searches everything, ? lists every command
+                    Button("") { model.commandsOpen = false; model.paletteOpen.toggle() }.opacity(0).keyboardShortcut("k", modifiers: .command)
+                    Button("") { model.paletteOpen = false; model.commandsOpen.toggle() }.opacity(0)
+                        .keyboardShortcut(model.typing || model.terminalShown || model.paletteOpen || model.ideaOpen ? nil : KeyboardShortcut("/", modifiers: .shift))
                 }
                 // something new waits: the key presses itself once, like a key pressed for you
                 .onChange(of: n) { old, new in if new > old { nextPulse += 1 } }
@@ -716,7 +749,7 @@ private struct BottomBar: View {
                     .disabled(model.selection.level == .all && !model.selection.engineRoom)
                     .background {
                         Button("") { upPulse += 1; model.controller.up() }.opacity(0)
-                            .keyboardShortcut(model.typing || model.terminalShown ? nil : KeyboardShortcut(.escape, modifiers: []))
+                            .keyboardShortcut(model.typing || model.terminalShown || model.overlayOpen ? nil : KeyboardShortcut(.escape, modifiers: []))
                     }
                 Button { model.controller.zoom(1.25) } label: { Text("−").font(.system(size: 17, weight: .semibold)).frame(width: Self.height, height: Self.height) }
                     .buttonStyle(HUDButton()).help("Zoom out (−)")
