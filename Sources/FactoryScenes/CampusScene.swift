@@ -12,6 +12,8 @@ public final class CampusScene: WorldScene {
     var onSelectServer: ((Int) -> Void)?        // a rack in the Server room: the server in that slot (rack order)
     /// what the pointer is on, as a title and a line, and where (view points from the top left); nil when nothing
     var onHoverTitle: ((HoverTitle?) -> Void)?
+    /// an effect shows on the campus (D78): its kind, a title and what it means now; the app explains a kind once
+    var onEffect: ((String, String, String) -> Void)?
     var shownWorld: World = .empty
     /// how many racks hold a server, and the slot pulled out of one (rack index), with its parts
     private var rackCount = 0
@@ -261,6 +263,7 @@ public final class CampusScene: WorldScene {
                 ov.addChild(e); e.advanceSimulationTime(6)
                 chimneys.append(e)
                 explain(e, ("Smoke", "A factory works in this tower; it smokes more while one of its runs is busy"))
+                onEffect?("smoke", "Smoke from the chimney", "A factory works in this tower; more smoke while its CEO runs.")
             }
         }
     }

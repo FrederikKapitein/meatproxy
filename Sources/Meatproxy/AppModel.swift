@@ -145,6 +145,7 @@ final class AppModel: ObservableObject {
         }
         alerts.onRunDevOps = { [weak self] in self?.runDevOpsNow() }
         controller.onHoverTitle = { [weak self] t in if self?.hoverTitle != t { self?.hoverTitle = t } }
+        controller.onEffect = { [weak self] kind, title, line in MainActor.assumeIsolated { self?.effectAppeared(kind, title, line) } }
         controller.onContext = { [weak self] t, p in
             MainActor.assumeIsolated { guard let self else { return }; self.contextMenuState = self.contextMenu(for: t, at: p) }
         }
@@ -852,6 +853,36 @@ final class AppModel: ObservableObject {
             return "Taken up in the run of \(HeartbeatCard.when(run.started)).\(phase)"
         }
         return "Waiting for the CEO: it acts on it \(pickUp(p))."
+    }
+
+    // MARK: the field guide and the walk (D78)
+
+    /// The campus effects you have seen (kept between launches, except in a demo).
+    @Published var seenEffects: Set<String> = Set(AppModel.demo ? [] : UserDefaults.standard.stringArray(forKey: "seenEffects") ?? [])
+    /// The first time an effect shows: what it is, for a few seconds at the top of the campus.
+    @Published var fieldNote: (title: String, line: String)?
+    private var fieldNoteToken = 0
+    func effectAppeared(_ kind: String, _ title: String, _ line: String) {
+        guard !seenEffects.contains(kind) else { return }
+        seenEffects.insert(kind)
+        if !fixture { UserDefaults.standard.set(Array(seenEffects), forKey: "seenEffects") }
+        fieldNote = (title, line)
+        fieldNoteToken += 1
+        let token = fieldNoteToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 9) { [weak self] in if self?.fieldNoteToken == token { self?.fieldNote = nil } }
+    }
+
+    /// The guided first walk: nil when not walking; 0 offers it, 1…4 its steps, 5 done. Offered once, at the first launch.
+    @Published var walkStep: Int? = {
+        if AppModel.firstRunDemo { return 0 }
+        if AppModel.demo { return nil }
+        return UserDefaults.standard.bool(forKey: "walkDone") ? nil : 0
+    }()
+    /// times N (or the yellow key) took you to the next that waits, for the walk's third step
+    @Published var nextPressed = 0
+    func endWalk() {
+        walkStep = nil
+        if !fixture { UserDefaults.standard.set(true, forKey: "walkDone") }
     }
 
     func runNow(_ project: Project) { runNow(root: project.root) }

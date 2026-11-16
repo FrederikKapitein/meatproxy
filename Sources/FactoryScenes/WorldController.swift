@@ -32,6 +32,8 @@ public final class WorldController {
     public var onStatus: ((String?) -> Void)?
     /// the campus's hover title, for the HUD's tooltip
     public var onHoverTitle: ((HoverTitle?) -> Void)?
+    /// an effect shows on the campus: kind, title, meaning (D78)
+    public var onEffect: ((String, String, String) -> Void)?
 
     public let campus = CampusScene(size: CGSize(width: 1200, height: 800))
     public private(set) var floor: FloorScene?
@@ -53,6 +55,7 @@ public final class WorldController {
         campus.onNext = { [weak self] in self?.nextWaiting() }
         campus.onSelectSession = { [weak self] id in self?.select(session: id) }
         campus.onHoverTitle = { [weak self] t in self?.onHoverTitle?(t) }
+        campus.onEffect = { [weak self] k, t, l in self?.onEffect?(k, t, l) }
         campus.onSelectServer = { [weak self] c in guard let self else { return }; self.select(server: self.world.racks.indices.contains(c) ? self.world.racks[c].id : nil) }
         orbit.engine = engine
         orbit.insets = (330, 0)

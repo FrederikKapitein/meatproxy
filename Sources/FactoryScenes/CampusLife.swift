@@ -81,6 +81,9 @@ extension CampusScene {
             }
             deploying.insert("claude")
         }
+        if let f = world.projects.first(where: { ($0.factory?.mandate?.level ?? .assistant) != .assistant }), let m = f.factory?.mandate {
+            onEffect?("dark", "\(f.name)'s floor is dimmed", "Its mandate is \(m.level.rawValue.capitalized): lights on is Assistant, dimmed Hybrid, lights out Dark.")
+        }
         let sig = alarms.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
             + "|" + deploying.sorted().joined(separator: ",")
         if sig != life.sig || life.nodes.isEmpty {
@@ -133,6 +136,7 @@ extension CampusScene {
             host.addChild(beams); host.addChild(fixture); life.nodes.append(contentsOf: [beams, fixture])
             life.alarms.append(light)
             explain(fixture, ("Alarm · \(w.project(id: id)?.name ?? "a project")", why))
+            onEffect?("alarm", "Red alarm light on \(w.project(id: id)?.name ?? "a floor")", why)
         }
         // 5E: a glass lift on each tower, its car parked below
         for (key, st) in stacks {
@@ -145,6 +149,7 @@ extension CampusScene {
         // 5F: a deploy's packets on the road from its tower to the Server room
         life.streams = deploying.compactMap { Self.streamRoutes[$0] }.map { $0.map { project($0.x, $0.y) } }
         life.streaming = !life.streams.isEmpty
+        if life.streaming { onEffect?("packets", "Packets on the road to the Server room", "A deploy is running.") }
     }
 
     /// Remembers what an effect means, for the hover (D74).
@@ -298,6 +303,7 @@ extension CampusScene {
         effects.addChild(drone)
         drone.name = "moment"
         explain(drone, ("Delivery", words))
+        onEffect?("drone", "A drone flies to the fountain", words)
         let path = CGMutablePath(); path.move(to: start)
         path.addQuadCurve(to: end, control: CGPoint(x: (start.x + end.x) / 2, y: max(start.y, end.y) + 90 * px))
         let fly = SKAction.follow(path, asOffset: false, orientToPath: false, duration: 3.2); fly.timingMode = .easeInEaseOut
@@ -329,6 +335,7 @@ extension CampusScene {
 
     /// 5E: the lift takes someone to a storey, waits, and comes back down; rides close together share a trip.
     func ride(_ key: String, to k: Int) {
+        onEffect?("lift", "The glass lift goes up", "A chat started a helper (a sub-agent); the lift takes it to its floor.")
         var l = life.lifts[key] ?? CampusLife.Lift()
         if !l.queue.contains(k), l.target != CGFloat(k) * 30 + 2, l.queue.count < 3 { l.queue.append(k) }
         life.lifts[key] = l
@@ -342,6 +349,7 @@ extension CampusScene {
         if life.clockAcc >= 5 {
             life.clockAcc = 0
             life.daylight = CGFloat(CampusSignals.daylight(hour: life.hourOverride ?? CampusSignals.hour(Date())))
+            if life.daylight < 0.4 { onEffect?("night", "Night on the campus", "The sky follows your Mac's clock: windows and lamps glow. Nothing is wrong.") }
         }
         if life.sky == nil {
             let s = SKSpriteNode(texture: Self.daySkyTexture); s.zPosition = -999; cam.addChild(s); life.sky = s

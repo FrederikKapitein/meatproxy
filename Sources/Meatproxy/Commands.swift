@@ -133,14 +133,16 @@ extension AppModel {
 
     static func copy(_ s: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string) }
 
-    /// What the campus shows, for the `?` sheet (D74). Hover any of them for what it means right now.
-    static let legend: [(String, String)] = [
-        ("Red alarm light on a floor", "That project is broken: CI on main is red, or a session ended with a failed test, push or deploy (clears after 12 hours)"),
-        ("Drone to the fountain", "A pull request was merged (without GitHub: a factory pushed or deployed)"),
-        ("Glass lift", "A session started a sub-agent"),
-        ("Packets on the road", "A deploy is running"),
-        ("Smoke", "A factory works in that tower"),
-        ("Night", "The sky follows your Mac's clock"),
+    /// What the campus shows, for the `?` field guide (D74, D78): its kind (what you have seen is kept), a title and
+    /// what it means. Hover any of them on the campus for what it means right now.
+    static let legend: [(kind: String, title: String, text: String)] = [
+        ("alarm", "Red alarm light on a floor", "That project is broken: CI on main is red, or a session ended with a failed test, push or deploy (clears after 12 hours)"),
+        ("drone", "Drone to the fountain", "A pull request was merged (without GitHub: a factory pushed or deployed)"),
+        ("lift", "Glass lift", "A chat started a helper (a sub-agent)"),
+        ("packets", "Packets on the road", "A deploy is running"),
+        ("smoke", "Smoke", "A factory works in that tower; more while its CEO runs"),
+        ("dark", "A dark floor", "A factory's mandate: lights on is Assistant, dimmed Hybrid, lights out Dark"),
+        ("night", "Night", "The sky follows your Mac's clock. Nothing is wrong"),
     ]
 
     /// What the mouse and trackpad do, for the `?` sheet.
@@ -236,7 +238,7 @@ struct CommandSheet: View {
             }
             HStack(alignment: .top, spacing: 22) {
                 LegendColumn(title: "MOUSE AND TRACKPAD", rows: AppModel.gestures)
-                LegendColumn(title: "ON THE CAMPUS · HOVER ONE FOR WHAT IT MEANS NOW", rows: AppModel.legend)
+                FieldGuideColumn()
             }
         }
         .padding(20)
@@ -307,6 +309,28 @@ private struct LegendColumn: View {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(r.0).font(.system(size: 12.5, weight: .semibold)).frame(width: 160, alignment: .leading)
                     Text(r.1).font(.system(size: 12.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
+/// The field guide (D78): everything that moves on the campus and what it means. What you have not seen yet is greyed,
+/// like a collection to fill; hover one on the campus for what it means right now.
+private struct FieldGuideColumn: View {
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        let seen = AppModel.legend.filter { model.seenEffects.contains($0.kind) }.count
+        VStack(alignment: .leading, spacing: 6) {
+            Text("FIELD GUIDE · \(seen) OF \(AppModel.legend.count) SEEN · HOVER ONE ON THE CAMPUS").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+            ForEach(AppModel.legend, id: \.kind) { r in
+                let on = model.seenEffects.contains(r.kind)
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: on ? "checkmark.seal.fill" : "seal").font(.system(size: 11)).foregroundStyle(on ? Color.signal : Color.muted)
+                    Text(r.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(on ? Color.inkText : Color.muted).frame(width: 150, alignment: .leading)
+                    Text(on ? r.text : r.text + " · not seen yet").font(.system(size: 12.5)).foregroundStyle(Color.muted.opacity(on ? 1 : 0.75))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
