@@ -589,6 +589,10 @@ private struct HeartbeatCards: View {
     let update: (@escaping (inout Heartbeat) -> Void) -> Void
 
     private static let rhythms: [(Int, String)] = [(0, "At times"), (60, "Hourly"), (120, "Every 2 h"), (240, "Every 4 h")]
+    /// the API-price caps a day (D61); spelled out, so the CI compiler need not infer them
+    private static let capItems: [LiftedSegments<Int>.Item] = [
+        .init(id: 0, title: "No cap"), .init(id: 5, title: "$5"), .init(id: 20, title: "$20"), .init(id: 50, title: "$50"),
+    ]
 
     var body: some View {
         SettingsCard("Heartbeat", trailing: AnyView(HStack(spacing: 6) {
@@ -634,8 +638,7 @@ private struct HeartbeatCards: View {
             }
             ChoiceRow("API price per day") {
                 // D61: a cap on what the factory's work costs today at API list prices; 0 means no cap
-                LiftedSegments(items: [0, 5, 20, 50].map { .init(id: $0, title: $0 == 0 ? "No cap" : "$\($0)") },
-                               selected: Int(hb.maxCostPerDay ?? 0), fontSize: 11.5, padding: segInset) { v in
+                LiftedSegments(items: Self.capItems, selected: Int(hb.maxCostPerDay ?? 0), fontSize: 11.5, padding: segInset) { v in
                     update { $0.maxCostPerDay = v == 0 ? nil : Double(v) }
                 }
             }
