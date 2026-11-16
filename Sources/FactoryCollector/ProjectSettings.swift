@@ -29,9 +29,7 @@ public struct ProjectSettings: Codable, Equatable, Sendable {
     public var devops = DevOpsSettings()
     /// project folders you hid from the campus (a factory is never hidden)
     public var hidden: [String] = []
-    /// Meatproxy's own factory (D68): ⌘I sends your ideas for the app there
-    public var ownFactory: String?
-    /// factories whose CEO may not run Dark (D68): Assistant and Hybrid only
+    /// factories whose CEO may not run Dark: Assistant and Hybrid only
     public var darkOff: [String] = []
     public func darkAllowed(_ root: String) -> Bool { !darkOff.contains(root) }
 
@@ -53,7 +51,7 @@ public struct ProjectSettings: Codable, Equatable, Sendable {
     }
 
     // tolerant decoding: a field added later has its default
-    enum CodingKeys: String, CodingKey { case projects, showChats, heartbeatWhenClosed, pauseAll, devops, hidden, ownFactory, darkOff }
+    enum CodingKeys: String, CodingKey { case projects, showChats, heartbeatWhenClosed, pauseAll, devops, hidden, darkOff }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         projects = try c.decodeIfPresent([Entry].self, forKey: .projects) ?? []
@@ -62,7 +60,6 @@ public struct ProjectSettings: Codable, Equatable, Sendable {
         pauseAll = try c.decodeIfPresent(Bool.self, forKey: .pauseAll) ?? false
         devops = try c.decodeIfPresent(DevOpsSettings.self, forKey: .devops) ?? DevOpsSettings()
         hidden = try c.decodeIfPresent([String].self, forKey: .hidden) ?? []
-        ownFactory = try c.decodeIfPresent(String.self, forKey: .ownFactory)
         darkOff = try c.decodeIfPresent([String].self, forKey: .darkOff) ?? []
     }
 }

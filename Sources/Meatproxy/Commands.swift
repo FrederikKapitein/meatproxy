@@ -40,7 +40,6 @@ extension AppModel {
             AppCommand(id: "show.status", title: statusLayer ? "Hide the Status layer" : "Show the Status layer", detail: "Status pages and CI on the campus", icon: "square.3.layers.3d", group: .show, keys: "⌘L") { [weak self] in guard let self else { return }; self.setStatusLayer(!self.statusLayer) },
             AppCommand(id: "show.terminal", title: "Terminal", icon: "terminal", group: .show, keys: "⌘J") { [weak self] in self?.terminals.toggle() },
             AppCommand(id: "show.settings", title: "Settings", icon: "gearshape", group: .show, keys: "⌘,") { [weak self] in self?.settingsOpen = true },
-            AppCommand(id: "do.idea", title: "An idea for Meatproxy", detail: "To Meatproxy's own factory", icon: "lightbulb", group: .act, keys: "⌘I") { [weak self] in self?.ideaOpen = true },
             AppCommand(id: "do.pause", title: projectSettings.pauseAll ? "Resume all factories" : "Pause all factories", detail: "The kill switch: nothing starts, running CEOs stop", icon: projectSettings.pauseAll ? "play.fill" : "pause.fill", group: .act) { [weak self] in guard let self else { return }; self.setPauseAll(!self.projectSettings.pauseAll) },
         ]
         if projectSettings.devops.enabled {
@@ -97,7 +96,6 @@ extension AppModel {
             items.append(AppCommand(id: "c.floor", title: "Open the floor", icon: "door.left.hand.open", group: .go) { [weak self] in self?.controller.enterFloor(id) })
             if p.factory != nil {
                 items.append(AppCommand(id: "c.run", title: "Run now", detail: "Wake its CEO", icon: "play.circle", group: .act) { [weak self] in self?.runNow(p) })
-                if projectSettings.ownFactory == p.root { items.append(AppCommand(id: "c.idea", title: "An idea for Meatproxy", icon: "lightbulb", group: .act, keys: "⌘I") { [weak self] in self?.ideaOpen = true }) }
             }
             if !p.isChat {
                 if p.factory == nil {

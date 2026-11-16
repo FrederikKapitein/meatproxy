@@ -21,8 +21,6 @@ final class TowerStack {
     var e: CGFloat { pos.last ?? 0 }
     var target: CGFloat = 0
     var gap: CGFloat = 19              // art units between storeys when apart
-    var camRoom: CGFloat = 0           // how far the camera rises when fully apart (scene units), and has risen now
-    var camLift: CGFloat = 0
     var wantFor = 0.0, awayFor = 0.0
     init(key: String, root: SKNode, texture: SKTexture) { self.key = key; self.root = root; self.texture = texture }
     /// how far storey k (and the roof, k = count) has lifted, in art units
@@ -227,7 +225,7 @@ extension CampusScene {
         for (key, st) in stacks {
             let wants = (explodeWant == key && explodeShut != key) || pinnedApart == key
             if wants { st.wantFor += dt; st.awayFor = 0 } else { st.awayFor += dt; st.wantFor = 0 }
-            if wants, st.wantFor >= 0.2, st.target == 0 { st.target = 1; st.since = 0; st.camRoom = lift(for: st) }
+            if wants, st.wantFor >= 0.2, st.target == 0 { st.target = 1; st.since = 0; st.gap = fitGap(st) }
             if !wants, st.awayFor >= 0.35, st.target == 1 { st.target = 0; st.since = 0; if wheelMark?.key == key { wheelMark = nil } }
             let was = st.pos
             st.since += dt
@@ -255,19 +253,18 @@ extension CampusScene {
                 for k in st.pos.indices { st.pos[k] = st.target; st.vel[k] = 0; st.pop[k] = st.hot == k ? 1 : 0 }
             }
             guard st.pos != was || st.e > 0 || st.pop.contains(where: { $0 != 0 }) else { continue }
-            // the camera rises with the spread where the view has no room above the tower, and comes back with it
-            let want = st.camRoom * max(0, min(1, st.e))
-            cam.position.y += want - st.camLift; st.camLift = want
+            // the camera stays where it is: the world never shifts under you (the gap fits the room instead)
             place(st)
         }
     }
 
-    /// How far the camera must rise for the whole spread to fit under the top bar (scene units, 0 when it fits).
-    private func lift(for st: TowerStack) -> CGFloat {
-        guard let b = buildings[st.key] else { return 0 }
-        let viewTop = cam.position.y - st.camLift + size.height / 2 * cam.yScale - 80 * cam.yScale
-        let need = st.gap * CGFloat(st.pieces.count + 1) * px
-        return max(0, need - (viewTop - b.frame.maxY))
+    /// The gap between storeys that fits the room above the tower under the top bar (10 to 19 art units): the spread
+    /// grows into the view, the camera never moves.
+    private func fitGap(_ st: TowerStack) -> CGFloat {
+        guard let b = buildings[st.key] else { return 14 }
+        let viewTop = cam.position.y + size.height / 2 * cam.yScale - 80 * cam.yScale
+        let room = (viewTop - b.frame.maxY) / px
+        return max(10, min(19, room / CGFloat(st.pieces.count + 1)))
     }
 
     private func place(_ st: TowerStack) {

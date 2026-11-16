@@ -39,12 +39,12 @@ import FactoryCore
         #expect(StatusSource.custom("not a host") == nil && StatusSource.custom("http://insecure.example.com") == nil)
     }
 
-    @Test func ownFactoryAndDarkOffSurviveTheSettingsFile() throws {
-        var s = ProjectSettings(); s.ownFactory = "/demo/meatproxy"; s.darkOff = ["/demo/meatproxy"]
+    @Test func darkOffSurvivesTheSettingsFileAndAnOldOwnFactoryKeyIsIgnored() throws {
+        var s = ProjectSettings(); s.darkOff = ["/demo/meatproxy"]
         let back = try JSONDecoder().decode(ProjectSettings.self, from: JSONEncoder().encode(s))
-        #expect(back.ownFactory == "/demo/meatproxy" && !back.darkAllowed("/demo/meatproxy") && back.darkAllowed("/demo/other"))
-        let old = try JSONDecoder().decode(ProjectSettings.self, from: Data("{}".utf8))
-        #expect(old.ownFactory == nil && old.darkOff.isEmpty)
+        #expect(!back.darkAllowed("/demo/meatproxy") && back.darkAllowed("/demo/other"))
+        let old = try JSONDecoder().decode(ProjectSettings.self, from: Data(#"{"ownFactory":"/demo/meatproxy"}"#.utf8))
+        #expect(old.darkOff.isEmpty)
     }
 }
 

@@ -97,17 +97,6 @@ struct HUDView: View {
             // lockup heads the left one), and the bottom bar on the same gutters; centred things sit on the window's axis
             VStack(spacing: 0) {
                 TopBar().arrive(hudShown, from: .top, order: 0)
-                    .overlay(alignment: .topTrailing) {
-                        // ⌘I (D68): the idea panel hangs under its button, inside the HUD (not a system popover)
-                        if model.ideaOpen {
-                            IdeaSheet(close: { model.ideaOpen = false })
-                                .background(Color.surface, in: RoundedRectangle(cornerRadius: 10))
-                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.divider))
-                                .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
-                                .offset(x: -Shell.gutter - 150, y: 46)
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                        }
-                    }
                     .zIndex(2)
                 HStack(alignment: .top, spacing: 0) {
                     VStack(alignment: .leading, spacing: Shell.gap) {
@@ -159,7 +148,6 @@ struct HUDView: View {
                 else if step == "life:demo" { model.controller.campus.demoLife() }
                 else if step.hasPrefix("hour:"), let h = Double(step.dropFirst(5)) { model.controller.campus.setHour(h) }
                 else if step == "layer:status" { model.setStatusLayer(true) }
-                else if step == "idea" { model.ideaOpen = true }
                 else if step == "commands" { model.commandsOpen = true }
                 else if step.hasPrefix("search:") { model.paletteOpen = true; model.paletteSeed = String(step.dropFirst(7)) }
                 else if step.hasPrefix("context:") {
@@ -254,7 +242,6 @@ private struct TopBar: View {
                 Breadcrumb(crumb: model.selection.crumb, provider: model.selection.provider)
                 Spacer(minLength: 0)
                 StatusLayerToggle()
-                IdeaButton()
                 TerminalToggle(center: model.terminals)
                 Button { model.settingsOpen = true } label: {
                     Image(systemName: "gearshape").font(.system(size: 13, weight: .semibold)).frame(width: 30, height: 30)
@@ -735,7 +722,7 @@ private struct BottomBar: View {
                     // D72: ⌘K searches everything, ? lists every command
                     Button("") { model.commandsOpen = false; model.paletteOpen.toggle() }.opacity(0).keyboardShortcut("k", modifiers: .command)
                     Button("") { model.paletteOpen = false; model.commandsOpen.toggle() }.opacity(0)
-                        .keyboardShortcut(model.typing || model.terminalShown || model.paletteOpen || model.ideaOpen ? nil : KeyboardShortcut("/", modifiers: .shift))
+                        .keyboardShortcut(model.typing || model.terminalShown || model.paletteOpen ? nil : KeyboardShortcut("/", modifiers: .shift))
                 }
                 // something new waits: the key presses itself once, like a key pressed for you
                 .onChange(of: n) { old, new in if new > old { nextPulse += 1 } }
@@ -860,90 +847,6 @@ private struct TerminalToggle: View {
         }
         .buttonStyle(TactileButtonStyle(kind: .neutral)).help("Terminal (⌘J)")
         .keyboardShortcut("j", modifiers: .command)
-    }
-}
-
-/// ⌘I (D68): an idea for Meatproxy itself, from anywhere in the app, to the factory that works on the app.
-private struct IdeaButton: View {
-    @EnvironmentObject private var model: AppModel
-    var body: some View {
-        Button { withAnimation(.easeOut(duration: 0.16)) { model.ideaOpen.toggle() } } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "lightbulb").font(.system(size: 12.5, weight: .semibold))
-                KeyCap("⌘I")
-            }
-            .padding(.horizontal, 9).frame(height: 30)
-        }
-        .buttonStyle(TactileButtonStyle(kind: .neutral)).help("An idea for Meatproxy (⌘I)")
-        .keyboardShortcut("i", modifiers: .command)
-    }
-}
-
-struct IdeaSheet: View {
-    @EnvironmentObject private var model: AppModel
-    let close: () -> Void
-    @State private var text = ""
-    @State private var sending = false
-    @State private var error: String?
-    @State private var sent: String?
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("AN IDEA FOR MEATPROXY").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-            if let target = model.ownFactoryProject { editor(target) } else { missing }
-        }
-        .padding(14).frame(width: 360)
-        .onAppear { focused = true }
-        .onExitCommand { close() }
-    }
-
-    @ViewBuilder private func editor(_ target: Project) -> some View {
-        let prompt = Text("What would make Meatproxy better? Its own CEO turns it into a workstream.").foregroundStyle(Color.muted)
-        TextField("", text: $text, prompt: prompt, axis: .vertical)
-            .lineLimit(3...8).font(.system(size: 12.5)).textFieldStyle(.plain).focused($focused)
-            .padding(8).background(Color.raised, in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(focused ? Color.signal : Color.border))
-        HStack(spacing: 8) {
-            footnote(target)
-            Spacer(minLength: 0)
-            sendButton(target)
-        }
-    }
-
-    private func footnote(_ target: Project) -> some View {
-        let line: String = error ?? sent ?? "To \(target.name)"
-        return Text(line).font(.system(size: 11.5)).foregroundStyle(error == nil ? Color.muted : Color.warn).lineLimit(2)
-    }
-
-    private func sendButton(_ target: Project) -> some View {
-        let empty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return Button { send(target) } label: {
-            HStack(spacing: 6) {
-                Label(sending ? "Sending" : "Send idea", systemImage: "paperplane.fill").font(.system(size: 12, weight: .semibold)).lineLimit(1).fixedSize()
-                KeyCap("⌘↩")
-            }
-        }
-        .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)))
-        .disabled(sending || empty)
-        .keyboardShortcut(.return, modifiers: .command)
-    }
-
-    @ViewBuilder private var missing: some View {
-        Text("No factory works on Meatproxy yet. In Settings › Projects, make the Meatproxy project a factory and switch on \"Meatproxy's own factory\".")
-            .font(.system(size: 12.5)).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
-        Button { close(); model.settingsOpen = true } label: { Text("Open Settings").font(.system(size: 12, weight: .semibold)) }
-            .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)))
-    }
-
-    private func send(_ p: Project) {
-        let t = text
-        sending = true; error = nil
-        Task {
-            let e = await model.sendIdea(p, text: t)
-            sending = false
-            if let e { error = e } else { text = ""; sent = "Sent to \(p.name)'s CEO"; try? await Task.sleep(nanoseconds: 900_000_000); close() }
-        }
     }
 }
 

@@ -578,10 +578,8 @@ private struct ProjectPage: View {
                           isOn: Binding(get: { model.projectSettings.hidden.contains(root) }, set: { model.setHidden(root, on: $0) }), disabled: factory)
             }
             if factory {
-                SettingsCard("Meatproxy itself") {
-                    SwitchRow("Meatproxy's own factory", "Its CEO works on this app. ⌘I sends your ideas for Meatproxy here, from anywhere in the app.",
-                              isOn: Binding(get: { model.projectSettings.ownFactory == root }, set: { model.setOwnFactory(root, on: $0) }))
-                    SwitchRow("Allow Dark", "Off: its CEO runs Assistant or Hybrid at most. Meatproxy's own factory starts with Dark off.",
+                SettingsCard("Limits") {
+                    SwitchRow("Allow Dark", "Off: its CEO runs Assistant or Hybrid at most, whatever the mandate says.",
                               isOn: Binding(get: { model.projectSettings.darkAllowed(root) }, set: { model.setDarkAllowed(root, on: $0) }))
                 }
             }

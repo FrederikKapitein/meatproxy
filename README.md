@@ -147,6 +147,19 @@ scripts/make-app.sh
 maakt `build/Meatproxy.app` (bundle id `dev.tuinstra.meatproxy`, het merk-icoon, ad-hoc getekend; niet genotariseerd).
 Alleen in de bundel komen meldingen als echte systeemmeldingen met het icoon, Open en Run DevOps now (D54).
 
+### Op een tweede Mac
+
+1. Installeer Xcode 26 (of alleen de Command Line Tools met Swift 6), clone de repo en draai `scripts/make-app.sh`.
+   Een app die je zelf bouwt, krijgt geen quarantaine-vlag, dus Gatekeeper zeurt niet. Zet hem in `/Applications`.
+2. **Wat hij leest:** alleen lokale bestanden. Dat zijn je sessies in `~/.claude` en `~/.codex`, je git-repo's, en
+   `gh` met de login van die Mac. Daarbij komen de publieke statuspagina's van Claude, OpenAI en GitHub.
+   Sentry en Tracker leest hij alleen als je daar een token voor invult; dat staat in de Keychain van die Mac.
+3. **Wat hij niet meeneemt:** instellingen, factories, servers en kosten staan per Mac in
+   `~/Library/Application Support/Meatproxy/`. Op een nieuwe Mac staat er geen factory aan, dus er start niets
+   vanzelf. Een factory wordt pas wakker als jij hem daar aanzet.
+4. **Projecten:** onder `~/Projects/<map>` is elke map een verdieping. Staan je repo's ergens anders, dan wordt de
+   git-root van een sessie de verdieping.
+
 ## Merk
 
 Het merk staat in het merkboek (`assets/brand-explore/meatproxy-brand.html` in de projectmap) en in D45. In de app:

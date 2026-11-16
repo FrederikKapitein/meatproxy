@@ -14,8 +14,6 @@ final class AppModel: ObservableObject {
     @Published var lastRead: Date?
     /// The settings page, inside the window over the world.
     @Published var settingsOpen = false
-    /// the ⌘I panel: an idea for Meatproxy itself (D68)
-    @Published var ideaOpen = false
     /// D72: ⌘K search, the ? sheet of commands, and the open right-click menu
     @Published var paletteOpen = false
     /// window shots: what the search starts with
@@ -23,7 +21,7 @@ final class AppModel: ObservableObject {
     @Published var commandsOpen = false
     @Published var contextMenuState: ContextMenuState?
     /// a panel of the HUD is open over the world: plain keys (N, Esc) belong to it, not to the world
-    var overlayOpen: Bool { paletteOpen || commandsOpen || ideaOpen || contextMenuState != nil }
+    var overlayOpen: Bool { paletteOpen || commandsOpen || contextMenuState != nil }
     /// the Status layer on the campus (D69), remembered between launches
     @Published var statusLayer = !ProcessInfo.processInfo.arguments.contains("--fixture") && UserDefaults.standard.bool(forKey: "statusLayer")
     /// the status pages you watch (D69)
@@ -326,7 +324,6 @@ final class AppModel: ObservableObject {
 
     private func apply(_ w: World) {
         world = w
-        ensureOwnMandate()
         lastRead = w.now
         controller.show(w)
         Task { await controller.ensurePortraits(w.projects.flatMap { p in p.sessions.map { p.cast(of: $0) } }); objectWillChange.send() }
@@ -566,17 +563,6 @@ final class AppModel: ObservableObject {
             if on { s.update(root) { $0.pinned = false }; s.hidden.append(root) }
         }
     }
-    /// Meatproxy's own factory (D68): ⌘I sends ideas for the app there. It never runs Dark unless you allow it.
-    func setOwnFactory(_ root: String, on: Bool) {
-        changeProjects { s in
-            if on { s.ownFactory = root; if !s.darkOff.contains(root) { s.darkOff.append(root) } }
-            else if s.ownFactory == root { s.ownFactory = nil }
-        }
-        guard on else { return }
-        // Meatproxy's own factory starts as an assistant: it asks before everything (D68)
-        if world.projects.first(where: { $0.root == root })?.factory?.mandate == nil { setMandate(root) { $0.set(level: .assistant) } }
-        else { capMandate(root) }
-    }
     /// Allows a factory's CEO to run Dark, or caps it at Hybrid (D68).
     func setDarkAllowed(_ root: String, on: Bool) {
         changeProjects { s in s.darkOff.removeAll { $0 == root }; if !on { s.darkOff.append(root) } }
@@ -585,23 +571,6 @@ final class AppModel: ObservableObject {
     /// A mandate that is Dark where Dark is off steps down to Hybrid.
     private func capMandate(_ root: String) {
         if mandate(root).level == .dark { setMandate(root) { $0.set(level: .hybrid) } }
-    }
-    /// Meatproxy's own factory starts as an assistant (D68): when it has no mandate yet, Meatproxy writes one, as the
-    /// switch in Settings does. Once.
-    private var ownMandateChecked = false
-    private func ensureOwnMandate() {
-        guard !ownMandateChecked, !fixture, let r = projectSettings.ownFactory,
-              let f = world.projects.first(where: { $0.root == r })?.factory else { return }
-        ownMandateChecked = true
-        if f.mandate == nil && f.takesMandate { setMandate(r) { $0.set(level: .assistant) } }
-    }
-
-    /// Meatproxy's own factory, when you chose one and it is on the campus.
-    var ownFactoryProject: Project? {
-        // the demo has no settings of yours: its made-up factory stands in
-        if fixture && projectSettings.ownFactory == nil { return world.projects.first { $0.factory != nil } }
-        guard let r = projectSettings.ownFactory else { return nil }
-        return world.projects.first { $0.root == r && $0.factory != nil }
     }
     func updateHeartbeat(_ root: String, _ change: @escaping (inout Heartbeat) -> Void) { changeProjects { $0.update(root) { change(&$0.heartbeat) } } }
 
