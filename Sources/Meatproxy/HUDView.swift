@@ -171,6 +171,8 @@ struct HUDView: View {
                     }
                 }
                 else if step == "settings" { model.settingsOpen = true }
+                else if step.hasPrefix("factory:") { model.setFactory(String(step.dropFirst(8)), on: true) }
+                else if step.hasPrefix("view:") { model.debugViewFile = String(step.dropFirst(5)) }
                 // "runnow:<project folder>": the same as pressing Run now on that factory
                 else if step == "devops:runnow" { model.runDevOpsNow() }
                 // "terminal:demo": a tab with made-up output (screenshots), nothing real runs in it

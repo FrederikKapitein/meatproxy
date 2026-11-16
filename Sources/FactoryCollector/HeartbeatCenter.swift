@@ -13,6 +13,8 @@ public final class HeartbeatCenter {
     public var costToday: ((String) -> Double)?
     /// the name of the runtime's provider when its status page says it is down (D69), else nil
     public var providerDown: ((Heartbeat.Runtime) -> String?)?
+    /// whether a factory has its starter files (D76); nil: every factory counts as set up
+    public var isSetUp: ((String) -> Bool)?
     private let ciQueue = DispatchQueue(label: "dev.tuinstra.meatproxy.ci", qos: .utility)
     private var ciChecking = false
     /// a CI look is under way (its answer comes back on the main queue)
@@ -86,6 +88,7 @@ public final class HeartbeatCenter {
     /// What keeps an automatic wake from starting now, if anything. "Run now" only waits for "Pause all".
     func block(_ root: String, _ hb: Heartbeat, pauseAll: Bool, runs: [HeartbeatRun], runNow: Bool = false, now: Date) -> Block? {
         if pauseAll { return .allPaused }
+        if let isSetUp, !isSetUp(root) { return .notSetUp }
         if takenOver.contains(root) { return .takenOver }
         if !runNow {
             if let why = runner.hold(root) { return .held(why) }

@@ -222,6 +222,8 @@ public enum Block: Equatable, Sendable {
     case takenOver
     /// the runtime's provider is down on its status page (D69): no run burns on an outage
     case providerDown(String)
+    /// the factory has no starter files yet (D76): its CEO would have no playbook to follow
+    case notSetUp
 
     public var waitsForYou: Bool { if case .held = self { return true }; return false }
     public var text: String {
@@ -235,6 +237,7 @@ public enum Block: Equatable, Sendable {
         case .coolingDown(let until): return "Cooling down until \(f.string(from: until))"
         case .takenOver: return "In your hands: you took over in the terminal"
         case .providerDown(let name): return "\(name) is down on its status page: the run waits until it is back"
+        case .notSetUp: return "Not set up yet: create its starter files first"
         }
     }
 }

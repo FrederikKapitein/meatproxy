@@ -128,6 +128,21 @@ struct HeartbeatTests {
         center.runner.wait(project.path)
     }
 
+    /// A factory that is not set up waits for its starter files: not even Run now starts a CEO without its playbook.
+    @Test func aFactoryWaitsUntilItIsSetUp() throws {
+        let project = try tempDir()
+        let center = HeartbeatCenter(runner: HeartbeatRunner(folder: try tempDir(), resolve: fake("true")))
+        center.isSetUp = { FactoryScaffold.isSetUp($0) }
+        let e = ProjectSettings.Entry(root: project.path, factory: true, heartbeat: Heartbeat(paused: false))
+        center.wake(project.path, .runNow)
+        #expect(center.tick(ProjectSettings(projects: [e])).isEmpty)
+        #expect(center.block(project.path, e.heartbeat, pauseAll: false, runs: [], runNow: true, now: Date()) == .notSetUp)
+        #expect(Block.notSetUp.text == "Not set up yet: create its starter files first")
+        try FactoryScaffold.create(FactoryScaffold.plan(root: project.path, name: "P").filter { !$0.optional }, root: project.path)
+        #expect(center.tick(ProjectSettings(projects: [e])) == [project.path])
+        center.runner.wait(project.path)
+    }
+
     @Test func ciFailuresWakeOnlyWhenNew() throws {
         let project = try tempDir()
         try fm.createDirectory(at: project.appendingPathComponent("code/app/.git"), withIntermediateDirectories: true)
@@ -246,7 +261,9 @@ struct HeartbeatGuardTests {
         let third = center.tick(s, now: later)
         if sameDay {
             #expect(third.isEmpty)
-            #expect(center.state(p.path, heartbeat: hb, now: t0.addingTimeInterval(3400)).blocked == .dailyCap(2))
+            if Calendar.current.isDate(t0, inSameDayAs: t0.addingTimeInterval(3400)) {
+                #expect(center.state(p.path, heartbeat: hb, now: t0.addingTimeInterval(3400)).blocked == .dailyCap(2))
+            }
         } else {
             #expect(third == [p.path]); center.runner.wait(p.path)
             return

@@ -167,6 +167,12 @@ struct FactoryOverview: View {
     enum Tab: String, Hashable { case overview, work, ceo }
 
     var body: some View {
+        if !model.isSetUp(project.root) { SetUpFactoryCard(project: project) }
+        else { overview }
+    }
+
+    @ViewBuilder private var overview: some View {
+        if model.justSetUp == project.root { FirstBeatCard(project: project) }
         if factory.paused {
             Label("Paused: STOP is on line 1 of autonomy.yml. It starts and ships nothing.", systemImage: "pause.circle.fill")
                 .font(.system(size: 12.5, weight: .bold)).foregroundStyle(Color.stuck).fixedSize(horizontal: false, vertical: true)
@@ -220,8 +226,8 @@ struct FactoryOverview: View {
     @ViewBuilder private var briefing: some View {
         if factory.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                Text("No CEO yet").font(.system(size: 13.5, weight: .bold))
-                Text("The factory's CEO keeps its queue in factory/: briefings, workstreams, decisions and autonomy.yml. They show up here as soon as it writes them; the app never creates them.")
+                Text("No briefing yet").font(.system(size: 13.5, weight: .bold))
+                Text("The CEO writes one at the end of every run: what it did, what needs you, what it delivered. Run now starts the first one.")
                     .font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
             }
             .padding(10).frame(maxWidth: .infinity, alignment: .leading)
@@ -834,5 +840,111 @@ struct OpsCard: View {
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+
+// MARK: setting a factory up (D76)
+
+/// A factory without its starter files: Meatproxy offers them one by one, shows what each says, and writes only the
+/// ticked ones that are missing, when you press Create. The allowlist is offered unticked.
+private struct SetUpFactoryCard: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    @State private var plan: [StarterFile] = []
+    @State private var ticked: Set<String> = []
+    @State private var open: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Set up this factory").font(.system(size: 15, weight: .bold))
+                Text("Its CEO works from a few files in factory/. Meatproxy can create starters for \(project.name). Nothing is written until you press Create, and nothing that is there is ever replaced.")
+                    .font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(spacing: 6) { ForEach(plan) { f in row(f) } }
+            let n = plan.filter { ticked.contains($0.path) && !$0.exists }.count
+            HStack(spacing: 8) {
+                Button { create() } label: { Text(n == 0 ? "Nothing to create" : "Create \(n) file\(n == 1 ? "" : "s")") }
+                    .buttonStyle(TactileButtonStyle(kind: .primary, inset: EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)))
+                    .disabled(n == 0 && plan.allSatisfy { !$0.exists || $0.optional })
+                Button { Self.copy(plan) } label: { Text("Copy them instead") }
+                    .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)))
+                    .help("Copies every file with its path, to write them yourself")
+            }
+        }
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.signal.opacity(0.7)))
+        .onAppear {
+            plan = model.setupPlan(project)
+            ticked = Set(plan.filter { !$0.optional && !$0.exists }.map(\.path))
+            if let d = model.debugViewFile { open = d }
+        }
+        .onChange(of: model.debugViewFile) { _, d in open = d }
+    }
+
+    @ViewBuilder private func row(_ f: StarterFile) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                if f.exists {
+                    Image(systemName: "checkmark.circle").font(.system(size: 13)).foregroundStyle(Color.muted).frame(width: 16)
+                } else {
+                    let on = ticked.contains(f.path)
+                    Button { if on { ticked.remove(f.path) } else { ticked.insert(f.path) } } label: {
+                        RoundedRectangle(cornerRadius: 3).fill(on ? Color.signal : Color.clear)
+                            .overlay(RoundedRectangle(cornerRadius: 3).stroke(on ? Color.signal : Color.muted, lineWidth: 1.2))
+                            .overlay(Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(Color.onSignal).opacity(on ? 1 : 0))
+                            .frame(width: 15, height: 15).padding(.top, 1)
+                    }
+                    .buttonStyle(.plain).frame(width: 16)
+                    .accessibilityLabel(f.path).accessibilityValue(on ? "will be created" : "not created").accessibilityAddTraits(.isToggle)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(f.path).font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    Text(f.exists ? "Already there: left as it is" : f.why).font(.system(size: 11.5)).foregroundStyle(Color.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Button(open == f.path ? "Hide" : "View") { open = open == f.path ? nil : f.path }
+                    .buttonStyle(.plain).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted)
+            }
+            if open == f.path {
+                ScrollView { Text(f.text).font(.system(size: 10.5, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                    .frame(maxHeight: 170).padding(8).background(Color.surface, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(Color.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func create() {
+        let files = plan.filter { ticked.contains($0.path) && !$0.exists }
+        if model.setUp(project, files: files) { model.justSetUp = project.root }
+    }
+
+    static func copy(_ plan: [StarterFile]) {
+        AppModel.copy(plan.map { "=== \($0.path)\n\($0.text)" }.joined(separator: "\n"))
+    }
+}
+
+/// Right after setting up: the first beat, now or at its time.
+private struct FirstBeatCard: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Set up. Run the first beat now?").font(.system(size: 13.5, weight: .bold))
+            Text("The CEO reads the project, writes a briefing and asks its first question. It changes nothing without your yes: it starts on Assistant.")
+                .font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button { model.runNow(project); model.justSetUp = nil } label: { Text("Run now") }
+                    .buttonStyle(TactileButtonStyle(kind: .primary, inset: EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)))
+                Button { model.justSetUp = nil } label: { Text("At its next beat") }
+                    .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)))
+            }
+        }
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 12))
     }
 }

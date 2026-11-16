@@ -38,6 +38,8 @@ final class AppModel: ObservableObject {
     /// the tab open in each factory's inspector (kept here: the inspector draws its content twice, scrolling or not)
     @Published var factoryTabs: [String: FactoryOverview.Tab] = [:]
     var debugTestHost: String?
+    /// window shots: the starter file whose text the setup card shows
+    @Published var debugViewFile: String?
     /// A text field in the HUD has focus (a note for the CEO): the one-key shortcuts (N, Esc) stay out of its way.
     @Published var typing = false
     /// the terminal (D57) and whether its panel is open: the HUD's N and esc stay with the terminal then
@@ -142,6 +144,12 @@ final class AppModel: ObservableObject {
         // a factory waits while its provider is down on its status page (D69)
         heartbeats.providerDown = { [weak self] runtime in
             MainActor.assumeIsolated { self?.collector?.status.down(runtime.rawValue) }
+        }
+        // a factory without its starter files does not run (D76); the demo's are in memory
+        heartbeats.isSetUp = { [weak self] root in
+            if root == EngineRoom.folder.path { return true }
+            if fixture { return MainActor.assumeIsolated { root == Fixture.factoryRoot || self?.demoSetUp.contains(root) == true } }
+            return FactoryScaffold.isSetUp(root)
         }
         heartbeats.costToday = { [weak self] root in
             MainActor.assumeIsolated { self?.world.projects.filter { $0.root == root }.compactMap { $0.cost?.today }.reduce(0, +) ?? 0 }
@@ -725,6 +733,33 @@ final class AppModel: ObservableObject {
     }
 
     /// Wakes a factory's CEO now.
+    // MARK: setting a factory up (D76)
+
+    /// the factory you just set up: its panel offers the first beat
+    @Published var justSetUp: String?
+    /// factories set up in the demo (nothing is written there)
+    private var demoSetUp: Set<String> = []
+    func isSetUp(_ root: String) -> Bool {
+        fixture ? (root == Fixture.factoryRoot || demoSetUp.contains(root)) : FactoryScaffold.isSetUp(root)
+    }
+    func setupPlan(_ project: Project) -> [StarterFile] {
+        var plan = FactoryScaffold.plan(root: project.root, name: project.name)
+        if fixture { for k in plan.indices { plan[k].exists = false } }
+        return plan
+    }
+    /// Creates the starter files you ticked that are missing; never overwrites. The demo only pretends.
+    func setUp(_ project: Project, files: [StarterFile]) -> Bool {
+        if fixture { demoSetUp.insert(project.root); objectWillChange.send(); return true }
+        do {
+            let written = try FactoryScaffold.create(files, root: project.root)
+            status = "Set up \(project.name): wrote \(written.count) file\(written.count == 1 ? "" : "s") in its folder"
+            refresh(); return true
+        } catch {
+            status = "Could not set up \(project.name): \(error.localizedDescription)"
+            return false
+        }
+    }
+
     func runNow(_ project: Project) { runNow(root: project.root) }
     func runNow(root: String) {
         heartbeats.wake(root, .runNow)
