@@ -333,12 +333,12 @@ struct HeartbeatAllowlistTests {
         #expect(runner.start(root: without.path, name: "B", heartbeat: Heartbeat(), reason: .runNow)); runner.wait(without.path)
         #expect(seen["with"]??.lastPathComponent == "settings.json" && seen["without"]! == nil)
         #expect(runner.lastRun(with.path)?.warning == nil && runner.lastRun(without.path)?.warning != nil)
-        // the real launch passes it with --settings
-        let launch = try #require(HeartbeatRunner.systemLaunch(.init(runtime: .claude, prompt: "p", maxTurns: 5, settings: URL(fileURLWithPath: "/x/.claude/settings.json"))))
-        #expect(launch.arguments.suffix(2) == ["--settings", "/x/.claude/settings.json"])
+        // the real launch passes it with --settings (its arguments; CI has no claude or codex installed)
+        let launch = HeartbeatRunner.arguments(.init(runtime: .claude, prompt: "p", maxTurns: 5, settings: URL(fileURLWithPath: "/x/.claude/settings.json")))
+        #expect(launch.suffix(2) == ["--settings", "/x/.claude/settings.json"])
         // Codex works in a folder that is not a git repo of its own (a factory's main folder, the Engine room)
-        let codex = try #require(HeartbeatRunner.systemLaunch(.init(runtime: .codex, prompt: "p", maxTurns: 5, settings: nil)))
-        #expect(codex.arguments.contains("--skip-git-repo-check"))
+        let codex = HeartbeatRunner.arguments(.init(runtime: .codex, prompt: "p", maxTurns: 5, settings: nil))
+        #expect(codex.contains("--skip-git-repo-check"))
     }
 }
 

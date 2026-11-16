@@ -402,12 +402,17 @@ struct KeyCap: View {
     var onYellow = false
     init(_ key: String, onYellow: Bool = false) { self.key = key; self.onYellow = onYellow }
     var body: some View {
-        Text(key).font(.system(size: 10, weight: .semibold, design: .rounded)).lineLimit(1).fixedSize()
-            .foregroundStyle(onYellow ? Color.onSignal : Color.muted)
+        // the colours first: in one expression this takes the compiler too long to type-check
+        let ink: Color = onYellow ? Color.onSignal : Color.muted
+        let face: Color = onYellow ? Color.onSignal.opacity(0.08) : Color.surface
+        let edge: Color = onYellow ? Color.onSignal.opacity(0.55) : Color.border.opacity(0.8)
+        let ledge: Color = onYellow ? Color.ledge.opacity(0.5) : Color.neutralLedge
+        return Text(key).font(.system(size: 10, weight: .semibold, design: .rounded)).lineLimit(1).fixedSize()
+            .foregroundStyle(ink)
             .padding(.horizontal, 4).frame(minWidth: 16, minHeight: 15)
-            .background(RoundedRectangle(cornerRadius: 3).fill(onYellow ? Color.onSignal.opacity(0.08) : Color.surface))
-            .overlay(RoundedRectangle(cornerRadius: 3).stroke(onYellow ? Color.onSignal.opacity(0.55) : Color.border.opacity(0.8), lineWidth: 1))
-            .background(RoundedRectangle(cornerRadius: 3).fill(onYellow ? Color.ledge.opacity(0.5) : Color.neutralLedge).offset(y: 1))
+            .background(RoundedRectangle(cornerRadius: 3).fill(face))
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(edge, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 3).fill(ledge).offset(y: 1))
             .accessibilityHidden(true)
     }
 }
