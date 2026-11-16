@@ -33,13 +33,15 @@ struct CampusLife {
     /// the Status layer (D69): on or off, what it drew, and its lamps for the blink
     var layerOn = false
     var layerSig = ""
+    /// what each effect means, for the hover (D74): the node, a title and one line
+    var hotspots: [(node: SKNode, title: String, line: String)] = []
     var layerNodes: [SKNode] = []
     var layerLamps: [(node: SKNode, glow: SKNode, state: ServiceStatus.State)] = []
 
     struct Lift { var z: CGFloat = 0, target: CGFloat = 0, hold = 0.0, queue: [Int] = [] }
 
     /// The campus was drawn anew: what hung on it is gone, the moments in the air and the rides stay.
-    mutating func reset() { nodes = []; sig = ""; shafts = [:]; cars = [:]; ground.removeAllChildren(); layerNodes = []; layerLamps = [] }
+    mutating func reset() { nodes = []; sig = ""; shafts = [:]; cars = [:]; ground.removeAllChildren(); layerNodes = []; layerLamps = []; hotspots = [] }
 }
 
 extension CampusScene {
@@ -119,11 +121,16 @@ extension CampusScene {
     private func drawLife(weather: [String: CampusSignals.Weather], building: Set<String>, deploying: Set<String>) {
         for n in life.nodes { n.removeFromParent() }
         life.nodes = []; life.ground.removeAllChildren()
+        // keep what the Status layer and the moments in the air explain; the rest is drawn anew below
+        let keep = Set(life.layerNodes.map(ObjectIdentifier.init))
+        life.hotspots.removeAll { h in h.node.parent == nil || (!keep.contains(ObjectIdentifier(h.node)) && h.node.name != "moment") }
+        let w = shownWorld
         // 5B: a cloud over a building, rain from it while something is broken
-        for (key, w) in weather where w != .clear {
+        for (key, wx) in weather where wx != .clear {
             guard let host = key == "engine" ? overlays["engine"] : layer(key, storey: nil), let at = cloudPoint(key) else { continue }
-            let c = cloud(rain: w == .rain); c.position = scenePoint(at); c.zPosition = 0.9
+            let c = cloud(rain: wx == .rain); c.position = scenePoint(at); c.zPosition = 0.9
             host.addChild(c); life.nodes.append(c)
+            explain(c, weatherWords(key, wx, w))
         }
         // 5D: scaffolding round a new project's storey and a crane on its tower's roof
         var cranes: Set<String> = []
@@ -131,21 +138,55 @@ extension CampusScene {
             guard let host = layer(st.building, storey: st.index) else { continue }
             let sc = scaffold(st); host.addChild(sc); life.nodes.append(sc)
             cranes.insert(st.building)
+            explain(sc, ("Under construction: \(w.project(id: id)?.name ?? "a new project")", "A new project: the scaffold comes down when its first session is done"))
         }
         for key in cranes {
             guard let host = layer(key, storey: nil), let c = crane(key) else { continue }
             host.addChild(c); life.nodes.append(c)
+            let names = storeys.filter { $0.storey.building == key && building.contains($0.project) }.compactMap { w.project(id: $0.project)?.name }
+            explain(c, ("Crane", "Building " + names.joined(separator: ", ") + ": a new project's first session is running"))
         }
         // 5E: a glass lift on each tower, its car parked below
         for (key, st) in stacks {
             guard let ov = overlays[key], let shaft = liftShaft(key) else { continue }
             shaft.alpha = 1 - min(1, st.e * 3)
             ov.addChild(shaft); life.nodes.append(shaft); life.shafts[key] = shaft
+            explain(shaft, ("Glass lift", "Takes someone up when a session starts a sub-agent"))
             life.cars[key] = shaft.childNode(withName: "car")
         }
         // 5F: a deploy's packets on the road from its tower to the Server room
         life.streams = deploying.compactMap { Self.streamRoutes[$0] }.map { $0.map { project($0.x, $0.y) } }
         life.streaming = !life.streams.isEmpty
+    }
+
+    /// Remembers what an effect means, for the hover (D74).
+    func explain(_ node: SKNode, _ words: (String, String)) { life.hotspots.append((node, words.0, words.1)) }
+    private func isMoment(_ n: SKNode) -> Bool { n.name == "moment" }
+
+    /// What the weather over a building says, in words.
+    private func weatherWords(_ key: String, _ wx: CampusSignals.Weather, _ w: World) -> (String, String) {
+        if key == "engine" {
+            let down = w.servers.filter { $0.state == .down }.map(\.name), warn = w.servers.filter { $0.state == .warn }.map(\.name)
+            return wx == .rain ? ("Rain over the Server room", "Down: " + down.joined(separator: ", ")) : ("Clouds over the Server room", "Warning: " + warn.joined(separator: ", "))
+        }
+        let b = Provider(rawValue: key).flatMap { w.building($0) }
+        let red = b?.projects.filter { $0.github?.ciFailing == true }.map(\.name) ?? []
+        let broken = b?.projects.filter { $0.github == nil && CampusSignals.broken($0, now: w.now) }.map(\.name) ?? []
+        var line = [String]()
+        if !red.isEmpty { line.append("CI on main is red: " + red.joined(separator: ", ")) }
+        if !broken.isEmpty { line.append("A session ended with a failed test or push: " + broken.joined(separator: ", ")) }
+        return ("Rain over \(Provider(rawValue: key)?.displayName ?? key)", line.isEmpty ? "Something is broken" : line.joined(separator: " · "))
+    }
+
+    /// The explanation under a scene point, if an effect is there.
+    func hotspot(at p: CGPoint) -> (String, String)? {
+        life.hotspots.removeAll { $0.node.parent == nil }
+        for h in life.hotspots.reversed() {
+            guard let parent = h.node.parent, h.node.alpha > 0.05, !h.node.isHidden else { continue }
+            let q = convert(p, to: parent)
+            if h.node.calculateAccumulatedFrame().insetBy(dx: -3 * px, dy: -3 * px).contains(q) { return (h.title, h.line) }
+        }
+        return nil
     }
 
     /// Where a building's cloud hangs, in art units: over a tower's antenna, over the Server room's sign.
@@ -297,6 +338,8 @@ extension CampusScene {
         let tape = SKShapeNode(rect: CGRect(x: -0.6 * px, y: -6 * px, width: 1.2 * px, height: 5 * px)); tape.fillColor = SKColor(red: 0.6, green: 0.9, blue: 1, alpha: 1); tape.strokeColor = .clear
         parcel.addChild(tape); drone.addChild(parcel)
         effects.addChild(drone)
+        drone.name = "moment"
+        explain(drone, ("Delivery", "A pull request was merged"))
         let path = CGMutablePath(); path.move(to: start)
         path.addQuadCurve(to: end, control: CGPoint(x: (start.x + end.x) / 2, y: max(start.y, end.y) + 90 * px))
         let fly = SKAction.follow(path, asOffset: false, orientToPath: false, duration: 3.2); fly.timingMode = .easeInEaseOut

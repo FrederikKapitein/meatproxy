@@ -13,6 +13,10 @@ final class TowerStack {
     var pieces: [SKNode] = []          // storey k
     var roof: SKNode?
     var sprites: [SKSpriteNode] = []
+    /// per storey: its facade (the cut picture), the room behind it, and how far you see in (0 facade, 1 inside)
+    var facades: [SKSpriteNode] = []
+    var insides: [SKNode] = []
+    var seeIn: [CGFloat] = []
     /// each piece on its own spring (storey k, the roof last), in gaps: 0 together, 0.4 the loose storey, 1.4 above it
     var pos: [CGFloat] = [], vel: [CGFloat] = []
     /// the storey that comes loose: under the pointer, or the wheel's mark
@@ -74,7 +78,7 @@ extension CampusScene {
             let a3 = top.faces[0][3], a2 = top.faces[0][2], b2 = top.faces[1][2]
             cuts.append(top.kind == "factory" ? cut(a3, a2, b2)
                         : cut(CGPoint(x: a3.x - 4.8, y: a3.y), CGPoint(x: a2.x, y: a2.y + 2.4), CGPoint(x: b2.x + 4.8, y: b2.y)))
-            func piece(above: [CGPoint]?, below: [CGPoint]?, z: CGFloat) -> SKNode {
+            func piece(above: [CGPoint]?, below: [CGPoint]?, z: CGFloat, facade: Bool = false) -> SKNode {
                 let up = above ?? [CGPoint(x: L, y: T), CGPoint(x: R, y: T)]
                 let lo = below ?? [CGPoint(x: L, y: B), CGPoint(x: R, y: B)]
                 let holder = SKNode(); holder.zPosition = z
@@ -82,14 +86,18 @@ extension CampusScene {
                 let s = SKSpriteNode(texture: tex); s.anchorPoint = b.anchorPoint; s.size = b.size; s.position = b.position
                 crop.addChild(s); holder.addChild(crop); root.addChild(holder)
                 st.sprites.append(s)
+                if facade { st.facades.append(s) }
                 return holder
             }
             st.base = piece(above: cuts[0], below: nil, z: 0.001)
             for (k, s) in sts.enumerated() {
-                let h = piece(above: cuts[k + 1], below: cuts[k], z: 0.002 + 0.002 * CGFloat(k))
+                let h = piece(above: cuts[k + 1], below: cuts[k], z: 0.002 + 0.002 * CGFloat(k), facade: true)
+                let inside = SKNode(); inside.zPosition = -0.0008; inside.alpha = 0; inside.isHidden = true
                 if let id = storeys.first(where: { $0.storey.building == key && $0.storey.index == s.index })?.project, let p = world.project(id: id) {
                     let cutaway = floorCut(s, p, world: world); cutaway.zPosition = 0.0005; h.addChild(cutaway)
+                    inside.addChild(room(s, p, world: world))
                 }
+                h.addChild(inside); st.insides.append(inside); st.seeIn.append(0)
                 st.pieces.append(h)
             }
             st.roof = piece(above: nil, below: cuts[sts.count], z: 0.002 + 0.002 * CGFloat(sts.count))
@@ -99,9 +107,7 @@ extension CampusScene {
         }
     }
 
-    /// The thin cut through a storey, on its ceiling: the floor seen from above along the front edges, with a desk for
-    /// each of its sessions at work (at most four), people at them, cool screens in a factory, and a yellow dot over
-    /// someone who waits for you.
+    /// The cut through a storey's ceiling, where it came loose: a plain slab with a light rim.
     func floorCut(_ s: CampusArt.Storey, _ p: Project, world: World) -> SKNode {
         let n = SKNode()
         let A = s.faces[0][3], Bc = s.faces[0][2], C = s.faces[1][2]
@@ -117,30 +123,59 @@ extension CampusScene {
         // a lighter band where the walls were cut, so it reads as a section
         let rim = shape([A, Bc, Q(1, 0.06), Q(0, 0.06)], fill: SKColor(white: 1, alpha: 0.18)); n.addChild(rim)
         let at = p.sessions.filter { $0.state(now: world.now) != .done }.prefix(4)
-        // along the front edge: someone at each desk, back to you, facing a screen
-        let seats: [CGFloat] = [0.16, 0.39, 0.62, 0.85]
+        // (the people and desks are in the room itself, seen through the facade: the ceiling stays a quiet slab)
+        return n
+    }
+
+    /// The room inside a storey, seen through its faded facade (D74): the floor, the two far walls with their windows,
+    /// two rows of desks with screens, and someone at a desk for each session at work.
+    func room(_ s: CampusArt.Storey, _ p: Project, world: World) -> SKNode {
+        let n = SKNode()
+        guard s.faces.count == 2 else { return n }
+        // the storey's corners: front-left (A), front corner (B), right (C), back (D), on its floor and its ceiling
+        let A = s.faces[0][0], B = s.faces[0][1], C = s.faces[1][1], up = s.faces[0][3].y - A.y
+        let D = CGPoint(x: A.x + C.x - B.x, y: A.y + C.y - B.y)
+        func Q(_ u: CGFloat, _ v: CGFloat, _ h: CGFloat = 0) -> CGPoint {
+            CGPoint(x: A.x + u * (B.x - A.x) + v * (D.x - A.x), y: A.y + u * (B.y - A.y) + v * (D.y - A.y) - h)
+        }
+        let factory = s.kind == "factory", chat = s.kind == "chats"
+        let floor = factory ? SKColor(red: 0.2, green: 0.24, blue: 0.3, alpha: 1) : chat ? SKColor(red: 0.85, green: 0.74, blue: 0.6, alpha: 1) : SKColor(red: 0.72, green: 0.56, blue: 0.4, alpha: 1)
+        let wall = factory ? SKColor(red: 0.16, green: 0.18, blue: 0.24, alpha: 1) : SKColor(red: 0.9, green: 0.84, blue: 0.76, alpha: 1)
+        let wallSide = factory ? SKColor(red: 0.13, green: 0.15, blue: 0.2, alpha: 1) : SKColor(red: 0.8, green: 0.74, blue: 0.67, alpha: 1)
+        // the far walls: along the back (D to C) and down the left (A to D), floor to ceiling
+        n.addChild(shape([D, C, CGPoint(x: C.x, y: C.y + up), CGPoint(x: D.x, y: D.y + up)], fill: wall, stroke: Self.ink, width: 0.6 * px))
+        n.addChild(shape([A, D, CGPoint(x: D.x, y: D.y + up), CGPoint(x: A.x, y: A.y + up)], fill: wallSide, stroke: Self.ink, width: 0.6 * px))
+        let glass = factory ? SKColor(red: 0.35, green: 0.65, blue: 0.85, alpha: 1) : SKColor(red: 0.3, green: 0.36, blue: 0.6, alpha: 1)
+        for t in stride(from: 0.12 as CGFloat, to: 0.9, by: 0.26) {
+            let a = CGPoint(x: D.x + (C.x - D.x) * t, y: D.y + (C.y - D.y) * t), b = CGPoint(x: D.x + (C.x - D.x) * (t + 0.16), y: D.y + (C.y - D.y) * (t + 0.16))
+            n.addChild(shape([CGPoint(x: a.x, y: a.y + up * 0.3), CGPoint(x: b.x, y: b.y + up * 0.3), CGPoint(x: b.x, y: b.y + up * 0.75), CGPoint(x: a.x, y: a.y + up * 0.75)], fill: glass))
+        }
+        n.addChild(shape([A, B, C, D], fill: floor, stroke: Self.ink, width: 0.6 * px))
+        // desks in two rows, a screen on each, and someone at the busy ones
+        let busy = p.sessions.filter { $0.state(now: world.now) != .done }.prefix(8)
         let shirts: [SKColor] = [SKColor(red: 0.29, green: 0.45, blue: 0.85, alpha: 1), SKColor(red: 0.25, green: 0.68, blue: 0.42, alpha: 1),
                                  SKColor(red: 0.91, green: 0.38, blue: 0.54, alpha: 1), SKColor(red: 0.48, green: 0.36, blue: 0.88, alpha: 1)]
-        for (k, u) in seats.enumerated() {
-            let busy = k < at.count
-            // the desk (its top) and a screen on its far edge
-            n.addChild(shape([Q(u - 0.08, 0.1, 4), Q(u + 0.08, 0.1, 4), Q(u + 0.08, 0.2, 4), Q(u - 0.08, 0.2, 4)],
+        let seats: [(CGFloat, CGFloat)] = [(0.2, 0.62), (0.45, 0.62), (0.7, 0.62), (0.9, 0.62), (0.2, 0.3), (0.45, 0.3), (0.7, 0.3), (0.9, 0.3)]
+        for (k, (u, v)) in seats.enumerated() {
+            let top: CGFloat = 5
+            n.addChild(shape([Q(u - 0.08, v, top), Q(u + 0.08, v, top), Q(u + 0.08, v + 0.12, top), Q(u - 0.08, v + 0.12, top)],
                              fill: SKColor(red: 0.42, green: 0.29, blue: 0.19, alpha: 1), stroke: Self.ink, width: 0.5 * px))
-            let lit = factory ? SKColor(red: 0.5, green: 0.84, blue: 1, alpha: 1) : SKColor(red: 0.36, green: 0.55, blue: 0.95, alpha: 1)
-            n.addChild(shape([Q(u - 0.06, 0.19, 4), Q(u + 0.06, 0.19, 4), Q(u + 0.06, 0.19, 11), Q(u - 0.06, 0.19, 11)],
-                             fill: busy ? lit : SKColor(red: 0.2, green: 0.2, blue: 0.27, alpha: 1), stroke: Self.ink, width: 0.5 * px))
-            guard busy else { continue }
-            let s = at[at.startIndex + k], foot = Q(u, 0.05)
-            let body = SKShapeNode(rectOf: CGSize(width: 5 * px, height: 6 * px), cornerRadius: 1.2 * px)
+            let on = k < busy.count
+            let screen = factory ? SKColor(red: 0.5, green: 0.84, blue: 1, alpha: 1) : SKColor(red: 0.4, green: 0.6, blue: 0.95, alpha: 1)
+            n.addChild(shape([Q(u - 0.06, v + 0.11, top), Q(u + 0.06, v + 0.11, top), Q(u + 0.06, v + 0.11, top + 7), Q(u - 0.06, v + 0.11, top + 7)],
+                             fill: on ? screen : SKColor(red: 0.2, green: 0.2, blue: 0.27, alpha: 1), stroke: Self.ink, width: 0.5 * px))
+            guard on else { continue }
+            let s = busy[busy.startIndex + k], foot = Q(u, v - 0.06)
+            let body = SKShapeNode(rectOf: CGSize(width: 5 * px, height: 7 * px), cornerRadius: 1.2 * px)
             body.fillColor = shirts[k % shirts.count]; body.strokeColor = Self.ink; body.lineWidth = 0.6 * px
-            body.position = scenePoint(CGPoint(x: foot.x, y: foot.y - 4))
-            let head = SKShapeNode(circleOfRadius: 2.3 * px)
-            head.fillColor = SKColor(red: 0.42, green: 0.27, blue: 0.18, alpha: 1); head.strokeColor = Self.ink; head.lineWidth = 0.6 * px
-            head.position = scenePoint(CGPoint(x: foot.x, y: foot.y - 9))
+            body.position = scenePoint(CGPoint(x: foot.x, y: foot.y - 5))
+            let head = SKShapeNode(rectOf: CGSize(width: 5 * px, height: 5 * px), cornerRadius: 0.8 * px)
+            head.fillColor = SKColor(red: 0.95, green: 0.71, blue: 0.54, alpha: 1); head.strokeColor = Self.ink; head.lineWidth = 0.6 * px
+            head.position = scenePoint(CGPoint(x: foot.x, y: foot.y - 11))
             n.addChild(body); n.addChild(head)
             if s.state(now: world.now) == .waiting {
-                let dot = SKShapeNode(circleOfRadius: 1.8 * px); dot.fillColor = Self.wait; dot.strokeColor = Self.ink; dot.lineWidth = 0.6 * px
-                dot.position = scenePoint(CGPoint(x: foot.x + 3.5, y: foot.y - 13.5)); n.addChild(dot)
+                let dot = SKShapeNode(rectOf: CGSize(width: 3.4 * px, height: 3.4 * px)); dot.fillColor = Self.wait; dot.strokeColor = Self.ink; dot.lineWidth = 0.6 * px
+                dot.position = scenePoint(CGPoint(x: foot.x + 4, y: foot.y - 17)); n.addChild(dot)
             }
         }
         return n
@@ -259,7 +294,13 @@ extension CampusScene {
             } else {
                 for k in st.pos.indices { st.pos[k] = goals[k]; st.vel[k] = 0 }
             }
-            guard st.pos != was || st.e > 0 else { continue }
+            // see into the loose storey once it has come loose
+            for k in st.seeIn.indices {
+                let goal: CGFloat = st.target == 1 && hot == k ? 1 : 0
+                st.seeIn[k] = animationsEnabled && dt > 0 ? st.seeIn[k] + (goal - st.seeIn[k]) * CGFloat(min(1, dt * 8)) : goal
+                if abs(goal - st.seeIn[k]) < 0.005 { st.seeIn[k] = goal }
+            }
+            guard st.pos != was || st.e > 0 || st.seeIn.contains(where: { $0 > 0 }) else { continue }
             // the camera stays where it is: the world never shifts under you (the gap fits the room instead)
             place(st)
         }
@@ -281,6 +322,13 @@ extension CampusScene {
         b.texture = apart ? Self.clearTexture : st.texture
         for s in st.sprites { s.color = b.color; s.colorBlendFactor = b.colorBlendFactor }
         for (k, n) in st.pieces.enumerated() { n.position.y = st.offset(k) * px }
+        // the loose storey's facade fades to a glass ghost and its room shows behind it (D74)
+        for k in st.facades.indices where k < st.seeIn.count {
+            let v = st.seeIn[k]
+            st.facades[k].alpha = 1 - 0.8 * v
+            st.insides[k].alpha = v; st.insides[k].isHidden = v < 0.01
+            layer(st.key, storey: k)?.alpha = 1 - 0.85 * v
+        }
         st.roof?.position.y = st.roofOffset * px
         for k in st.pieces.indices { layer(st.key, storey: k)?.position.y = st.offset(k) * px }
         layer(st.key, storey: nil)?.position.y = st.roofOffset * px

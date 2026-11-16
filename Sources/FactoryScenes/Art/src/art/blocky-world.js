@@ -367,7 +367,7 @@
   /* a provider's name painted on its roof board: centred on the board's face, sheared along it (the face runs down
      to the right, half a unit per unit) */
   const roofSign = (at, name) => {
-    const size = Math.min(15, 62 / (.72 * name.length));
+    const size = Math.min(14, 50 / (.72 * name.length));
     return `<g transform="translate(${f(at[0])} ${f(at[1] + .353 * size)}) matrix(1 .5 0 1 0 0)"><text x="0" y="0" text-anchor="middle" font-family="${FONT}" font-size="${f(size)}" fill="#fff8ec" stroke="#2a1a2e" stroke-width="3" paint-order="stroke">${name}</text></g>`;
   };
   /* a provider tower: one storey per project, windows with people at desks, the project's name on a plaque, a
@@ -429,7 +429,10 @@
       bx2(s2, i - .15, j - .15, zr, i + w + .15, j + d + .15, zr + 3, Pv.dark);
       bx2(s2, i + .6, j + .6, zr + 3, i + 1.8, j + 1.8, zr + 9, "#9aa3b4", {top: [[(i + .8) * T, (j + .8) * T, (i + 1.6) * T, (j + 1.6) * T, "#5d6178"]]});
       bx2(s2, i + 2.2, j + .6, zr + 3, i + 3.4, j + 1.8, zr + 9, "#9aa3b4", {top: [[(i + 2.4) * T, (j + .8) * T, (i + 3.2) * T, (j + 1.6) * T, "#5d6178"]]});
-      bx2(s2, i + .4, j + d - .5, zr + 3, i + w - .4, j + d - .3, zr + 20, "#2a2433", {front: [[(i + .5) * T, zr + 4, (i + w - .5) * T, zr + 19, Pv.body]]});
+      // the name board, with the provider's mark as part of the name: a framed tile at its left (D55, D74)
+      bx2(s2, i + .4, j + d - .5, zr + 3, i + w - .4, j + d - .3, zr + 20, "#2a2433", {front: [[(i + .5) * T, zr + 4, (i + w - .5) * T, zr + 19, Pv.body],
+        [(i + .62) * T, zr + 5.2, (i + .62) * T + 13.6, zr + 17.8, "#2a1a2e"], [(i + .62) * T + 1, zr + 6.2, (i + .62) * T + 12.6, zr + 16.8, "#fff8ec"],
+        ...markRects(prov, (i + .62) * T + 2.4, zr + 15.4, 1.25, Pv.dark)]});
       // an antenna mast (its lamp blinks in the app) and, when a factory works here, a chimney (it smokes in the app)
       bx2(s2, i + .8, j + 2.5, zr + 3, i + 1.6, j + 3.3, zr + 5, "#5d6178");
       bx2(s2, i + 1.15, j + 2.85, zr + 5, i + 1.25, j + 2.95, zr + 36, "#c9cfdc");
@@ -437,9 +440,6 @@
       if (floors.some(fl => fl.kind === "factory")) {
         bx2(s2, i + 2.3, j + 2.3, zr + 3, i + 3.1, j + 3.1, zr + 26, "#6f7486", {front: [[(i + 2.3) * T, zr + 18, (i + 3.1) * T, zr + 21, "#e0473a"]], right: [[-(j + 3.1) * T, zr + 18, -(j + 2.3) * T, zr + 21, "#e0473a"]], top: [[(i + 2.4) * T, (j + 2.4) * T, (i + 3) * T, (j + 3) * T, "#1a1620"]]});
       }
-      // the provider's mark on a board of its own behind the name, so you see whose building it is (D55)
-      bx2(s2, i + w - 1.75, j + .9, zr + 3, i + w - .45, j + 1.1, zr + 26, "#2a2433", {front: [[(i + w - 1.7) * T, zr + 4, (i + w - .5) * T, zr + 25, Pv.trim],
-        ...markRects(prov, (i + w - 1.66) * T + .8, zr + 23.6, 2.6, Pv.dark)]});
     }, {i0: i - .2, j0: j - .2, i1: i + w + .2, j1: j + d + .2}, "building:" + prov);
     const proud = k => floors[k].kind === "factory" ? OUT : 0;
     const faces = k => { const z0 = 8 + k * FLOOR_H, z1 = z0 + FLOOR_H, o = proud(k), i0 = i - o, j0 = j - o, iw = i + w + o, jd = j + d + o;
@@ -450,7 +450,7 @@
       const jd = j + d + proud(k);
       return Array.from({length: w}, (_, a) => [P(i + a + .14, jd, z0 + 7), P(i + a + .86, jd, z0 + 7), P(i + a + .86, jd, z1 - 6), P(i + a + .14, jd, z1 - 6)]); });
     return {antenna: P(i + 1.2, j + 2.9, zt + 36.5), chimney: floors.some(fl => fl.kind === "factory") ? P(i + 2.7, j + 2.7, zt + 26) : null, windows,
-      sign: P(i + w / 2, j + d - .3, zr + 11.5), plaques: floors.map((fl, k) => ({at: P(i + w + .05 + proud(k), j + d / 2, 8 + k * FLOOR_H + FLOOR_H / 2), fl})), storeys: floors.map((fl, k) => ({fl, faces: faces(k)}))};
+      sign: P(i + w / 2 + .55, j + d - .3, zr + 11.5), plaques: floors.map((fl, k) => ({at: P(i + w + .05 + proud(k), j + d / 2, 8 + k * FLOOR_H + FLOOR_H / 2), fl})), storeys: floors.map((fl, k) => ({fl, faces: faces(k)}))};
   }
   let bx2 = null;
   /* the campus: a floating island with the provider buildings, the Server room, a square plaza with the fountain

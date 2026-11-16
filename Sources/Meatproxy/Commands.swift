@@ -133,6 +133,18 @@ extension AppModel {
 
     static func copy(_ s: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string) }
 
+    /// What the campus shows, for the `?` sheet (D74). Hover any of them for what it means right now.
+    static let legend: [(String, String)] = [
+        ("Rain", "CI on main is red in a project of that tower"),
+        ("Clouds over the Server room", "A server warns; rain when one is down"),
+        ("Drone to the fountain", "A pull request was merged"),
+        ("Crane and scaffolding", "A new project: its first session is still running"),
+        ("Glass lift", "A session started a sub-agent"),
+        ("Packets on the road", "A deploy is running"),
+        ("Smoke", "A factory works in that tower"),
+        ("Night", "The sky follows your Mac's clock"),
+    ]
+
     /// What the mouse and trackpad do, for the `?` sheet.
     static let gestures: [(String, String)] = [
         ("Click", "Open what is under the pointer: a building, a floor, someone, a server"),
@@ -224,14 +236,9 @@ struct CommandSheet: View {
                     .frame(width: 250, alignment: .topLeading)
                 }
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("MOUSE AND TRACKPAD").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-                ForEach(AppModel.gestures, id: \.0) { g in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(g.0).font(.system(size: 12.5, weight: .semibold)).frame(width: 190, alignment: .leading)
-                        Text(g.1).font(.system(size: 12.5)).foregroundStyle(Color.muted)
-                    }
-                }
+            HStack(alignment: .top, spacing: 22) {
+                LegendColumn(title: "MOUSE AND TRACKPAD", rows: AppModel.gestures)
+                LegendColumn(title: "ON THE CAMPUS · HOVER ONE FOR WHAT IT MEANS NOW", rows: AppModel.legend)
             }
         }
         .padding(20)
@@ -289,5 +296,22 @@ private struct CommandRow: View {
         .overlay(alignment: .leading) { if picked { Rectangle().fill(Color.signal).frame(width: 2).padding(.vertical, 6) } }
         .contentShape(Rectangle())
         .onHover { hover = $0 }
+    }
+}
+
+private struct LegendColumn: View {
+    let title: String
+    let rows: [(String, String)]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+            ForEach(rows, id: \.0) { r in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(r.0).font(.system(size: 12.5, weight: .semibold)).frame(width: 160, alignment: .leading)
+                    Text(r.1).font(.system(size: 12.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }

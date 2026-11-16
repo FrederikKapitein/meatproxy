@@ -12,6 +12,7 @@ extension CampusScene {
 
     func drawStatusLayer(_ world: World) {
         for n in life.layerNodes { n.removeFromParent() }
+        life.hotspots.removeAll { $0.node.parent == nil }
         life.layerNodes = []; life.layerLamps = []
         guard life.layerOn, let art else { return }
         // the services, along the front of the Server room
@@ -32,6 +33,8 @@ extension CampusScene {
                 plate.fillColor = Self.ink.withAlphaComponent(0.85); plate.strokeColor = .clear; plate.position = label.position; plate.zPosition = -0.01
                 n.addChild(plate); n.addChild(label)
                 ov.addChild(n); life.layerNodes.append(n)
+                let st = s.shown(now: world.now)
+                explain(n, (s.name, st == .unknown ? "Not read for a while: unknown" : st.rawValue.capitalized + (s.detail.isEmpty ? "" : " · " + s.detail)))
                 life.layerLamps.append((lamp, g, s.shown(now: world.now)))
             }
         }
@@ -49,6 +52,7 @@ extension CampusScene {
             host.addChild(glowNode); host.addChild(lamp)
             life.layerNodes.append(contentsOf: [lamp, glowNode])
             life.layerLamps.append((lamp, glowNode, state))
+            explain(lamp, ("CI · \(p.name)", g.ciFailing ? "CI on main is red: " + g.failing.joined(separator: ", ") : "CI on main is green"))
         }
     }
 
