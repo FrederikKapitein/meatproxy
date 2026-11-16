@@ -24,6 +24,15 @@
     } catch (e) { /* no canvas: estimate */ }
     return txt.length * 6.4 + 12;
   };
+  /* a storey plaque (D22, D58): a bracket off the facade, the cream board (yellow while it waits for you), and the
+     project's own logo as a small framed square left of its name when it has one */
+  const LOGO_W = 12;
+  const plaqueBoxW = fl => plaqueW(fl.name) + (fl.logo ? LOGO_W : 0);
+  const plaqueSVG = (x, y, fl) => {
+    const w = plaqueBoxW(fl), lw = fl.logo ? LOGO_W : 0;
+    const logo = fl.logo ? `<rect x="${f(x + 18)}" y="${f(y - 4.6)}" width="9.2" height="9.2" rx="1.6" fill="#ffffff" stroke="#2a1a2e" stroke-width="1"/><image href="${fl.logo}" x="${f(x + 18.6)}" y="${f(y - 4)}" width="8" height="8" preserveAspectRatio="xMidYMid meet"/>` : "";
+    return `<g><line x1="${f(x)}" y1="${f(y)}" x2="${f(x + 14)}" y2="${f(y)}" stroke="#2a1a2e" stroke-width="1.6"/><rect x="${f(x + 14)}" y="${f(y - 7)}" width="${f(w)}" height="13" fill="${fl.wait ? "#FFD83D" : "#fff3d6"}" stroke="#2a1a2e" stroke-width="1.6"/>${logo}<text x="${f(x + 20 + lw)}" y="${f(y + 2.6)}" font-family="${FONT}" font-size="7.4" fill="#2a1a2e">${fl.name}</text></g>`;
+  };
 
   /* the plan, in tiles: the same rooms, gardens and void as before */
   const ROOMS = [
@@ -481,12 +490,11 @@
     for (const [who, [i, j], pose, view] of team) add(i + j + .3, sc => { B.figureInto(sc, typeof who === "string" ? B.CAST[who] : who, {pose, view, mood: pose === "wave" ? "happy" : "calm", noProp: false}, [i * T, j * T, 0]); });
     objs.sort((a, b) => a.key - b.key);
     // labels: the roof signs and the storey plaques
-    const plaque = (x, y, txt, wait) => { const w = plaqueW(txt); return `<g><line x1="${f(x)}" y1="${f(y)}" x2="${f(x + 14)}" y2="${f(y)}" stroke="#2a1a2e" stroke-width="1.6"/><rect x="${f(x + 14)}" y="${f(y - 7)}" width="${f(w)}" height="13" fill="${wait ? "#FFD83D" : "#fff3d6"}" stroke="#2a1a2e" stroke-width="1.6"/><text x="${f(x + 20)}" y="${f(y + 2.6)}" font-family="${FONT}" font-size="7.4" fill="#2a1a2e">${txt}</text></g>`; };
     const labels = [];
     for (const [b, prov] of [[claude, "claude"], [gpt, "chatgpt"]]) {
       tp("roof:" + prov, roofSign(b.sign, PROVIDERS[prov].name));
-      b.plaques.forEach((pq, k) => tp(`plaque:${prov}:${k}`, plaque(pq.at[0], pq.at[1], pq.fl.name, pq.fl.wait)));
-      for (const pq of b.plaques) { labels.push({building: prov, rect: [pq.at[0], pq.at[1] - 8, 14 + plaqueW(pq.fl.name) + 1, 15]}); }
+      b.plaques.forEach((pq, k) => tp(`plaque:${prov}:${k}`, plaqueSVG(pq.at[0], pq.at[1], pq.fl)));
+      for (const pq of b.plaques) { labels.push({building: prov, rect: [pq.at[0], pq.at[1] - 8, 14 + plaqueBoxW(pq.fl) + 1, 15]}); }
     }
     let light = "";
     for (const [i, j] of lamps) { const [x, y] = P(i, j, 24); light += glow(x, y + 18, 40, "#ffb070", .45); }
@@ -508,7 +516,7 @@
     add(6.5 + 6.5, sc => { B.figureInto(sc, B.CAST.Rue, {pose: "walkA", view: "SW"}, [3 * T, 6.2 * T, 0]); });
     add(1 + 6, sc => { bx2(sc, -.6, 5.4, 0, -.48, 5.52, 22, "#2a2433"); bx2(sc, -.75, 5.25, 22, -.33, 5.67, 26, "#ffe2a8"); });
     let top = roofSign(b.sign, PROVIDERS[prov].name);
-    for (const pq of b.plaques) { const w = plaqueW(pq.fl.name), [x, y] = pq.at; top += `<g><line x1="${f(x)}" y1="${f(y)}" x2="${f(x + 14)}" y2="${f(y)}" stroke="#2a1a2e" stroke-width="1.6"/><rect x="${f(x + 14)}" y="${f(y - 7)}" width="${f(w)}" height="13" fill="${pq.fl.wait ? "#FFD83D" : "#fff3d6"}" stroke="#2a1a2e" stroke-width="1.6"/><text x="${f(x + 20)}" y="${f(y + 2.6)}" font-family="${FONT}" font-size="7.4" fill="#2a1a2e">${pq.fl.name}</text></g>`; }
+    for (const pq of b.plaques) top += plaqueSVG(pq.at[0], pq.at[1], pq.fl);
     const defs = `<defs>${GLOWS.map(c => `<radialGradient id="bw-glow-${c}"><stop offset="0" stop-color="#${c}" stop-opacity="1"/><stop offset="1" stop-color="#${c}" stop-opacity="0"/></radialGradient>`).join("")}</defs>`;
     svg.innerHTML = defs + ground.svg() + objs.sort((a, c) => a.key - c.key).map(o => o.sc.svg()).join("") + top;
     const bb = svg.getBBox(); svg.setAttribute("viewBox", `${Math.floor(bb.x - 16)} ${Math.floor(bb.y - 16)} ${Math.ceil(bb.width + 32)} ${Math.ceil(bb.height + 32)}`);
