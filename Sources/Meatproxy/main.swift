@@ -24,6 +24,19 @@ if CommandLine.arguments.contains("--dump") {
     print("Needs you: \(world.needsYou.count)")
     exit(0)
 }
+// `Meatproxy --costs`: what every floor's sessions would have cost at API prices (D61); reads and updates the ledger.
+if CommandLine.arguments.contains("--costs") {
+    let collector = Collector()
+    let started = Date()
+    collector.costs.update()
+    let world = collector.world(settings: ProjectSettingsStore().load())
+    print("Read in \(String(format: "%.1f", Date().timeIntervalSince(started))) s; prices of \(ApiPrices.asOf)")
+    for b in world.buildings { for p in b.projects.sorted(by: { ($0.cost?.month ?? 0) > ($1.cost?.month ?? 0) }) {
+        guard let c = p.cost else { continue }
+        print("  \(b.provider.displayName.padding(toLength: 8, withPad: " ", startingAt: 0)) \(p.name.padding(toLength: 28, withPad: " ", startingAt: 0)) today \(ProjectCost.format(c.today))  7 d \(ProjectCost.format(c.week))  30 d \(ProjectCost.format(c.month))\(c.unpricedTokens > 0 ? "  (\(c.unpricedTokens) unpriced tokens)" : "")")
+    } }
+    exit(0)
+}
 // `Meatproxy --ops <server> <action> [name]` (docs/contracts/engine-room.md): the DevOps agent's only way onto a server,
 // checked against what that server allows in Meatproxy's own settings.
 if let k = CommandLine.arguments.firstIndex(of: "--ops") {

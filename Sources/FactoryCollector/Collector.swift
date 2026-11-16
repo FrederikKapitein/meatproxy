@@ -13,10 +13,14 @@ public final class Collector: @unchecked Sendable {
     private var readers: [URL: SessionReader] = [:]
     private var codexNames: [String: String] = [:]
     private var codexIndexDate: Date?
+    /// what the sessions would have cost at API prices (D61); `updateCosts()` reads the files, off this queue
+    public let costs: CostLedger
 
-    public init(home: URL = FileManager.default.homeDirectoryForCurrentUser, resolver: ProjectResolver = ProjectResolver()) {
+    public init(home: URL = FileManager.default.homeDirectoryForCurrentUser, resolver: ProjectResolver = ProjectResolver(),
+                costStore: URL? = CostLedger.defaultStore) {
         self.home = home
         self.resolver = resolver
+        self.costs = CostLedger(home: home, store: costStore)
     }
 
     /// The sessions as buildings and floors, with every factory on its floor (or a floor of its own). `factories`: the
@@ -33,6 +37,15 @@ public final class Collector: @unchecked Sendable {
         WorldBuilder.pin(settings.pinnedRoots, to: &w)
         for b in w.buildings.indices { for p in w.buildings[b].projects.indices where !w.buildings[b].projects[p].isChat {
             w.buildings[b].projects[p].logo = ProjectLogo.find(root: w.buildings[b].projects[p].root)
+        } }
+        // each floor's cost, keyed like its project id: "claude:/path" or "chatgpt:chats"
+        let resolver = self.resolver
+        let cost = costs.costs(now: now) { cwd, codex in
+            let k = resolver.resolve(cwd), provider = codex ? Provider.chatgpt.rawValue : Provider.claude.rawValue
+            return k.isChat ? "\(provider):chats" : "\(provider):\(k.root)"
+        }
+        for b in w.buildings.indices { for p in w.buildings[b].projects.indices {
+            w.buildings[b].projects[p].cost = cost[w.buildings[b].projects[p].id]
         } }
         return w
     }

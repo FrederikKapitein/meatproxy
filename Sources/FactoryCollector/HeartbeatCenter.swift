@@ -9,6 +9,8 @@ public final class HeartbeatCenter {
     public let runner: HeartbeatRunner
     /// wake-ups waiting for their moment, per project folder
     public private(set) var pending: [String: (reason: WakeReason, at: Date)] = [:]
+    /// what a factory's work cost today at API prices (D61), for its cost cap; nil: no cap is checked
+    public var costToday: ((String) -> Double)?
     private let ciQueue = DispatchQueue(label: "dev.tuinstra.meatproxy.ci", qos: .utility)
     private var ciChecking = false
     /// a CI look is under way (its answer comes back on the main queue)
@@ -85,6 +87,7 @@ public final class HeartbeatCenter {
             if let why = runner.hold(root) { return .held(why) }
             if let until = runner.planLimit(hb.runtime, now: now) { return .planLimit(hb.runtime, until: until) }
             if Self.automaticToday(runs, now: now) >= hb.runsPerDay { return .dailyCap(hb.runsPerDay) }
+            if let cap = hb.maxCostPerDay, let spent = costToday?(root), spent >= cap { return .costCap(spent: spent, cap: cap) }
             if let last = runs.last?.ended ?? runs.last?.started {
                 let until = last.addingTimeInterval(TimeInterval(hb.cooldownMinutes * 60))
                 if until > now { return .coolingDown(until: until) }

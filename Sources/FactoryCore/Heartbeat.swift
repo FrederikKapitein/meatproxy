@@ -29,6 +29,8 @@ public struct Heartbeat: Codable, Equatable, Sendable {
     public var runsPerDay = 6
     public var cooldownMinutes = 20
     public var maxTurns = 60
+    /// at most this much a day at API prices (D61, US dollars); above it automatic runs wait until tomorrow. nil: no cap
+    public var maxCostPerDay: Double?
 
     public init(days: Days = .weekdays, times: [String] = ["07:10"], everyMinutes: Int? = nil, runtime: Runtime = .claude,
                 wakeOnAnswer: Bool = true, wakeOnCI: Bool = true, paused: Bool = false) {
@@ -37,7 +39,7 @@ public struct Heartbeat: Codable, Equatable, Sendable {
     }
 
     // tolerant decoding: a field added later has its default
-    enum CodingKeys: String, CodingKey { case days, times, everyMinutes, runtime, wakeOnAnswer, wakeOnCI, paused, runsPerDay, cooldownMinutes, maxTurns }
+    enum CodingKeys: String, CodingKey { case days, times, everyMinutes, runtime, wakeOnAnswer, wakeOnCI, paused, runsPerDay, cooldownMinutes, maxTurns, maxCostPerDay }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self), x = Heartbeat()
         days = try c.decodeIfPresent(Days.self, forKey: .days) ?? x.days
@@ -50,6 +52,7 @@ public struct Heartbeat: Codable, Equatable, Sendable {
         runsPerDay = try c.decodeIfPresent(Int.self, forKey: .runsPerDay) ?? x.runsPerDay
         cooldownMinutes = try c.decodeIfPresent(Int.self, forKey: .cooldownMinutes) ?? x.cooldownMinutes
         maxTurns = try c.decodeIfPresent(Int.self, forKey: .maxTurns) ?? x.maxTurns
+        maxCostPerDay = try c.decodeIfPresent(Double.self, forKey: .maxCostPerDay)
     }
 
     /// How long after your last answer the CEO wakes, so that a few answers in a row make one run.
@@ -193,6 +196,8 @@ public enum Block: Equatable, Sendable {
     case planLimit(Heartbeat.Runtime, until: Date)
     /// the day's automatic runs are used up
     case dailyCap(Int)
+    /// today's work at API prices reached the factory's cap (D61)
+    case costCap(spent: Double, cap: Double)
     /// too soon after the last run
     case coolingDown(until: Date)
     /// you took over in Meatproxy's terminal: nothing starts until you close that tab (D57)
@@ -206,6 +211,7 @@ public enum Block: Equatable, Sendable {
         case .held(let why): return why
         case .planLimit(let r, let until): return "\(r.label) plan limit reached, waiting until \(f.string(from: until))"
         case .dailyCap(let n): return "\(n) of \(n) runs today, the next one tomorrow"
+        case .costCap(let spent, let cap): return "\(ProjectCost.format(spent)) today at API prices, over the cap of \(ProjectCost.format(cap)): the next run tomorrow"
         case .coolingDown(let until): return "Cooling down until \(f.string(from: until))"
         case .takenOver: return "In your hands: you took over in the terminal"
         }
