@@ -42,7 +42,8 @@ extension CampusScene {
         }
         // a CI lamp by the plaque of every floor GitHub knows
         for (st, id) in storeys {
-            guard let p = world.project(id: id), let g = p.github, let host = layer(st.building, storey: st.index),
+            // a red one is the alarm light, which is always there
+            guard let p = world.project(id: id), let g = p.github, !g.ciFailing, let host = layer(st.building, storey: st.index),
                   let rects = art.plaques[st.building], st.index < rects.count else { continue }
             let r = rects[st.index], c = CGPoint(x: r.minX - 1, y: r.midY)
             let state: ServiceStatus.State = g.ciFailing ? .down : .ok

@@ -752,7 +752,7 @@ public final class CampusScene: WorldScene {
         hovering = p.flatMap(target(at:)) != nil && !cam.hasActions()
         // the title follows the pointer even over what is already picked (the outline does not)
         let titled = cam.hasActions() ? nil : (wheelMark != nil ? t : p.flatMap(target(at:)))
-        // what an effect means comes first (D74): the rain, the crane, the lift, a lamp of the Status layer
+        // what an effect means comes first (D74): an alarm light, the lift, a drone, a lamp of the Status layer
         if !cam.hasActions(), wheelMark == nil, let p, let v = view, let hs = hotspot(at: p) {
             let q = convertPoint(toView: p)
             onHoverTitle?(HoverTitle(title: hs.0, line: hs.1, at: CGPoint(x: q.x, y: v.bounds.height - q.y), left: false))

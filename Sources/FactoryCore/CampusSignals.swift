@@ -36,29 +36,24 @@ public enum CampusSignals {
         return h + m / 60
     }
 
-    // MARK: 5B weather is status
+    // MARK: 5B the alarm light
 
-    public enum Weather: String, Sendable { case clear, cloudy, rain }
-
-    /// A project left broken: a session whose turn has ended while its last test, push or deploy failed, in the last
-    /// 12 hours. A red test in the middle of a turn is part of the work (the session shows it as stuck), not weather.
-    /// With GitHub (D67) it is simply CI: the newest run on main failed.
-    public static func broken(_ p: Project, now: Date) -> Bool {
-        if let g = p.github { return g.ciFailing }
-        return p.sessions.contains { s in
+    /// A project left broken, in words for its storey's red alarm light; nil when it is fine. With GitHub (D67) it is
+    /// simply CI: the newest run on main failed. Without it: a session whose turn has ended while its last test, push
+    /// or deploy failed, in the last 12 hours. A red test in the middle of a turn is part of the work (the session shows
+    /// it as stuck), not an alarm.
+    public static func alarm(_ p: Project, now: Date) -> String? {
+        if let g = p.github { return g.ciFailing ? "CI on main is red: " + g.failing.joined(separator: ", ") : nil }
+        for s in p.sessions {
             guard !s.turnOpen, s.liveRun != true,
-                  let last = s.activities.last(where: { $0.kind == .test || $0.kind == .push || $0.kind == .deploy }) else { return false }
-            return last.failed && now.timeIntervalSince(last.at) < 12 * 3600
+                  let last = s.activities.last(where: { $0.kind == .test || $0.kind == .push || $0.kind == .deploy }),
+                  last.failed, now.timeIntervalSince(last.at) < 12 * 3600 else { continue }
+            let what = last.kind == .test ? "test" : last.kind == .push ? "push" : "deploy"
+            return "A session ended with a failed \(what). Clears when a \(what) \(what == "test" ? "passes" : "goes through"), or after 12 hours."
         }
+        return nil
     }
-
-    /// Rain over a tower while one of its projects is left broken.
-    public static func weather(_ b: ProviderBuilding, now: Date) -> Weather {
-        b.projects.contains { broken($0, now: now) } ? .rain : .clear
-    }
-
-    /// Over the Server room: rain while something is down, clouds while something warns.
-    public static func weather(servers s: ServerSummary) -> Weather { s.down > 0 ? .rain : s.warn > 0 ? .cloudy : .clear }
+    public static func broken(_ p: Project, now: Date) -> Bool { alarm(p, now: now) != nil }
 
     // MARK: 5C delivery
 
@@ -68,16 +63,6 @@ public enum CampusSignals {
         if let g = p.github { return g.merged.filter { $0 > after } }
         guard p.factory != nil else { return [] }
         return p.sessions.flatMap(\.activities).filter { ($0.kind == .push || $0.kind == .deploy) && !$0.failed && $0.at > after }.map(\.at).sorted()
-    }
-
-    // MARK: 5D crane
-
-    /// A new project: its first and only session started in the last day and is not done yet. When it is done, the
-    /// ribbon is cut.
-    public static func underConstruction(_ p: Project, now: Date) -> Bool {
-        guard !p.isChat, p.sessions.count == 1, let s = p.sessions.first, let start = s.startedAt,
-              now.timeIntervalSince(start) < 24 * 3600 else { return false }
-        return s.state(now: now) != .done
     }
 
     // MARK: 5E lift

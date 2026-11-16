@@ -135,10 +135,8 @@ extension AppModel {
 
     /// What the campus shows, for the `?` sheet (D74). Hover any of them for what it means right now.
     static let legend: [(String, String)] = [
-        ("Rain", "CI on main is red in a project of that tower"),
-        ("Clouds over the Server room", "A server warns; rain when one is down"),
-        ("Drone to the fountain", "A pull request was merged"),
-        ("Crane and scaffolding", "A new project: its first session is still running"),
+        ("Red alarm light on a floor", "That project is broken: CI on main is red, or a session ended with a failed test, push or deploy (clears after 12 hours)"),
+        ("Drone to the fountain", "A pull request was merged (without GitHub: a factory pushed or deployed)"),
         ("Glass lift", "A session started a sub-agent"),
         ("Packets on the road", "A deploy is running"),
         ("Smoke", "A factory works in that tower"),
