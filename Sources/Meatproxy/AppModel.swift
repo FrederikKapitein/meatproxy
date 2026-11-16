@@ -315,6 +315,7 @@ final class AppModel: ObservableObject {
 
     private func apply(_ w: World) {
         world = w
+        ensureOwnMandate()
         lastRead = w.now
         controller.show(w)
         Task { await controller.ensurePortraits(w.projects.flatMap { p in p.sessions.map { p.cast(of: $0) } }); objectWillChange.send() }
@@ -574,6 +575,16 @@ final class AppModel: ObservableObject {
     private func capMandate(_ root: String) {
         if mandate(root).level == .dark { setMandate(root) { $0.set(level: .hybrid) } }
     }
+    /// Meatproxy's own factory starts as an assistant (D68): when it has no mandate yet, Meatproxy writes one, as the
+    /// switch in Settings does. Once.
+    private var ownMandateChecked = false
+    private func ensureOwnMandate() {
+        guard !ownMandateChecked, !fixture, let r = projectSettings.ownFactory,
+              let f = world.projects.first(where: { $0.root == r })?.factory else { return }
+        ownMandateChecked = true
+        if f.mandate == nil && f.takesMandate { setMandate(r) { $0.set(level: .assistant) } }
+    }
+
     /// Meatproxy's own factory, when you chose one and it is on the campus.
     var ownFactoryProject: Project? {
         // the demo has no settings of yours: its made-up factory stands in
