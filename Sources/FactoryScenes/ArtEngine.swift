@@ -1,5 +1,6 @@
 import Foundation
 import WebKit
+import AppKit
 import SpriteKit
 import FactoryCore
 
@@ -73,13 +74,36 @@ public final class ArtEngine: NSObject, WKURLSchemeHandler {
     public func campus(_ world: World) async throws -> CampusArt {
         func floors(_ p: Provider) -> [[String: Any]] {
             (world.building(p)?.projects ?? []).map { pr in
-                ["name": pr.name, "wait": pr.waits(now: world.now)]
+                var f: [String: Any] = ["name": pr.name, "wait": pr.waits(now: world.now)]
+                if let logo = pr.logo.flatMap(logoURI) { f["logo"] = logo }   // D58: the logo in its plaque
+                return f
             }
         }
         let sum = world.serverSummary
         let input: [String: Any] = ["R": 3, "claude": floors(.claude), "chatgpt": floors(.chatgpt), "waiting": world.needsYou.count,
                                     "engine": ["total": sum.total, "warn": sum.warn, "down": sum.down]]
         return CampusArt(try await call("return await window.sf.campus(input)", ["input": input]))
+    }
+
+    /// A project's logo as a small PNG data URI for its plaque (D58): drawn once per file at 48 px, kept.
+    private var logos: [String: String?] = [:]
+    private func logoURI(_ path: String) -> String? {
+        if let hit = logos[path] { return hit }
+        var uri: String?
+        if let img = NSImage(contentsOfFile: path), img.size.width > 0 {
+            let px = 48, rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px, bitsPerSample: 8, samplesPerPixel: 4,
+                                                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+            if let rep {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+                let s = img.size, k = min(CGFloat(px) / s.width, CGFloat(px) / s.height), w = s.width * k, h = s.height * k
+                img.draw(in: CGRect(x: (CGFloat(px) - w) / 2, y: (CGFloat(px) - h) / 2, width: w, height: h))
+                NSGraphicsContext.restoreGraphicsState()
+                uri = rep.representation(using: .png, properties: [:]).map { "data:image/png;base64," + $0.base64EncodedString() }
+            }
+        }
+        logos[path] = .some(uri)
+        return uri
     }
 
     /// Every frame one person needs, from the blocky rig (D41): cached per role and seed.
