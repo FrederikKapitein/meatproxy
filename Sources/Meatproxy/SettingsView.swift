@@ -875,8 +875,11 @@ private struct TokenRow: View {
     let text: String
     @State private var saved = false
     @State private var value = ""
+    @State private var testing = false
+    @State private var result: (ok: Bool, line: String)?
     @FocusState private var focused: Bool
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(key.label) token").font(.system(size: 13.5, weight: .semibold))
@@ -885,7 +888,9 @@ private struct TokenRow: View {
             Spacer(minLength: 0)
             if saved {
                 Label("In the Keychain", systemImage: "checkmark.seal").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.done)
-                Button { if !model.fixture { Secrets.set(key, nil) }; saved = false } label: { Text("Remove") }.buttonStyle(SettingsButton())
+                Button { test() } label: { Text(testing ? "Testing…" : "Test") }.buttonStyle(SettingsButton()).disabled(testing)
+                    .help("Reads what your factories name, once, to see that the token works")
+                Button { if !model.fixture { Secrets.set(key, nil) }; saved = false; result = nil } label: { Text("Remove") }.buttonStyle(SettingsButton())
             } else {
                 SecureField("Paste token", text: $value).focused($focused).font(.system(size: 12, design: .monospaced))
                     .textFieldStyle(.plain).padding(.horizontal, 10).padding(.vertical, 6).frame(width: 170).lifted(focused: focused)
@@ -893,13 +898,24 @@ private struct TokenRow: View {
                 Button(action: save) { Text("Save") }.buttonStyle(SettingsButton()).disabled(value.isEmpty)
             }
         }
+        if let result {
+            Label(result.line, systemImage: result.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(result.ok ? Color.done : Color.warn)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .onAppear { saved = !model.fixture && Secrets.get(key) != nil }
+    }
+    private func test() {
+        testing = true; result = nil
+        Task { result = await model.testToken(key); testing = false }
     }
     /// demo data saves nothing, also not in the Keychain
     private func save() {
         guard !value.isEmpty else { return }
         saved = model.fixture ? true : Secrets.set(key, value); value = ""
+        if saved { test() }   // a fresh token is tried right away
     }
 }
 

@@ -112,6 +112,54 @@ public final class WakeSources: @unchecked Sendable {
         return now.keys.sorted().filter { before[$0] != now[$0] }.compactMap { names[$0] }
     }
 
+    // MARK: testing a token
+
+    /// Whether a token works (the Test button in Settings): one read per Sentry project the factories name, or, when
+    /// none names one, Sentry's own API root. The answer is one line, and true when it worked. Blocking.
+    public func testSentry(token: String, projects: [FactorySources]) -> (ok: Bool, line: String) {
+        let named = projects.filter(\.hasSentry)
+        if named.isEmpty {
+            guard let (_, status, _) = transport(Self.request("https://sentry.io/api/0/", token: token)) else { return (false, "Sentry did not answer") }
+            return status == 200 ? (true, "Token accepted. No factory names a Sentry project yet.") : (false, Self.reason(status))
+        }
+        var ok: [String] = []
+        for s in named {
+            guard let org = s.sentryOrg, let project = s.sentryProject else { continue }
+            guard let (_, status, _) = transport(Self.request("https://\(s.sentryHost)/api/0/projects/\(org)/\(project)/", token: token)) else {
+                return (false, "\(s.sentryHost) did not answer")
+            }
+            guard status == 200 else { return (false, "\(org)/\(project): " + Self.reason(status)) }
+            ok.append("\(org)/\(project)")
+        }
+        return (true, "Works: reads " + ok.joined(separator: ", "))
+    }
+
+    /// Whether a Tracker token works: one small read of each project the factories name, or a hello when none does.
+    public func testTracker(token: String, slugs: [String]) -> (ok: Bool, line: String) {
+        let mcp = MCPClient(url: URL(string: "https://tracker.tuinstra.dev/mcp/delivery")!, token: token, transport: transport)
+        if slugs.isEmpty {
+            return mcp.hello() ? (true, "Token accepted. No factory names a Tracker project yet.") : (false, "Tracker refused the token or did not answer")
+        }
+        for slug in slugs where mcp.call("list_stories", ["project": slug, "limit": 1]) == nil {
+            return (false, "Could not read the Tracker project \(slug)")
+        }
+        return (true, "Works: reads " + slugs.joined(separator: ", "))
+    }
+
+    static func request(_ url: String, token: String) -> URLRequest {
+        var r = URLRequest(url: URL(string: url)!, timeoutInterval: 15)
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return r
+    }
+    static func reason(_ status: Int) -> String {
+        switch status {
+        case 401: return "the token was refused (401)"
+        case 403: return "the token may not read this (403)"
+        case 404: return "not found, or the token cannot see it (404)"
+        default: return "Sentry answered \(status)"
+        }
+    }
+
     // MARK: network
 
     public static let systemTransport: HTTPTransport = { request in
@@ -156,6 +204,15 @@ struct MCPClient {
             if let o = try? JSONSerialization.jsonObject(with: Data(line.dropFirst(5).trimmingCharacters(in: .whitespaces).utf8)) { return o }
         }
         return nil
+    }
+
+    /// Says hello (initialize): true when the server takes the token.
+    func hello() -> Bool {
+        let hello: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                    "params": ["protocolVersion": "2025-06-18", "capabilities": [String: Any](),
+                                               "clientInfo": ["name": "meatproxy", "version": "1"]]]
+        guard let (reply, _) = post(hello, session: nil) else { return false }
+        return (reply as? [String: Any])?["result"] != nil
     }
 
     /// Calls a tool and returns its result as JSON: the structured content, or the JSON in its first text block.

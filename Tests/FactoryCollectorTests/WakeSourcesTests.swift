@@ -111,3 +111,47 @@ import FactoryCore
         #expect(fake.asked.isEmpty)
     }
 }
+
+/// The Test button: does a token read what the factories name?
+@Suite struct TokenTestTests {
+    func src(_ s: String) -> FactorySources { FactoryText.sources(s) }
+
+    @Test func sentryReadsEachNamedProject() {
+        let seen = TestLog()
+        let ws = WakeSources { r in seen.add(r.url!.absoluteString + " " + (r.value(forHTTPHeaderField: "Authorization") ?? "")); return (Data("{}".utf8), 200, [:]) }
+        let r = ws.testSentry(token: "t0k", projects: [src("sentry: demo-org/pebble-app\nsentry-host: de.sentry.io\n")])
+        #expect(r.ok && r.line == "Works: reads demo-org/pebble-app")
+        #expect(seen.items == ["https://de.sentry.io/api/0/projects/demo-org/pebble-app/ Bearer t0k"])
+    }
+
+    @Test func sentrySaysWhyItFailed() {
+        let refused = WakeSources { _ in (Data(), 401, [:]) }
+        #expect(refused.testSentry(token: "x", projects: [src("sentry: demo-org/app\n")]) == (false, "demo-org/app: the token was refused (401)"))
+        let hidden = WakeSources { _ in (Data(), 404, [:]) }
+        #expect(hidden.testSentry(token: "x", projects: [src("sentry: demo-org/app\n")]).line.contains("404"))
+        let silent = WakeSources { _ in nil }
+        #expect(!silent.testSentry(token: "x", projects: [src("sentry: demo-org/app\n")]).ok)
+        // no factory names a project: the API root says whether the token is taken
+        let root = WakeSources { r in r.url!.absoluteString == "https://sentry.io/api/0/" ? (Data("{}".utf8), 200, [:]) : nil }
+        #expect(root.testSentry(token: "x", projects: []).ok)
+    }
+
+    @Test func trackerSaysHelloOrReadsTheProjects() {
+        let ok = WakeSources { r in
+            let body = String(decoding: r.httpBody ?? Data(), as: UTF8.self)
+            if body.contains("initialize") { return (Data(#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18"}}"#.utf8), 200, ["mcp-session-id": "s1"]) }
+            if body.contains("list_stories") { return (Data(#"{"jsonrpc":"2.0","id":2,"result":{"structuredContent":{"items":[]}}}"#.utf8), 200, [:]) }
+            return (Data("{}".utf8), 202, [:])
+        }
+        #expect(ok.testTracker(token: "x", slugs: []).ok)
+        #expect(ok.testTracker(token: "x", slugs: ["pebble"]) == (true, "Works: reads pebble"))
+        let refused = WakeSources { _ in (Data(), 401, [:]) }
+        #expect(!refused.testTracker(token: "x", slugs: []).ok && !refused.testTracker(token: "x", slugs: ["pebble"]).ok)
+    }
+}
+
+final class TestLog: @unchecked Sendable {
+    private let lock = NSLock(); private var list: [String] = []
+    func add(_ s: String) { lock.lock(); list.append(s); lock.unlock() }
+    var items: [String] { lock.lock(); defer { lock.unlock() }; return list }
+}

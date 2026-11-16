@@ -289,6 +289,20 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Tries a saved token (the Test button): one read of what the factories name. Off the main queue.
+    func testToken(_ key: Secrets.Key) async -> (ok: Bool, line: String) {
+        if fixture { return (true, "Demo data: nothing is sent") }
+        let sources = world.projects.compactMap { $0.factory }.filter(\.takesSources).map(\.sources)
+        let ws = wakeSources
+        return await Task.detached(priority: .userInitiated) {
+            guard let token = Secrets.get(key) else { return (false, "No token saved") }
+            switch key {
+            case .sentry: return ws.testSentry(token: token, projects: sources)
+            case .tracker: return ws.testTracker(token: token, slugs: sources.compactMap(\.tracker))
+            }
+        }.value
+    }
+
     /// The status pages (D69), every five minutes, off the main queue.
     func checkStatusPages() {
         guard let collector, !statusChecking else { return }
