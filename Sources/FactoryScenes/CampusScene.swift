@@ -12,7 +12,7 @@ public final class CampusScene: WorldScene {
     var onSelectServer: ((Int) -> Void)?        // a rack in the Server room: the server in that slot (rack order)
     /// what the pointer is on, as a title and a line, and where (view points from the top left); nil when nothing
     var onHoverTitle: ((HoverTitle?) -> Void)?
-    private var shownWorld: World = .empty
+    var shownWorld: World = .empty
     /// how many racks hold a server, and the slot pulled out of one (rack index), with its parts
     private var rackCount = 0
     private var slot: Slot?
@@ -25,18 +25,18 @@ public final class CampusScene: WorldScene {
     /// What a click at a point would do, and so what lights up under the pointer (one hit test for both).
     enum Target: Equatable { case building(String), storey(String), fountain, walker(String), rack(Int) }
 
-    private var art: CampusArt?
-    private var buildings: [String: SKSpriteNode] = [:]
+    var art: CampusArt?
+    var buildings: [String: SKSpriteNode] = [:]
     /// per building: what is drawn over it and dims with it (rack LEDs, the beacon, waiting bands)
-    private var overlays: [String: SKNode] = [:]
-    private var storeys: [(storey: CampusArt.Storey, project: String)] = []
+    var overlays: [String: SKNode] = [:]
+    var storeys: [(storey: CampusArt.Storey, project: String)] = []
     private(set) var walkers: [String: Walker] = [:]
     private var skyNode: SKSpriteNode?
-    private var highlight: SKShapeNode?          // the storey you fly into
-    private var highlightID: String?
+    var highlight: SKShapeNode?          // the storey you fly into
+    var highlightID: String?
     private var focusMark: SKShapeNode?          // the focused building's footprint
-    private var hoverLayer: SKNode?
-    private var hoverTarget: Target?
+    var hoverLayer: SKNode?
+    var hoverTarget: Target?
     private var hoverRing: (node: SKShapeNode, walker: String)?
     /// shapes whose line stays the same width on screen at any zoom: (shape, points)
     private var screenLines: [(node: SKShapeNode, width: CGFloat)] = []
@@ -45,18 +45,32 @@ public final class CampusScene: WorldScene {
     private var worst: String?
     private var waitBands: [SKShapeNode] = []
     /// the towers' life (D62): windows that light up now and then, the antenna lamps, the chimneys of factories
-    private var windowLights: [(node: SKShapeNode, phase: Double, period: Double, peak: CGFloat)] = []
+    var windowLights: [(node: SKShapeNode, phase: Double, period: Double, peak: CGFloat, factory: String?)] = []
     private var antennaLamps: [(dot: SKShapeNode, glow: SKSpriteNode, phase: Double)] = []
     private var chimneys: [SKEmitterNode] = []
     private var fountainGlow: SKSpriteNode?
     /// the signs, each sorted with what it hangs on: owner is the building key for its roof sign and plaques
-    private var signs: [(node: SKSpriteNode, owner: String?, plaque: Bool, storey: Int?)] = []
+    var signs: [(node: SKSpriteNode, owner: String?, plaque: Bool, storey: Int?)] = []
     /// plaques of storeys that wait for you ("claude:0"): yellow, so they fade less when someone walks behind them
     private var waitingPlaques: Set<String> = []
     private var waiting = 0
     private var lastTime: TimeInterval = 0
-    private var clock: Double = 0
+    var clock: Double = 0
     private(set) var focus: String?
+    /// 4A (D65): the towers that stand apart under the pointer, which one the pointer wants open, and the storey the
+    /// wheel has marked (with where the pointer was then)
+    var stacks: [String: TowerStack] = [:]
+    var explodeWant: String?
+    var explodeShut: String?
+    /// a tower held apart without a pointer (window shots)
+    public var pinnedApart: String?
+    var wheelMark: (key: String, index: Int, at: CGPoint)?
+    var wheelRest: CGFloat = 0
+    /// where each sign sits with its tower together, to move it with its storey
+    var signHome: [CGPoint] = []
+    /// D66: the campus's life. effects outlives a repaint (a drone in the air); life is drawn anew with the state
+    let effects = SKNode()
+    var life = CampusLife()
 
     // colours (D24, one grammar): selection and hover cyan, waiting yellow, down red
     static let cyan = SKColor(red: 0.31, green: 0.88, blue: 0.96, alpha: 1)
@@ -77,7 +91,9 @@ public final class CampusScene: WorldScene {
         shownWorld = world
         content.removeAllChildren(); buildings = [:]; overlays = [:]; highlight = nil; focusMark = nil
         hoverLayer = nil; hoverTarget = nil; hoverRing = nil; screenLines = []; leds = []; beacon = nil; waitBands = []; signs = []; waitingPlaques = []
-        windowLights = []; antennaLamps = []; chimneys = []
+        windowLights = []; antennaLamps = []; chimneys = []; stacks = [:]; life.reset()
+        effects.removeFromParent(); effects.zPosition = 2990; content.addChild(effects)
+        life.ground.removeFromParent(); life.ground.zPosition = -480; content.addChild(life.ground)
         if skyNode == nil {
             let s = SKSpriteNode(texture: Self.skyTexture); s.zPosition = -1000; cam.addChild(s); skyNode = s; sizeChanged()
         }
@@ -95,7 +111,7 @@ public final class CampusScene: WorldScene {
                 n.addChild(ov); overlays[key] = ov
             }
         }
-        if let l = place(art.light, z: 3000, blend: .screen) { l.alpha = 0.9; content.addChild(l) }
+        if let l = place(art.light, z: 3000, blend: .screen) { l.alpha = 0.9; l.name = "lamplight"; content.addChild(l) }
         // each sign just in front of what it hangs on (a building's roof sign and plaques, the Server room's board, the
         // plot's board, the fountain's count): people in front of a building pass in front of its plaques too
         for sg in art.signs {
@@ -117,6 +133,9 @@ public final class CampusScene: WorldScene {
         addFountainGlow()
         addEngineLights(world)
         addTowerLife(world)
+        buildStacks(world)
+        signHome = signs.map { $0.node.position }
+        updateLife(world)
         placeWalkers(figures, fresh: first)
         setHome(art.view.insetBy(dx: 30, dy: 0), fill: 0.98)  // dy 0: the tower roofs and signs stay in view
         if first { cam.setScale(homeScale); cam.position = homeCenter }
@@ -147,13 +166,13 @@ public final class CampusScene: WorldScene {
         skyNode?.size = CGSize(width: size.width * 1.02, height: size.height * 1.02)
     }
 
-    private func shape(_ pts: [CGPoint], fill: SKColor, stroke: SKColor = .clear, width: CGFloat = 0) -> SKShapeNode {
+    func shape(_ pts: [CGPoint], fill: SKColor, stroke: SKColor = .clear, width: CGFloat = 0) -> SKShapeNode {
         let path = CGMutablePath(); path.addLines(between: pts.map(scenePoint)); path.closeSubpath()
         let n = SKShapeNode(path: path); n.fillColor = fill; n.strokeColor = stroke; n.lineWidth = width; n.lineJoin = .miter
         return n
     }
 
-    private func glow(_ at: CGPoint, size: CGSize, color: SKColor) -> SKSpriteNode {
+    func glow(_ at: CGPoint, size: CGSize, color: SKColor) -> SKSpriteNode {
         let g = SKSpriteNode(texture: Self.glowTexture); g.size = CGSize(width: size.width * px, height: size.height * px)
         g.position = scenePoint(at); g.color = color; g.colorBlendFactor = 1; g.blendMode = .add
         return g
@@ -170,7 +189,7 @@ public final class CampusScene: WorldScene {
                 let band = shape([CGPoint(x: a.x, y: a.y - lo), CGPoint(x: b.x, y: b.y - lo), CGPoint(x: b.x, y: b.y - hi), CGPoint(x: a.x, y: a.y - hi)],
                                  fill: Self.wait, stroke: Self.ink, width: 0.7 * px)
                 band.zPosition = 0.1
-                ov.addChild(band); waitBands.append(band)
+                (layer(st.building, storey: st.index) ?? ov).addChild(band); waitBands.append(band)
             }
         }
     }
@@ -225,12 +244,12 @@ public final class CampusScene: WorldScene {
                 let h = (st.index &* 31 &+ k &* 17 &+ (st.building == "claude" ? 0 : 7)) % 9
                 guard h < (busy ? 6 : 3) else { continue }
                 let n = shape(w, fill: factory ? cool : warm); n.blendMode = .add; n.zPosition = 0.05; n.alpha = 0
-                ov.addChild(n)
-                windowLights.append((n, Double(h) * 1.37 + Double(k) * 0.61, (busy ? 3.2 : 6.5) + Double(h % 3), factory ? 0.42 : 0.32))
+                (layer(st.building, storey: st.index) ?? ov).addChild(n)
+                windowLights.append((n, Double(h) * 1.37 + Double(k) * 0.61, (busy ? 3.2 : 6.5) + Double(h % 3), factory ? 0.42 : 0.32, factory ? id : nil))
             }
         }
         for t in art.towers {
-            guard let ov = overlays[t.building] else { continue }
+            guard let ov = layer(t.building, storey: nil) else { continue }
             let dot = SKShapeNode(circleOfRadius: 1.3 * px); dot.fillColor = Self.down; dot.strokeColor = .clear
             dot.position = scenePoint(t.antenna); dot.zPosition = 0.6
             let g = glow(t.antenna, size: CGSize(width: 14, height: 14), color: Self.down); g.zPosition = 0.61
@@ -503,6 +522,8 @@ public final class CampusScene: WorldScene {
         } else {
             for w in walkers.values { place(w) }
         }
+        tickStacks(dt)
+        tickLife(dt)
         animateLights()
         fadePlaques(dt)
         for l in screenLines { l.node.lineWidth = screenWidth(l.width) }
@@ -535,7 +556,8 @@ public final class CampusScene: WorldScene {
     private func animateLights() {
         let t = clock, on = animationsEnabled
         for l in leds {
-            let a = l.status ? RackLights.status(l.state, rack: l.rack, t: t, animated: on) : RackLights.activity(l.state, rack: l.rack, t: t, animated: on)
+            // a deploy on its way (5F): the activity lights answer, three times as fast
+            let a = l.status ? RackLights.status(l.state, rack: l.rack, t: t, animated: on) : RackLights.activity(l.state, rack: l.rack, t: life.streaming ? t * 3 : t, animated: on)
             l.node.alpha = a; l.glow.alpha = 0.35 * a
             l.node.isHidden = a <= 0.01; l.glow.isHidden = a <= 0.01
         }
@@ -548,7 +570,9 @@ public final class CampusScene: WorldScene {
         for w in windowLights {
             // a slow swell: off most of the time, on for a while; a still frame shows them half lit
             let v = on ? max(0, sin((t / w.period + w.phase) * 2 * .pi)) : 0.5
-            w.node.alpha = w.peak * CGFloat(v * v)
+            // brighter at night (5A); a factory in its quiet hours sleeps, its screens low
+            let night = 1 + 1.4 * (1 - life.daylight), sleep: CGFloat = w.factory.map { life.sleeping.contains($0) } == true ? 0.3 : 1
+            w.node.alpha = w.peak * CGFloat(v * v) * night * sleep
         }
         for l in antennaLamps {
             let lit = !on || (t + l.phase).truncatingRemainder(dividingBy: 1.8) < 0.35
@@ -641,7 +665,11 @@ public final class CampusScene: WorldScene {
         content.addChild(n); highlight = n
     }
 
-    public override func up() { if focus != nil { focus(on: nil); onFocus?(nil) } }
+    override func wheel(_ dy: CGFloat, precise: Bool) -> Bool { stackWheel(dy, precise: precise) }
+    public override func up() {
+        if closeStacks() { return }
+        if focus != nil { focus(on: nil); onFocus?(nil) }
+    }
     public override func next() { onNext?() }
 
     // MARK: input
@@ -655,15 +683,16 @@ public final class CampusScene: WorldScene {
         if let sg = signs.filter({ $0.plaque && $0.storey != nil && $0.node.alpha > 0.3 && $0.node.frame.contains(p) }).max(by: { $0.node.zPosition < $1.node.zPosition }),
            let key = sg.owner, let s = storeys.first(where: { $0.storey.building == key && $0.storey.index == sg.storey }) {
             let w = walkers.values.filter { $0.node.alpha > 0.5 && $0.node.zPosition > sg.node.zPosition && bodyRect($0).contains(p) }
-            if w.isEmpty { return focus == key ? .storey(s.project) : .building(key) }
+            if w.isEmpty { return focus == key || isApart(key) ? .storey(s.project) : .building(key) }
         }
         // a walker in front of whatever is behind them
         let walker = walkers.values.filter { $0.node.alpha > 0.5 && $0.node.contains(p) }.max { $0.node.zPosition < $1.node.zPosition }
         let building = buildings.filter { silhouette($0.key)?.contains(a) ?? $0.value.contains(p) }.max { $0.value.zPosition < $1.value.zPosition }
         if let w = walker, (building?.value.zPosition ?? -.infinity) < w.node.zPosition { return .walker(w.session) }
         // a storey of the focused building (or of any building, when you point right at it)
-        if let s = storeys.filter({ $0.storey.faces.contains { contains($0, a) } }).first(where: { focus == nil || $0.storey.building == focus }) {
-            return focus == s.storey.building ? .storey(s.project) : .building(s.storey.building)
+        if let s = storeys.filter({ storeyHit($0.storey, a) }).first(where: { focus == nil || $0.storey.building == focus || isApart($0.storey.building) })
+            ?? storeys.first(where: { isApart($0.storey.building) && cutHit($0.storey, a) }) {
+            return focus == s.storey.building || isApart(s.storey.building) ? .storey(s.project) : .building(s.storey.building)
         }
         if let (key, _) = building {
             if key == focus, let s = storeys.filter({ $0.storey.building == key }).min(by: { centerDistance($0.storey, a) < centerDistance($1.storey, a) }) { return .storey(s.project) }
@@ -677,6 +706,8 @@ public final class CampusScene: WorldScene {
     }
 
     override func click(at p: CGPoint) {
+        // the storey the wheel marked opens, wherever in the stack the pointer is
+        if wheelMark != nil, case .storey(let id)? = hoverTarget { onEnterFloor?(id); return }
         switch target(at: p) {
         case .walker(let id)?: onSelectSession?(id)
         case .storey(let id)?: onEnterFloor?(id)
@@ -692,16 +723,24 @@ public final class CampusScene: WorldScene {
     override func hover(at p: CGPoint?) {
         var t = p.flatMap(target(at:))
         if cam.hasActions() { t = nil }
+        wantApart(t, at: p)
+        // the wheel's mark holds until the pointer moves on
+        if let m = wheelMark {
+            if let q = pointer, hypot(q.x - m.at.x, q.y - m.at.y) > 4 { wheelMark = nil }
+            else if isApart(m.key), let s = storeys.first(where: { $0.storey.building == m.key && $0.storey.index == m.index }) { t = .storey(s.project) }
+            else { wheelMark = nil }
+        }
         if case .building(let k)? = t, k == focus { t = nil }
         if case .storey(let id)? = t, highlight != nil, id == highlightID { t = nil }
         hovering = p.flatMap(target(at:)) != nil && !cam.hasActions()
         // the title follows the pointer even over what is already picked (the outline does not)
-        let titled = cam.hasActions() ? nil : p.flatMap(target(at:))
-        if let titled, let p, let v = view, let words = title(for: titled) {
-            let q = convertPoint(toView: p)
+        let titled = cam.hasActions() ? nil : (wheelMark != nil ? t : p.flatMap(target(at:)))
+        // a marked storey's line hangs by its plaque, like a label (4A); otherwise it follows the pointer
+        if let titled, let v = view, let words = title(for: titled),
+           let at = markLabelPoint() ?? p.map({ q -> CGPoint in let q = convertPoint(toView: q); return CGPoint(x: q.x, y: v.bounds.height - q.y) }) {
             var left = false
-            switch titled { case .storey, .building: left = true; default: break }
-            onHoverTitle?(HoverTitle(title: words.0, line: words.1, at: CGPoint(x: q.x, y: v.bounds.height - q.y), left: left))
+            switch titled { case .storey, .building: left = wheelMark == nil; default: break }
+            onHoverTitle?(HoverTitle(title: words.0, line: words.1, at: at, left: left))
         } else { onHoverTitle?(nil) }
         guard t != hoverTarget else { return }
         let had = hoverTarget != nil
@@ -720,7 +759,7 @@ public final class CampusScene: WorldScene {
         switch t {
         case .building(let key):
             if let fp = art?.footprints["building:" + key] { layer.addChild(footprint(fp, outset: 0.5, fill: 0.1, stroke: 0.9, width: 1.5)) }
-            if let b = buildings[key] {
+            if let b = buildings[key], !isApart(key) {
                 let lift = SKSpriteNode(texture: b.texture); lift.anchorPoint = b.anchorPoint; lift.size = b.size; lift.position = b.position
                 lift.blendMode = .add; lift.alpha = 0.16; lift.zPosition = b.zPosition + 0.1
                 layer.addChild(lift)
@@ -752,7 +791,7 @@ public final class CampusScene: WorldScene {
 
 
     private func refreshHover() { if pointer != nil { hover(at: pointerInScene) } }
-    private func clearHover() { hoverLayer?.removeFromParent(); hoverLayer = nil; hoverTarget = nil; hoverRing = nil }
+    func clearHover() { hoverLayer?.removeFromParent(); hoverLayer = nil; hoverTarget = nil; hoverRing = nil }
 
     override func didZoom(zoomingIn: Bool) {
         let z = zoomRatio
@@ -769,7 +808,7 @@ public final class CampusScene: WorldScene {
     /// The outline of a building as you see it (its box from the ground to the top of its sprite), in art units.
     private func silhouette(_ key: String) -> CGMutablePath? {
         guard let fp = art?.footprints["building:" + key], let n = buildings[key] else { return nil }
-        let top = -(n.position.y) / px      // the sprite's top edge, in art units (y down)
+        let top = -(n.position.y) / px - (stacks[key]?.roofOffset ?? 0)    // the sprite's top edge (the roof lifted), art units (y down)
         let i0 = fp.minX, j0 = fp.minY, i1 = fp.maxX, j1 = fp.maxY
         let h = ((i0 + j0) * 8 - top) / 1.08
         let path = CGMutablePath()
@@ -788,7 +827,7 @@ public final class CampusScene: WorldScene {
         let pts = s.faces.flatMap { $0 }, n = CGFloat(max(pts.count, 1))
         return hypot(pts.map(\.x).reduce(0, +) / n - a.x, pts.map(\.y).reduce(0, +) / n - a.y)
     }
-    private func contains(_ poly: [CGPoint], _ p: CGPoint) -> Bool {
+    func contains(_ poly: [CGPoint], _ p: CGPoint) -> Bool {
         let path = CGMutablePath(); path.addLines(between: poly); path.closeSubpath(); return path.contains(p)
     }
 

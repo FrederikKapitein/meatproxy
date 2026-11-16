@@ -117,6 +117,12 @@ struct HUDView: View {
                 if n > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
                 if step == "next" { model.controller.nextWaiting() }
                 else if step == "up" { model.controller.up() }
+                // D65/D66 shots: "apart:<tower>" holds a tower apart, "mark:<k>" marks storey k, "life:demo" plays all
+                // of the campus's life at night, "hour:<h>" sets the clock
+                else if step.hasPrefix("apart:") { model.controller.campus.holdApart(String(step.dropFirst(6))) }
+                else if step.hasPrefix("mark:"), let k = Int(step.dropFirst(5)) { model.controller.campus.mark(k) }
+                else if step == "life:demo" { model.controller.campus.demoLife() }
+                else if step.hasPrefix("hour:"), let h = Double(step.dropFirst(5)) { model.controller.campus.setHour(h) }
                 else if step.hasPrefix("building:") { model.controller.focusBuilding(String(step.dropFirst(9))) }
                 // "tab:<overview|work|ceo>": that tab in the open factory's inspector
                 else if step.hasPrefix("tab:"), let id = model.selection.projectID, let t = FactoryOverview.Tab(rawValue: String(step.dropFirst(4))) { model.factoryTabs[id] = t }
