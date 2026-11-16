@@ -74,7 +74,8 @@ public final class ArtEngine: NSObject, WKURLSchemeHandler {
     public func campus(_ world: World) async throws -> CampusArt {
         func floors(_ p: Provider) -> [[String: Any]] {
             (world.building(p)?.projects ?? []).map { pr in
-                var f: [String: Any] = ["name": pr.name, "wait": pr.waits(now: world.now)]
+                var f: [String: Any] = ["name": pr.name, "wait": pr.waits(now: world.now),
+                                        "kind": pr.factory != nil ? "factory" : pr.isChat ? "chats" : "project"]   // D62
                 if let logo = pr.logo.flatMap(logoURI) { f["logo"] = logo }   // D58: the logo in its plaque
                 return f
             }
@@ -259,7 +260,11 @@ public struct FloorArt {
 }
 
 public struct CampusArt {
-    public struct Storey { public var building: String, index: Int, faces: [[CGPoint]] }
+    /// kind: "factory", "chats" or "project" (D62); windows: the front windows' quads, so the app can light them
+    public struct Storey { public var building: String, index: Int, faces: [[CGPoint]], kind: String = "project", windows: [[CGPoint]] = [] }
+    /// per tower: the antenna's tip (its lamp blinks) and the chimney's mouth when a factory works there (it smokes)
+    public struct Tower { public var building: String, antenna: CGPoint, chimney: CGPoint? }
+    public var towers: [Tower] = []
     public var view: CGRect, ground: ArtImage?, objects: [ArtObject], light: ArtImage?, signs: [SignPart], boxes: [Box]
     /// what you can point at besides the buildings, as boxes (tiles, and a height in model units): "fountain"
     public var hits: [String: [(rect: CGRect, height: CGFloat)]]
@@ -283,9 +288,13 @@ public struct CampusArt {
             list.compactMap { b in let v = b.map(num); return v.count == 5 ? (CGRect(x: v[0], y: v[1], width: v[2] - v[0], height: v[3] - v[1]), v[4]) : nil }
         }
         storeys = ((d["storeys"] as? [[String: Any]]) ?? []).map { s in
-            Storey(building: s["building"] as? String ?? "", index: Int(num(s["index"])), faces: ((s["faces"] as? [[Any]]) ?? []).map { $0.map(point) })
+            Storey(building: s["building"] as? String ?? "", index: Int(num(s["index"])), faces: ((s["faces"] as? [[Any]]) ?? []).map { $0.map(point) },
+                   kind: s["kind"] as? String ?? "project", windows: ((s["windows"] as? [[Any]]) ?? []).map { $0.map(point) })
         }
         fountain = point(d["fountain"])
+        towers = ((d["towers"] as? [[String: Any]]) ?? []).map { t in
+            Tower(building: t["building"] as? String ?? "", antenna: point(t["antenna"]), chimney: t["chimney"].flatMap { $0 is NSNull ? nil : point($0) })
+        }
         footprints = ((d["footprints"] as? [String: [Any]]) ?? [:]).mapValues { a in
             let v = a.map(num); return v.count == 4 ? CGRect(x: v[0], y: v[1], width: v[2] - v[0], height: v[3] - v[1]) : .zero
         }

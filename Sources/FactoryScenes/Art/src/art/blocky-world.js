@@ -24,14 +24,14 @@
     } catch (e) { /* no canvas: estimate */ }
     return txt.length * 6.4 + 12;
   };
-  /* a storey plaque (D22, D58): a bracket off the facade, the cream board (yellow while it waits for you), and the
-     project's own logo as a small framed square left of its name when it has one */
+  /* a storey plaque (D22, D58, D62): a bracket off the facade, the cream board (a factory's is ink with a cyan edge;
+     yellow while it waits for you), and the project's own logo as a small framed square left of its name */
   const LOGO_W = 12;
   const plaqueBoxW = fl => plaqueW(fl.name) + (fl.logo ? LOGO_W : 0);
   const plaqueSVG = (x, y, fl) => {
-    const w = plaqueBoxW(fl), lw = fl.logo ? LOGO_W : 0;
+    const w = plaqueBoxW(fl), lw = fl.logo ? LOGO_W : 0, dark = fl.kind === "factory" && !fl.wait;
     const logo = fl.logo ? `<rect x="${f(x + 18)}" y="${f(y - 4.6)}" width="9.2" height="9.2" rx="1.6" fill="#ffffff" stroke="#2a1a2e" stroke-width="1"/><image href="${fl.logo}" x="${f(x + 18.6)}" y="${f(y - 4)}" width="8" height="8" preserveAspectRatio="xMidYMid meet"/>` : "";
-    return `<g><line x1="${f(x)}" y1="${f(y)}" x2="${f(x + 14)}" y2="${f(y)}" stroke="#2a1a2e" stroke-width="1.6"/><rect x="${f(x + 14)}" y="${f(y - 7)}" width="${f(w)}" height="13" fill="${fl.wait ? "#FFD83D" : "#fff3d6"}" stroke="#2a1a2e" stroke-width="1.6"/>${logo}<text x="${f(x + 20 + lw)}" y="${f(y + 2.6)}" font-family="${FONT}" font-size="7.4" fill="#2a1a2e">${fl.name}</text></g>`;
+    return `<g><line x1="${f(x)}" y1="${f(y)}" x2="${f(x + 14)}" y2="${f(y)}" stroke="#2a1a2e" stroke-width="1.6"/><rect x="${f(x + 14)}" y="${f(y - 7)}" width="${f(w)}" height="13" fill="${fl.wait ? "#FFD83D" : dark ? "#2a1a2e" : "#fff3d6"}" stroke="#2a1a2e" stroke-width="1.6"/>${dark ? `<rect x="${f(x + 15.6)}" y="${f(y - 5.4)}" width="1.6" height="9.8" fill="#9be7ff"/>` : ""}${logo}<text x="${f(x + 20 + lw)}" y="${f(y + 2.6)}" font-family="${FONT}" font-size="7.4" fill="${dark ? "#fff3d6" : "#2a1a2e"}">${fl.name}</text></g>`;
   };
 
   /* the plan, in tiles: the same rooms, gardens and void as before */
@@ -358,10 +358,11 @@
   }
   /* ---------- outside: a provider building and the campus ---------- */
   const PROVIDERS = {
-    claude: {name: "CLAUDE", body: "#e8916b", trim: "#f4c2a4", dark: "#b8603d"},
-    chatgpt: {name: "CHATGPT", body: "#4fbf9f", trim: "#a8ecd8", dark: "#2f8f7a"}
+    // fac/facDark: a Dark Software Factory's storey (D62), charcoal with a hint of the provider
+    claude: {name: "CLAUDE", body: "#e8916b", trim: "#f4c2a4", dark: "#b8603d", fac: "#3b2f3a", facDark: "#251c25"},
+    chatgpt: {name: "CHATGPT", body: "#4fbf9f", trim: "#a8ecd8", dark: "#2f8f7a", fac: "#29363a", facDark: "#182225"}
   };
-  const FLOOR_H = 30;
+  const FLOOR_H = 30, OUT = .2;   // OUT: how far a factory's storey stands proud of its tower (D62)
   /* a provider's name painted on its roof board: centred on the board's face, sheared along it (the face runs down
      to the right, half a unit per unit) */
   const roofSign = (at, name) => {
@@ -376,19 +377,51 @@
     add(i + w + j + d, s2 => {
       bx2(s2, i - .2, j - .2, 0, i + w + .2, j + d + .2, 8, "#8a8fb0", {front: [[(i + w / 2 - .6) * T, 0, (i + w / 2 + .6) * T, 7.4, "#2a2433"], [(i + w / 2 - .5) * T, .5, (i + w / 2 - .05) * T, 7, "#3a5a9a"], [(i + w / 2 + .05) * T, .5, (i + w / 2 + .5) * T, 7, "#3a5a9a"]]});
       bx2(s2, i + w / 2 - .9, j + d + .2, 7.4, i + w / 2 + .9, j + d + 1, 8.6, Pv.dark);
+      // planters either side of the door
+      for (const px of [i + w / 2 - 1.7, i + w / 2 + 1.1]) { bx2(s2, px, j + d + .3, 0, px + .6, j + d + .9, 3, "#6b4430"); bx2(s2, px + .05, j + d + .35, 3, px + .55, j + d + .85, 6.5, "#3f9a48"); }
       floors.forEach((fl, k) => {
-        const z0 = 8 + k * FLOOR_H, z1 = z0 + FLOOR_H;
+        // three kinds of storey (D62): a Dark Software Factory (charcoal, cool screens, an LED strip: it never sleeps),
+        // the Chats lounge (awnings and planters), and an ordinary project
+        const z0 = 8 + k * FLOOR_H, z1 = z0 + FLOOR_H, fac = fl.kind === "factory", chat = fl.kind === "chats";
+        const body = fac ? Pv.fac : Pv.body, frame = fac ? Pv.facDark : Pv.dark, trim = fac ? Pv.body : Pv.trim;
+        // a factory's storey stands a little proud of the tower, so you pick it out from across the campus
+        const o = fac ? OUT : 0, jd = j + d + o, iw = i + w + o;
         const winF = [], winR = [];
         for (let a = 0; a < w; a += 1) {
-          // a window: dark glass, a warm room behind it when someone is in, now and then a person at a desk
-          const lit = (k * 7 + a * 3) % 5 !== 0, x0 = (i + a + .14) * T, x1 = (i + a + .86) * T;
-          winF.push([x0 - 1, z0 + 6, x1 + 1, z1 - 5, Pv.dark], [x0, z0 + 7, x1, z1 - 6, "#24305a"]);
-          if (lit) winF.push([x0, z0 + 7, x1, z0 + 16, "#ffc27a"], [x0, z0 + 16, x1, z1 - 6, "#3a4a80"]);
-          if (lit && (k + a) % 2 === 0) winF.push([x0 + 3, z0 + 7, x1 - 3, z0 + 11, "#3a3f63"], [(x0 + x1) / 2 - 2, z0 + 11, (x0 + x1) / 2 + 2, z0 + 17, ["#4a74d8", "#3fae6a", "#e8608a", "#7a5ce0"][(k + a) % 4]], [(x0 + x1) / 2 - 1.6, z0 + 17, (x0 + x1) / 2 + 1.6, z0 + 20.5, ["#f2b48a", "#a86a44", "#f6c9a0", "#7a4a32"][(k + a) % 4]]);
-          winF.push([(x0 + x1) / 2 - .5, z0 + 7, (x0 + x1) / 2 + .5, z1 - 6, Pv.dark]);
+          const x0 = (i + a + .14) * T, x1 = (i + a + .86) * T, mid = (x0 + x1) / 2;
+          winF.push([x0 - 1, z0 + 6, x1 + 1, z1 - 5, frame], [x0, z0 + 7, x1, z1 - 6, fac ? "#121a30" : "#24305a"]);
+          if (fac) {
+            // screens in every window, cool light, and a desk silhouette now and then
+            const on = (k * 5 + a * 3) % 7 !== 0;
+            winF.push([x0, z0 + 7, x1, z0 + 9, "#1d2a48"]);
+            if (on) winF.push([x0 + 2, z0 + 10, mid - .8, z0 + 17, "#7fd6ff"], [mid + .8, z0 + 10, x1 - 2, z0 + 17, (a + k) % 3 ? "#5fb8f0" : "#b5f0ff"], [x0 + 1, z0 + 7, x1 - 1, z0 + 8.4, "#2f4c78"]);
+            if (on && (k + a) % 2) winF.push([mid - 1.6, z0 + 7, mid + 1.6, z0 + 13, "#0c1220"]);
+          } else {
+            const lit = (k * 7 + a * 3) % 5 !== 0;
+            if (lit) winF.push([x0, z0 + 7, x1, z0 + 16, chat ? "#ffd59a" : "#ffc27a"], [x0, z0 + 16, x1, z1 - 6, "#3a4a80"]);
+            if (lit && (k + a) % 2 === 0) winF.push([x0 + 3, z0 + 7, x1 - 3, z0 + 11, "#3a3f63"], [mid - 2, z0 + 11, mid + 2, z0 + 17, ["#4a74d8", "#3fae6a", "#e8608a", "#7a5ce0"][(k + a) % 4]], [mid - 1.6, z0 + 17, mid + 1.6, z0 + 20.5, ["#f2b48a", "#a86a44", "#f6c9a0", "#7a4a32"][(k + a) % 4]]);
+          }
+          winF.push([mid - .5, z0 + 7, mid + .5, z1 - 6, frame]);
+          if (chat) {
+            // a striped awning over the window and a planter under it
+            const sw = (x1 - x0 + 3) / 4;
+            winF.push([x0 - 1.5, z1 - 10.5, x1 + 1.5, z1 - 3, "#2a1a2e"]);
+            for (let q = 0; q < 4; q++) winF.push([x0 - 1 + q * sw, z1 - 10, x0 - 1 + (q + 1) * sw, z1 - 3.5, q % 2 ? "#fff3d6" : "#e0473a"]);
+            winF.push([x0 - .5, z0 + 4.2, x1 + .5, z0 + 7.6, "#6b4430"], [x0 + .5, z0 + 7.6, x1 - .5, z0 + 9.6, a % 2 ? "#4caf50" : "#3f9a48"], [mid - 1, z0 + 9.2, mid + 1.4, z0 + 10.6, "#ff7aa8"]);
+          }
         }
-        for (let b = 0; b < d; b += 1) { const lit = (k * 5 + b) % 4 !== 0, u0 = -(j + b + .86) * T, u1 = -(j + b + .14) * T; winR.push([u0 - 1, z0 + 6, u1 + 1, z1 - 5, Pv.dark], [u0, z0 + 7, u1, z1 - 6, "#202a52"]); if (lit) winR.push([u0, z0 + 7, u1, z0 + 15, "#e8aa6a"]); }
-        bx2(s2, i, j, z0, i + w, j + d, z1, Pv.body, {front: [[i * T, z0, (i + w) * T, z0 + 3, Pv.trim], ...winF], right: [[-(j + d) * T, z0, -j * T, z0 + 3, Pv.trim], ...winR]});
+        for (let b = 0; b < d; b += 1) {
+          const u0 = -(j + b + .86) * T, u1 = -(j + b + .14) * T;
+          winR.push([u0 - 1, z0 + 6, u1 + 1, z1 - 5, frame], [u0, z0 + 7, u1, z1 - 6, fac ? "#101728" : "#202a52"]);
+          if (fac) { if ((k * 3 + b) % 5) winR.push([u0 + 2, z0 + 10, u1 - 2, z0 + 16, "#5aa6d8"]); }
+          else if ((k * 5 + b) % 4 !== 0) winR.push([u0, z0 + 7, u1, z0 + 15, chat ? "#f0b878" : "#e8aa6a"]);
+        }
+        // corner pilasters, so a tower reads as built rather than stacked, and a factory's LED strip under its windows
+        const fx0 = (i - o) * T, fx1 = iw * T, ru0 = -jd * T, ru1 = -(j - o) * T;
+        const front = [[fx0, z0, fx1, z0 + 3, trim], [fx0, z0, fx0 + 2.4, z1, frame], [fx1 - 2.4, z0, fx1, z1, frame], ...winF];
+        const right = [[ru0, z0, ru1, z0 + 3, trim], [ru0, z0, ru0 + 2.4, z1, frame], [ru1 - 2.4, z0, ru1, z1, frame], ...winR];
+        if (fac) for (const zz of [z0 + 3, z1 - 2.2]) { front.push([i * T + 2.4, zz, (i + w) * T - 2.4, zz + 1.4, "#9be7ff"]); right.push([-(j + d) * T + 2.4, zz, -j * T - 2.4, zz + 1.4, "#9be7ff"]); }
+        bx2(s2, i - o, j - o, z0, iw, jd, z1, body, {front, right});
       });
       // the roof: an edge, AC units, the sign
       const zr = 8 + H;
@@ -396,13 +429,27 @@
       bx2(s2, i + .6, j + .6, zr + 3, i + 1.8, j + 1.8, zr + 9, "#9aa3b4", {top: [[(i + .8) * T, (j + .8) * T, (i + 1.6) * T, (j + 1.6) * T, "#5d6178"]]});
       bx2(s2, i + 2.2, j + .6, zr + 3, i + 3.4, j + 1.8, zr + 9, "#9aa3b4", {top: [[(i + 2.4) * T, (j + .8) * T, (i + 3.2) * T, (j + 1.6) * T, "#5d6178"]]});
       bx2(s2, i + .4, j + d - .5, zr + 3, i + w - .4, j + d - .3, zr + 20, "#2a2433", {front: [[(i + .5) * T, zr + 4, (i + w - .5) * T, zr + 19, Pv.body]]});
+      // an antenna mast (its lamp blinks in the app) and, when a factory works here, a chimney (it smokes in the app)
+      bx2(s2, i + .8, j + 2.5, zr + 3, i + 1.6, j + 3.3, zr + 5, "#5d6178");
+      bx2(s2, i + 1.15, j + 2.85, zr + 5, i + 1.25, j + 2.95, zr + 36, "#c9cfdc");
+      for (const zc of [zr + 14, zr + 24]) bx2(s2, i + .95, j + 2.85, zc, i + 1.45, j + 2.95, zc + .8, "#c9cfdc");
+      if (floors.some(fl => fl.kind === "factory")) {
+        bx2(s2, i + 2.3, j + 2.3, zr + 3, i + 3.1, j + 3.1, zr + 26, "#6f7486", {front: [[(i + 2.3) * T, zr + 18, (i + 3.1) * T, zr + 21, "#e0473a"]], right: [[-(j + 3.1) * T, zr + 18, -(j + 2.3) * T, zr + 21, "#e0473a"]], top: [[(i + 2.4) * T, (j + 2.4) * T, (i + 3) * T, (j + 3) * T, "#1a1620"]]});
+      }
       // the provider's mark on a board of its own behind the name, so you see whose building it is (D55)
       bx2(s2, i + w - 1.75, j + .9, zr + 3, i + w - .45, j + 1.1, zr + 26, "#2a2433", {front: [[(i + w - 1.7) * T, zr + 4, (i + w - .5) * T, zr + 25, Pv.trim],
         ...markRects(prov, (i + w - 1.66) * T + .8, zr + 23.6, 2.6, Pv.dark)]});
     }, {i0: i - .2, j0: j - .2, i1: i + w + .2, j1: j + d + .2}, "building:" + prov);
-    const faces = k => { const z0 = 8 + k * FLOOR_H, z1 = z0 + FLOOR_H; return [[P(i, j + d, z0), P(i + w, j + d, z0), P(i + w, j + d, z1), P(i, j + d, z1)], [P(i + w, j + d, z0), P(i + w, j, z0), P(i + w, j, z1), P(i + w, j + d, z1)]]; };
+    const proud = k => floors[k].kind === "factory" ? OUT : 0;
+    const faces = k => { const z0 = 8 + k * FLOOR_H, z1 = z0 + FLOOR_H, o = proud(k), i0 = i - o, j0 = j - o, iw = i + w + o, jd = j + d + o;
+      return [[P(i0, jd, z0), P(iw, jd, z0), P(iw, jd, z1), P(i0, jd, z1)], [P(iw, jd, z0), P(iw, j0, z0), P(iw, j0, z1), P(iw, jd, z1)]]; };
     const zr = 8 + H;
-    return {sign: P(i + w / 2, j + d - .3, zr + 11.5), plaques: floors.map((fl, k) => ({at: P(i + w + .05, j + d / 2, 8 + k * FLOOR_H + FLOOR_H / 2), fl})), storeys: floors.map((fl, k) => ({fl, faces: faces(k)}))};
+    const zt = 8 + H;
+    const windows = floors.map((fl, k) => { const z0 = 8 + k * FLOOR_H, z1 = z0 + FLOOR_H;
+      const jd = j + d + proud(k);
+      return Array.from({length: w}, (_, a) => [P(i + a + .14, jd, z0 + 7), P(i + a + .86, jd, z0 + 7), P(i + a + .86, jd, z1 - 6), P(i + a + .14, jd, z1 - 6)]); });
+    return {antenna: P(i + 1.2, j + 2.9, zt + 36.5), chimney: floors.some(fl => fl.kind === "factory") ? P(i + 2.7, j + 2.7, zt + 26) : null, windows,
+      sign: P(i + w / 2, j + d - .3, zr + 11.5), plaques: floors.map((fl, k) => ({at: P(i + w + .05 + proud(k), j + d / 2, 8 + k * FLOOR_H + FLOOR_H / 2), fl})), storeys: floors.map((fl, k) => ({fl, faces: faces(k)}))};
   }
   let bx2 = null;
   /* the campus: a floating island with the provider buildings, the Engine room, a square plaza with the fountain
@@ -502,7 +549,8 @@
     const defs = `<defs>${GLOWS.map(c => `<radialGradient id="bw-glow-${c}"><stop offset="0" stop-color="#${c}" stop-opacity="1"/><stop offset="1" stop-color="#${c}" stop-opacity="0"/></radialGradient>`).join("")}</defs>`;
     svg.innerHTML = defs + under.svg() + base.svg() + objs.map(o => o.sc.svg()).join("") + light + top;
     const bb = svg.getBBox(); svg.setAttribute("viewBox", `${Math.floor(bb.x - 16)} ${Math.floor(bb.y - 16)} ${Math.ceil(bb.width + 32)} ${Math.ceil(bb.height + 32)}`);
-    return {P, parts: {under: [under], base, objs, boxes, light, top, topParts, hits, defs, racks, beacon, labels, storeys: [[claude, "claude"], [gpt, "chatgpt"]].flatMap(([b, prov]) => b.storeys.map((s, k) => ({building: prov, index: k, faces: s.faces})))}};
+    return {P, parts: {under: [under], base, objs, boxes, light, top, topParts, hits, defs, racks, beacon, labels, storeys: [[claude, "claude"], [gpt, "chatgpt"]].flatMap(([b, prov]) => b.storeys.map((s, k) => ({building: prov, index: k, kind: s.fl.kind || "project", faces: s.faces, windows: b.windows[k]}))),
+      towers: [[claude, "claude"], [gpt, "chatgpt"]].map(([b, prov]) => ({building: prov, antenna: b.antenna, chimney: b.chimney}))}};
   }
   /* one provider building on its own, close up */
   function building(svg, prov = "claude", floors) {

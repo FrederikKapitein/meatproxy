@@ -176,7 +176,7 @@
   /* ---------- the campus (D22, D33): the island, the provider towers, the Engine room ---------- */
   async function campus(input) {
     const R = input.R || 3, svg = scratch();
-    const floors = list => list.map(f => ({name: String(f.name).toUpperCase(), wait: !!f.wait, logo: /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(f.logo || "") ? f.logo : null}));
+    const floors = list => list.map(f => ({name: String(f.name).toUpperCase(), wait: !!f.wait, kind: ["factory", "chats"].includes(f.kind) ? f.kind : "project", logo: /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(f.logo || "") ? f.logo : null}));
     const c = W.campus(svg, {claude: floors(input.claude || []), chatgpt: floors(input.chatgpt || []), waiting: input.waiting || 0, people: [], engine: input.engine});
     const parts = c.parts, view = viewBox(svg);
     const ground = image([...parts.under, parts.base], R);
@@ -190,7 +190,7 @@
     // art units, for the app to light; where each building's plaques are, so the camera can frame them
     const footprints = Object.fromEntries(parts.boxes.filter(b => b.id).map(b => [b.id, [b.i0, b.j0, b.i1, b.j1]]));
     return {R, view, ground, objects, buildings, light, signParts: signs, boxes: parts.boxes, storeys: parts.storeys, fountain: c.P(15, 13, 0), footprints,
-      racks: parts.racks, beacon: parts.beacon, labels: parts.labels, hits: parts.hits};
+      racks: parts.racks, beacon: parts.beacon, towers: parts.towers, labels: parts.labels, hits: parts.hits};
   }
 
   /* ---------- Orbit (D6, D14, D42): bodies from the generator, one image per size and light ---------- */

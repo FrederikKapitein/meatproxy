@@ -44,6 +44,10 @@ public final class CampusScene: WorldScene {
     private var beacon: (node: SKShapeNode, glow: SKSpriteNode)?
     private var worst: String?
     private var waitBands: [SKShapeNode] = []
+    /// the towers' life (D62): windows that light up now and then, the antenna lamps, the chimneys of factories
+    private var windowLights: [(node: SKShapeNode, phase: Double, period: Double, peak: CGFloat)] = []
+    private var antennaLamps: [(dot: SKShapeNode, glow: SKSpriteNode, phase: Double)] = []
+    private var chimneys: [SKEmitterNode] = []
     private var fountainGlow: SKSpriteNode?
     /// the signs, each sorted with what it hangs on: owner is the building key for its roof sign and plaques
     private var signs: [(node: SKSpriteNode, owner: String?, plaque: Bool, storey: Int?)] = []
@@ -73,6 +77,7 @@ public final class CampusScene: WorldScene {
         shownWorld = world
         content.removeAllChildren(); buildings = [:]; overlays = [:]; highlight = nil; focusMark = nil
         hoverLayer = nil; hoverTarget = nil; hoverRing = nil; screenLines = []; leds = []; beacon = nil; waitBands = []; signs = []; waitingPlaques = []
+        windowLights = []; antennaLamps = []; chimneys = []
         if skyNode == nil {
             let s = SKSpriteNode(texture: Self.skyTexture); s.zPosition = -1000; cam.addChild(s); skyNode = s; sizeChanged()
         }
@@ -111,6 +116,7 @@ public final class CampusScene: WorldScene {
         addWaitBands(world)
         addFountainGlow()
         addEngineLights(world)
+        addTowerLife(world)
         placeWalkers(figures, fresh: first)
         setHome(art.view.insetBy(dx: 30, dy: 0), fill: 0.98)  // dy 0: the tower roofs and signs stay in view
         if first { cam.setScale(homeScale); cam.position = homeCenter }
@@ -201,6 +207,59 @@ public final class CampusScene: WorldScene {
             ov.addChild(lens); ov.addChild(g)
             beacon = (lens, g)
         }
+    }
+
+    /// The towers come alive (D62). A few windows of each storey light up and dim again, slowly; more of them, and
+    /// faster, where someone is at work. A factory's windows glow cool, like screens. Each antenna's lamp blinks red,
+    /// and a tower where a factory works smokes from its chimney, more while one of its sessions is busy.
+    private func addTowerLife(_ world: World) {
+        guard let art else { return }
+        let warm = SKColor(red: 1, green: 0.82, blue: 0.5, alpha: 1), cool = SKColor(red: 0.6, green: 0.9, blue: 1, alpha: 1)
+        var busyTowers: Set<String> = []
+        for (st, id) in storeys {
+            guard let ov = overlays[st.building], let p = world.project(id: id) else { continue }
+            let busy = p.sessions.contains { $0.state(now: world.now) == .working }, factory = st.kind == "factory"
+            if busy && factory { busyTowers.insert(st.building) }
+            for (k, w) in st.windows.enumerated() where w.count == 4 {
+                // a stable pick per window: about one in three (two in three when busy) take part
+                let h = (st.index &* 31 &+ k &* 17 &+ (st.building == "claude" ? 0 : 7)) % 9
+                guard h < (busy ? 6 : 3) else { continue }
+                let n = shape(w, fill: factory ? cool : warm); n.blendMode = .add; n.zPosition = 0.05; n.alpha = 0
+                ov.addChild(n)
+                windowLights.append((n, Double(h) * 1.37 + Double(k) * 0.61, (busy ? 3.2 : 6.5) + Double(h % 3), factory ? 0.42 : 0.32))
+            }
+        }
+        for t in art.towers {
+            guard let ov = overlays[t.building] else { continue }
+            let dot = SKShapeNode(circleOfRadius: 1.3 * px); dot.fillColor = Self.down; dot.strokeColor = .clear
+            dot.position = scenePoint(t.antenna); dot.zPosition = 0.6
+            let g = glow(t.antenna, size: CGSize(width: 14, height: 14), color: Self.down); g.zPosition = 0.61
+            ov.addChild(dot); ov.addChild(g)
+            antennaLamps.append((dot, g, t.building == "claude" ? 0 : 0.8))
+            if let c = t.chimney {
+                let e = Self.smoke(busy: busyTowers.contains(t.building), px: px)
+                e.position = scenePoint(c); e.zPosition = 0.7; e.targetNode = ov
+                ov.addChild(e); e.advanceSimulationTime(6)
+                chimneys.append(e)
+            }
+        }
+    }
+
+    /// Soft grey puffs that rise, drift and fade: a factory at work.
+    static func smoke(busy: Bool, px: CGFloat) -> SKEmitterNode {
+        let e = SKEmitterNode()
+        e.particleTexture = glowTexture
+        e.particleBirthRate = busy ? 5 : 2
+        e.particleLifetime = 5; e.particleLifetimeRange = 1.5
+        e.emissionAngle = .pi / 2; e.emissionAngleRange = 0.35
+        e.particleSpeed = 9 * px; e.particleSpeedRange = 3 * px
+        e.xAcceleration = 1.6 * px
+        e.particleSize = CGSize(width: 9 * px, height: 9 * px)
+        e.particleScale = 0.6; e.particleScaleSpeed = 0.28
+        e.particleAlpha = busy ? 0.55 : 0.4; e.particleAlphaSpeed = -0.1
+        e.particleColor = SKColor(white: 0.86, alpha: 1); e.particleColorBlendFactor = 1
+        e.particlePositionRange = CGVector(dx: 2 * px, dy: 0)
+        return e
     }
 
     // MARK: people on the roads
@@ -485,6 +544,16 @@ public final class CampusScene: WorldScene {
         }
         let band = on ? CGFloat(0.775 + 0.225 * sin(t / 1.4 * 2 * .pi)) : 1
         for n in waitBands { n.alpha = band }
+        for w in windowLights {
+            // a slow swell: off most of the time, on for a while; a still frame shows them half lit
+            let v = on ? max(0, sin((t / w.period + w.phase) * 2 * .pi)) : 0.5
+            w.node.alpha = w.peak * CGFloat(v * v)
+        }
+        for l in antennaLamps {
+            let lit = !on || (t + l.phase).truncatingRemainder(dividingBy: 1.8) < 0.35
+            l.dot.alpha = lit ? 1 : 0.25; l.glow.alpha = lit ? 0.6 : 0
+        }
+        for c in chimneys { c.isPaused = !on }
         if let g = fountainGlow {
             let period = waiting > 0 ? 1.6 : 2.4
             g.alpha = on ? CGFloat(0.25 + 0.07 * sin(t / period * 2 * .pi)) : 0.25
