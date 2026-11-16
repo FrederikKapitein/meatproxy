@@ -23,7 +23,7 @@ final class AppModel: ObservableObject {
     /// a panel of the HUD is open over the world: plain keys (N, Esc) belong to it, not to the world
     var overlayOpen: Bool { paletteOpen || commandsOpen || contextMenuState != nil }
     /// the Status layer on the campus (D69), remembered between launches
-    @Published var statusLayer = !ProcessInfo.processInfo.arguments.contains("--fixture") && UserDefaults.standard.bool(forKey: "statusLayer")
+    @Published var statusLayer = !AppModel.demo && UserDefaults.standard.bool(forKey: "statusLayer")
     /// the status pages you watch (D69)
     @Published var statusSources: [StatusSource] = StatusSourcesStore.load()
     /// Open the settings at the form to add a server (and, for window shots, test this host there at once).
@@ -100,22 +100,29 @@ final class AppModel: ObservableObject {
     /// How often the servers are checked.
     static let serverInterval: TimeInterval = 60
 
-    init(fixture: Bool) {
+    /// --fixture shows made-up data; --first-run is the same without anything set up yet (no factory, servers or
+    /// tokens), the campus a newcomer sees, for walkthroughs. Neither saves anything.
+    static let demo = CommandLine.arguments.contains("--fixture") || CommandLine.arguments.contains("--first-run")
+    static let firstRunDemo = CommandLine.arguments.contains("--first-run")
+    let firstRun: Bool
+
+    init(fixture: Bool, firstRun: Bool = false) {
         self.fixture = fixture
+        self.firstRun = fixture && firstRun
         if !fixture { AppSupport.migrateLegacyFolder() }
         memeMode = !fixture && UserDefaults.standard.bool(forKey: "memeMode")
         collector = fixture ? nil : Collector()
         store = fixture ? nil : ServerSettingsStore()
         probeRunner = fixture ? Self.demoRunner : ServerProbe.run
-        let configs = fixture ? Fixture.servers.map { ServerConfig(id: $0.id, name: $0.name, host: "deploy@\($0.name).example.com", kind: $0.kind) } : (store?.load() ?? [])
+        let configs = self.firstRun ? [] : fixture ? Fixture.servers.map { ServerConfig(id: $0.id, name: $0.name, host: "deploy@\($0.name).example.com", kind: $0.kind) } : (store?.load() ?? [])
         serverConfigs = configs
         settingsStamp = store?.modified
         projectStore = fixture ? nil : ProjectSettingsStore()
-        projectSettings = fixture ? ProjectSettings(projects: [.init(root: Fixture.factoryRoot, pinned: true, factory: true)])
+        projectSettings = self.firstRun ? ProjectSettings() : fixture ? ProjectSettings(projects: [.init(root: Fixture.factoryRoot, pinned: true, factory: true)])
             : (projectStore?.load() ?? ProjectSettings())
         projectStamp = projectStore?.modified
         heartbeats = HeartbeatCenter(runner: fixture ? Self.demoHeartbeat : HeartbeatRunner())
-        if fixture { fixtureFactory = Self.writeFixtureFactory() }
+        if fixture && !self.firstRun { fixtureFactory = Self.writeFixtureFactory() }
         monitor = ServerMonitor(configs: configs, run: fixture ? Self.demoRunner : ServerProbe.run)
         controller.onChange = { [weak self] s in self?.selection = s }
         controller.onStatus = { [weak self] s in self?.status = s }
@@ -145,7 +152,7 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.refresh() }
         }
         // the heartbeat: every few seconds, see who should wake; every five minutes, look at CI
-        if fixture { demoHistory() }
+        if fixture && !firstRun { demoHistory() }
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.beat() }
         }
@@ -188,6 +195,7 @@ final class AppModel: ObservableObject {
         guard let collector else {
             // the made-up servers, as the settings have them (one added in a demo shows as healthy)
             var w = Fixture.world()
+            if firstRun { firstRunWorld(&w); return }
             // the demo shows the DevOps agent at the black hole without reading any real workspace
             w.opsState = .working
             // and one made-up question of the DevOps agent's, answered like any other (nothing is written in the demo)
@@ -391,6 +399,20 @@ final class AppModel: ObservableObject {
     }
 
     /// The demo's history: two made-up hours round each server's numbers (nothing real, safe to show).
+    /// The first-run demo: the made-up sessions as a newcomer's own, with nothing switched on yet.
+    private func firstRunWorld(_ w: inout World) {
+        for b in w.buildings.indices { for p in w.buildings[b].projects.indices {
+            w.buildings[b].projects[p].factory = factoryRoots.contains(w.buildings[b].projects[p].root) ? Factory(root: w.buildings[b].projects[p].root) : nil
+            let seed = Double(w.buildings[b].projects[p].name.unicodeScalars.reduce(0) { $0 + Int($1.value) } % 97)
+            w.buildings[b].projects[p].cost = ProjectCost(today: seed / 9, week: seed * 0.8, month: seed * 3.1)
+        } }
+        if !projectSettings.showChats { for b in w.buildings.indices { w.buildings[b].projects.removeAll(where: \.isChat) } }
+        WorldBuilder.pin(projectSettings.pinnedRoots, to: &w)
+        WorldBuilder.hide(projectSettings.hidden, in: &w)
+        w.servers = serverConfigs.map { Server(id: $0.id, name: $0.name, kind: $0.kind, state: .ok, detail: "load 0.31 · disk 48% · memory 36%", checkedAt: w.now) }
+        apply(w)
+    }
+
     private func demoHistory(now: Date = Date()) {
         for (k, s) in Fixture.servers.enumerated() {
             guard let m = s.metrics else { continue }

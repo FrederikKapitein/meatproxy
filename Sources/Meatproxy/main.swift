@@ -3,7 +3,7 @@ import FactoryCore
 import FactoryCollector
 
 // the settings folder moved with the brand (D45); --dump and --snapshot read it too
-if !CommandLine.arguments.contains("--fixture") { AppSupport.migrateLegacyFolder() }
+if !CommandLine.arguments.contains("--fixture") && !CommandLine.arguments.contains("--first-run") { AppSupport.migrateLegacyFolder() }
 
 // `Meatproxy --dump` prints what the collector sees, like `python3 live.py`.
 if CommandLine.arguments.contains("--dump") {
