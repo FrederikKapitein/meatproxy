@@ -161,7 +161,7 @@ extension Fixture {
                      why: "The last five ship questions were all a yes, with no revert or hotfix after them. On notify the CEO ships after green checks and an independent tester pass, and reports it in the briefing.",
                      evidence: "- [Ship history](https://github.com/example/pebble-puzzles/releases)\n- https://status.example.com/pebble-puzzles",
                      onYes: "Set the ship gate to notify and log it in the history.", onNo: "Keep asking before every ship."),
-            ("factory/contract.yml", "contract: meatproxy-factory\nversion: 3\n"),
+            ("factory/contract.yml", "contract: meatproxy-factory\nversion: 4\nsentry: demo-org/pebble-app\ntracker: pebble\n"),
             ("factory/mandate.yml", { var m = FactoryMandate(); m.set(level: .hybrid); m.quietHours = "22:00-07:00"; return m.yaml }()),
             // your ideas: one the CEO took (it became D-0007's sibling W-004), one still waiting
             ("factory/ideas/I-0001-colour-blind-pebbles.md", """

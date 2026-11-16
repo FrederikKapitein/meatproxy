@@ -147,6 +147,8 @@ public struct Project: Identifiable, Sendable, Hashable {
     public var factory: Factory?
     /// The project's own logo, a file in its folder (D55), when it has one.
     public var logo: String?
+    /// What its sessions would have cost at API prices (D61), when known.
+    public var cost: ProjectCost?
 
     public init(id: String, provider: Provider, root: String, name: String, isChat: Bool, sessions: [Session], factory: Factory? = nil) {
         self.id = id; self.provider = provider; self.root = root; self.name = name; self.isChat = isChat; self.sessions = sessions

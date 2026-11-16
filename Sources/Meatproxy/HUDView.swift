@@ -459,6 +459,7 @@ private struct InspectorPanel: View {
             WorkstreamCard(project: p, workstream: w)
         } else if let id = s.projectID, let p = model.world.project(id: id) {
             if !p.isChat { FactorySwitch(project: p) }
+            if let c = p.cost { CostLine(cost: c) }
             if let f = p.factory { FactoryOverview(project: p, factory: f).id(p.id) } else {
             if !p.isChat { Text(p.root.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Color.muted).lineLimit(1) }
             if !p.sessions.isEmpty { StateBar(sessions: p.sessions, now: model.world.now) }
@@ -476,6 +477,10 @@ private struct InspectorPanel: View {
                         Text("\(k + 1)").font(.system(size: 11, weight: .bold).monospacedDigit()).foregroundStyle(Color.muted).frame(width: 16)
                         Text(p.name).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
                         Spacer()
+                        if let c = p.cost, c.today > 0 {
+                            Text(ProjectCost.format(c.today)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted)
+                                .help("Today at API prices (an estimate)")
+                        }
                         HStack(spacing: 3) { ForEach(p.sessions) { Circle().fill(Color.state($0.state(now: model.world.now))).frame(width: 7, height: 7) } }
                     }
                     .padding(.horizontal, 10).padding(.vertical, 9).background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
@@ -483,6 +488,28 @@ private struct InspectorPanel: View {
                 }.buttonStyle(CardPressStyle())
             }
         }
+    }
+}
+
+/// What a floor's work would have cost at API list prices (D61): today, the last 7 days and the last 30. An estimate,
+/// also for work under a subscription; tokens of a model without a known price are said, never counted as free.
+struct CostLine: View {
+    let cost: ProjectCost
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("API PRICE").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+                Text(ProjectCost.format(cost.today)).font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                Text("today").font(.system(size: 11.5)).foregroundStyle(Color.muted)
+                if cost.unpricedTokens > 0 {
+                    Image(systemName: "questionmark.circle").font(.system(size: 11)).foregroundStyle(Color.muted)
+                        .help("\(cost.unpricedTokens.formatted()) tokens of a model without a known price are not in these sums")
+                }
+            }
+            Text("\(ProjectCost.format(cost.week)) last 7 days · \(ProjectCost.format(cost.month)) last 30 days")
+                .font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(1)
+        }
+        .help("What these sessions would have cost through the API, at list prices of \(ApiPrices.asOf). An estimate, not an invoice: under a subscription you pay the plan.")
     }
 }
 

@@ -66,7 +66,13 @@ final class AppModel: ObservableObject {
     /// how ssh is run: the real one, or for the fixture a made-up healthy server
     let probeRunner: ServerProbe.Runner
     private let queue = DispatchQueue(label: "dev.tuinstra.meatproxy.collector", qos: .utility)
-    private var timer: Timer?, serverTimer: Timer?
+    private var timer: Timer?, serverTimer: Timer?, costTimer: Timer?
+    /// the cost ledger reads on its own queue: the first pass reads weeks of session files
+    private let costQueue = DispatchQueue(label: "dev.tuinstra.meatproxy.costs", qos: .background)
+    private var costing = false
+    /// Sentry and Tracker, every 15 minutes (D61)
+    private let wakeSources = WakeSources()
+    private var sourcesTimer: Timer?, sourcesChecking = false
     private var reading = false
     /// the settings file as last read or written by the app: a newer one was edited outside it
     private var settingsStamp: Date?
@@ -107,6 +113,10 @@ final class AppModel: ObservableObject {
         }
         alerts.onRunDevOps = { [weak self] in self?.runDevOpsNow() }
         controller.onHoverTitle = { [weak self] t in if self?.hoverTitle != t { self?.hoverTitle = t } }
+        // a factory's cost cap (D61) reads today's API price of its floors (the CEO may run on either provider)
+        heartbeats.costToday = { [weak self] root in
+            MainActor.assumeIsolated { self?.world.projects.filter { $0.root == root }.compactMap { $0.cost?.today }.reduce(0, +) ?? 0 }
+        }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -124,6 +134,18 @@ final class AppModel: ObservableObject {
             heartbeats.checkCI(projectSettings)
             ciTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
                 Task { @MainActor in guard let self else { return }; self.heartbeats.checkCI(self.projectSettings) }
+            }
+        }
+        if !fixture {
+            sourcesTimer = Timer.scheduledTimer(withTimeInterval: WakeSources.interval, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.checkSources() }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.checkSources() }
+        }
+        if !fixture {
+            updateCosts()
+            costTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.updateCosts() }
             }
         }
         if !fixture {
@@ -168,6 +190,11 @@ final class AppModel: ObservableObject {
             for b in w.buildings.indices { for p in w.buildings[b].projects.indices where w.buildings[b].projects[p].root == Fixture.factoryRoot {
                 w.buildings[b].projects[p].logo = Self.demoLogo
             } }
+            // made-up costs at API prices (D61), from the floor's name, so every floor shows one
+            for b in w.buildings.indices { for p in w.buildings[b].projects.indices {
+                let seed = Double(w.buildings[b].projects[p].name.unicodeScalars.reduce(0) { $0 + Int($1.value) } % 97)
+                w.buildings[b].projects[p].cost = ProjectCost(today: seed / 9, week: seed * 0.8, month: seed * 3.1)
+            } }
             // the project settings shape the demo campus as they shape the real one: the Chats floor, pinned projects
             if !projectSettings.showChats { for b in w.buildings.indices { w.buildings[b].projects.removeAll(where: \.isChat) } }
             WorldBuilder.pin(projectSettings.pinnedRoots, to: &w)
@@ -200,6 +227,36 @@ final class AppModel: ObservableObject {
                 self.markLiveRuns(&w)
                 self.apply(w)
             }
+        }
+    }
+
+    /// Asks each factory's Sentry and Tracker project what is new (D61), off the main queue, and wakes its CEO.
+    private func checkSources() {
+        guard !sourcesChecking else { return }
+        let factories: [(root: String, sources: FactorySources, heartbeat: Heartbeat, bugsAllowed: Bool)] = projectSettings.projects.filter(\.factory).compactMap { e in
+            guard let f = world.projects.first(where: { $0.root == e.root })?.factory, f.takesSources,
+                  f.sources.hasSentry || f.sources.tracker != nil else { return nil }
+            return (e.root, f.sources, e.heartbeat, (f.mandate?.mode(.bugs) ?? .ask) != .off)
+        }
+        guard !factories.isEmpty, !projectSettings.pauseAll else { return }
+        sourcesChecking = true
+        let sources = wakeSources
+        DispatchQueue.global(qos: .utility).async {
+            let wakes = sources.check(factories, tokens: (Secrets.get(.sentry), Secrets.get(.tracker)))
+            DispatchQueue.main.async {
+                self.sourcesChecking = false
+                for (root, reason) in wakes { self.heartbeats.wake(root, reason) }
+            }
+        }
+    }
+
+    /// Reads what the session files added since the last pass and prices it (D61); the next refresh shows it.
+    private func updateCosts() {
+        guard let collector, !costing else { return }
+        costing = true
+        costQueue.async {
+            collector.costs.update()
+            DispatchQueue.main.async { self.costing = false }
         }
     }
 

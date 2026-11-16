@@ -1,6 +1,6 @@
 # Meatproxy factory contract
 
-**Name:** `meatproxy-factory` · **Current version:** 3 · **Owner:** this repository
+**Name:** `meatproxy-factory` · **Current version:** 4 · **Owner:** this repository
 
 A Dark Software Factory is a project folder with a `factory/` folder in it. Its CEO agent
 keeps the factory's state there in plain files. Meatproxy reads those files, shows them, and
@@ -19,6 +19,7 @@ feature on only when the factory declares a version that has it.
 | 1 | 2026-11-15 | Decisions, workstreams, briefings, `autonomy.yml`, answers written by Meatproxy, the heartbeat run. |
 | 2 | 2026-11-15 | Ideas (`ideas/`), sent from Meatproxy; `contract.yml`. |
 | 3 | 2026-11-16 | Your mandate (`mandate.yml`), written by Meatproxy: what the CEO may do on its own (including whether it comes up with ideas of its own, `propose`), its role, your preferences. |
+| 4 | 2026-11-16 | Wake-up sources in `contract.yml`: the factory's Sentry project and Tracker project. Meatproxy wakes the CEO for a new or returning error and for a story that changed (D61). |
 
 A factory without `contract.yml` is treated as version 1. A factory that declares a newer
 version than this Meatproxy knows is still read with what this version knows, and the app
@@ -59,8 +60,29 @@ other files in a factory: switching a project on as a factory writes nothing.
 
 ```yaml
 contract: meatproxy-factory
-version: 2
+version: 4
+sentry: my-org/my-app        # v4, optional: the Sentry organization and project slugs
+sentry-host: de.sentry.io    # v4, optional: the host the organization lives on (default sentry.io)
+tracker: my-app              # v4, optional: the Tracker project's slug
 ```
+
+### Wake-up sources (v4)
+
+Every 15 minutes Meatproxy asks, with your own read tokens (kept in the macOS Keychain, never in a
+file), for:
+
+- **Sentry:** unresolved issues of level `error` or `fatal` in the project. An issue it has not seen
+  before, or one that turns `regressed` or `escalating`, wakes the CEO with `.sentry`: its short id
+  and title. Not when your mandate has `bugs: off`. Three Sentry wakes in a row hold the factory
+  until you look (the same kind of breaker as for CI).
+- **Tracker:** stories in the project that are `rejected` or `unstarted` (ready to pick up), over
+  Tracker's MCP endpoint. A story that enters one of those states wakes the CEO with `.tracker`: its
+  key, the state and its title.
+
+The first look after Meatproxy starts only notes what is there. The CEO reads the details itself, with
+its own access; Meatproxy passes ids and titles only. These wakes count towards the automatic runs per
+day and the API-price cap. Slugs are letters, digits, `.`, `-` and `_`; a `sentry-host` must end in
+`sentry.io`. Anything else is ignored.
 
 ## Decisions: `decisions/D-NNNN-<slug>.md`
 

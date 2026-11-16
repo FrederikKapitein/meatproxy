@@ -9,6 +9,8 @@ public final class HeartbeatCenter {
     public let runner: HeartbeatRunner
     /// wake-ups waiting for their moment, per project folder
     public private(set) var pending: [String: (reason: WakeReason, at: Date)] = [:]
+    /// what a factory's work cost today at API prices (D61), for its cost cap; nil: no cap is checked
+    public var costToday: ((String) -> Double)?
     private let ciQueue = DispatchQueue(label: "dev.tuinstra.meatproxy.ci", qos: .utility)
     private var ciChecking = false
     /// a CI look is under way (its answer comes back on the main queue)
@@ -72,6 +74,8 @@ public final class HeartbeatCenter {
 
     /// this many CI wakes in a row trip the breaker: the factory waits for you
     public static let ciBreaker = 2
+    /// this many Sentry wakes in a row trip the same kind of breaker (D61)
+    public static let sentryBreaker = 3
 
     static func automaticToday(_ runs: [HeartbeatRun], now: Date, calendar cal: Calendar = .current) -> Int {
         runs.filter { cal.isDate($0.started, inSameDayAs: now) && $0.reason != .runNow }.count
@@ -85,6 +89,7 @@ public final class HeartbeatCenter {
             if let why = runner.hold(root) { return .held(why) }
             if let until = runner.planLimit(hb.runtime, now: now) { return .planLimit(hb.runtime, until: until) }
             if Self.automaticToday(runs, now: now) >= hb.runsPerDay { return .dailyCap(hb.runsPerDay) }
+            if let cap = hb.maxCostPerDay, let spent = costToday?(root), spent >= cap { return .costCap(spent: spent, cap: cap) }
             if let last = runs.last?.ended ?? runs.last?.started {
                 let until = last.addingTimeInterval(TimeInterval(hb.cooldownMinutes * 60))
                 if until > now { return .coolingDown(until: until) }
@@ -117,6 +122,13 @@ public final class HeartbeatCenter {
             if case .ciFailed = reason, runs.suffix(Self.ciBreaker).count == Self.ciBreaker,
                runs.suffix(Self.ciBreaker).allSatisfy({ if case .ciFailed = $0.reason { return true }; return false }) {
                 runner.setHold(e.root, "Held: CI woke the CEO \(Self.ciBreaker) times in a row and still fails")
+                pending[e.root] = nil
+                continue
+            }
+            // the Sentry breaker: three Sentry wakes in a row and still new errors. It waits for you.
+            if case .sentry = reason, runs.suffix(Self.sentryBreaker).count == Self.sentryBreaker,
+               runs.suffix(Self.sentryBreaker).allSatisfy({ if case .sentry = $0.reason { return true }; return false }) {
+                runner.setHold(e.root, "Held: Sentry woke the CEO \(Self.sentryBreaker) times in a row and errors keep coming")
                 pending[e.root] = nil
                 continue
             }
