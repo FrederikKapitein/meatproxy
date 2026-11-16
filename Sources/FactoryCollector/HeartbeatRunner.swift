@@ -64,7 +64,7 @@ public final class HeartbeatRunner: @unchecked Sendable {
         r.runtime == .claude
             ? ["-p", r.prompt, "--permission-mode", "acceptEdits", "--output-format", "text", "--max-turns", String(r.maxTurns)]
                 + (r.settings.map { ["--settings", $0.path] } ?? [])
-            // a factory's folder or the Engine room's workspace need not be a git repo of its own
+            // a factory's folder or the Server room's workspace need not be a git repo of its own
             : ["exec", "-s", "workspace-write", "--skip-git-repo-check"] + (r.network ? ["-c", "sandbox_workspace_write.network_access=true"] : []) + [r.prompt]
     }
 
@@ -93,8 +93,8 @@ public final class HeartbeatRunner: @unchecked Sendable {
     public static func opsPrompt(root: String, reason: WakeReason) -> String {
         let tool = opsToolPath
         return """
-        You are the DevOps agent of Marcel's Engine room. Meatproxy's heartbeat started this run; nobody is watching it.
-        Work from \(root). This workspace follows the Meatproxy engine room contract (meatproxy-engine-room, contract.yml); \
+        You are the DevOps agent of Marcel's Server room. Meatproxy's heartbeat started this run; nobody is watching it.
+        Work from \(root). This workspace follows the Meatproxy server room contract (meatproxy-engine-room, contract.yml); \
         only what that contract says is agreed with Meatproxy.
         Read README.md first: it has the exact file formats (a question is decisions/D-NNNN-<slug>.md with id, title and \
         status: open in its front matter). Then servers.json (your servers, what each allows, the last checks) and every \

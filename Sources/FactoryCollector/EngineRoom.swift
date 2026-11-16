@@ -1,15 +1,17 @@
 import Foundation
 import FactoryCore
 
-/// The Engine room's DevOps agent's workspace (docs/contracts/engine-room.md): a folder that belongs to Meatproxy, with
+/// The Server room's DevOps agent's workspace (docs/contracts/engine-room.md): a folder that belongs to Meatproxy, with
 /// the servers snapshot, the alerts, the agent's decisions and its journal.
 public enum EngineRoom {
     public static let contract = "meatproxy-engine-room"
     public static let version = 1
-    public static let displayName = "Engine room"
+    public static let displayName = "Server room"
 
     public static var folder: URL { AppSupport.folder.appendingPathComponent("engine-room") }
     public static func isFolder(_ root: String) -> Bool { root.hasSuffix("/engine-room") }
+    /// a path in the DevOps agent's workspace: its sessions belong to the Server room, not to a tower floor
+    public static func contains(_ path: String) -> Bool { path == folder.path || path.hasPrefix(folder.path + "/") }
 
     /// Writes what the agent reads before it runs: the contract version, the servers with their last checks, and the
     /// allowlist (the ops tool only).
@@ -44,7 +46,7 @@ public enum EngineRoom {
 
     /// The workspace's own copy of the formats (docs/contracts/engine-room.md): what the agent writes, exactly.
     static let readme = """
-    # Engine room workspace (meatproxy-engine-room v1)
+    # Server room workspace (meatproxy-engine-room v1)
 
     Meatproxy writes contract.yml, servers.json, this README, .claude/settings.json and alerts/. You write decisions/
     and journal/. Reach servers only with the ops tool (`Meatproxy --ops list`). Formats, exactly:

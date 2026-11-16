@@ -9,7 +9,7 @@ public struct OrbitPath: Equatable, Sendable {
     public var projectID: String?
     public var sessionID: String?
     public var subAgentID: String?
-    /// The server, deploy or backup picked round the black hole (Engine room level only).
+    /// The server, deploy or backup picked round the black hole (Server room level only).
     public var serverID: String?
 }
 
@@ -99,7 +99,7 @@ public final class OrbitScene: WorldScene {
     /// What a click there would pick: x, y, r on screen; hr is the radius of the hover hexagon round it.
     private struct Hit { var x: CGFloat; var y: CGFloat; var r: CGFloat; var pri: Int; var target: Target; var hr: CGFloat; var selected: Bool }
     private var hits: [Hit] = []
-    /// where the Engine room's beacon and its mark are this frame (tags keep off it)
+    /// where the Server room's beacon and its mark are this frame (tags keep off it)
     private var beaconRect: CGRect?
 
     // hover (D24: what lights up is exactly what a click picks)
@@ -520,7 +520,7 @@ public final class OrbitScene: WorldScene {
         }
         let room = path.engineRoom
         let worst = summary.worst
-        // fades relative to the Engine room's own zoom (it depends on the window): at 4 they are 1.6–2.6 and 2.5–3.5
+        // fades relative to the Server room's own zoom (it depends on the window): at 4 they are 1.6–2.6 and 2.5–3.5
         let eS = target(.hole).1
         let ia = ramp(s, eS * 0.4, eS * 0.65)
         // a warning hangs a yellow beacon above the hole, down a red one (as on the datacenter roof)
@@ -539,11 +539,11 @@ public final class OrbitScene: WorldScene {
             stateMark("beacon-mark", at: b, r: bm, state: worst == .down ? .stuck : .waiting, alpha: 1, tint: worst == .down ? nil : Self.warn)
             beaconRect = CGRect(x: b.x - bm - 4, y: b.y - bm - 4, width: (bm + 4) * 2 + 12, height: (bm + 4) * 2 + 12)
         }
-        // far out: the label under it; at the Engine room: its orbits, bodies, tags and a summary
+        // far out: the label under it; at the Server room: its orbits, bodies, tags and a summary
         let la = ramp(s, 0.2, 0.3) * (1 - ramp(s, eS * 0.4, eS * 0.65))
         if la > 0 {
             let y = h.y - rr * 0.95 - 16
-            label("hole-name", "ENGINE ROOM", at: CGPoint(x: h.x, y: y), size: 11, color: Self.violet, alpha: la, center: true)
+            label("hole-name", "SERVER ROOM", at: CGPoint(x: h.x, y: y), size: 11, color: Self.violet, alpha: la, center: true)
             segments("hole-sub", summaryParts(short: true), at: CGPoint(x: h.x, y: y - 14), alpha: la)
         }
         if ia > 0 {
@@ -605,14 +605,14 @@ public final class OrbitScene: WorldScene {
             if lt > 0 {
                 // below the outer orbit, so no body ever passes over it
                 let y = h.y - (5.8 * 0.42 * Rh + 24)
-                label("hole-room-name", "ENGINE ROOM", at: CGPoint(x: h.x, y: y), size: 10.5, color: Self.violet, alpha: lt, center: true)
+                label("hole-room-name", "SERVER ROOM", at: CGPoint(x: h.x, y: y), size: 10.5, color: Self.violet, alpha: lt, center: true)
                 segments("hole-room-sub", summaryParts(short: false), at: CGPoint(x: h.x, y: y - 14), alpha: lt)
             }
         }
         hits.append(Hit(x: h.x, y: h.y, r: max(14, rr), pri: 1, target: .hole, hr: Rh * 1.25 + 6, selected: room))
     }
 
-    /// The Engine room in one line, each part in its state's colour.
+    /// The Server room in one line, each part in its state's colour.
     private func summaryParts(short: Bool) -> [(String, SKColor)] {
         let m = summary
         guard m.connected else { return [(short ? "NOT CONNECTED" : "NO SERVERS CONNECTED", Self.muted)] }

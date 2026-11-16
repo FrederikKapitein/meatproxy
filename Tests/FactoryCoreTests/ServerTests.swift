@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import FactoryCore
 
-/// The Engine room (D26): servers come from their own source (D20). Without one the world has none, and says so.
+/// The Server room (D26): servers come from their own source (D20). Without one the world has none, and says so.
 struct ServerTests {
     @Test func noSourceMeansNotConnected() {
         let w = World(now: Date(), buildings: [])

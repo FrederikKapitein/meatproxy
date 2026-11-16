@@ -171,7 +171,7 @@ public struct ProviderBuilding: Identifiable, Sendable, Hashable {
     public init(provider: Provider, projects: [Project]) { self.provider = provider; self.projects = projects }
 }
 
-/// What kind of machine sits in the Engine room (D26): a rack on campus, a body round the black hole in Orbit.
+/// What kind of machine sits in the Server room (D26): a rack on campus, a body round the black hole in Orbit.
 public enum ServerKind: String, Codable, Sendable, CaseIterable {
     case server, deploy, backup
     public var label: String { rawValue.capitalized }
@@ -191,8 +191,8 @@ public enum ServerState: String, Codable, Sendable, CaseIterable, Comparable {
     public static func < (a: ServerState, b: ServerState) -> Bool { a.severity < b.severity }
 }
 
-/// A server, deploy or backup in the Engine room. They come from their own source (D20): the servers set up in the
-/// app's settings, checked over SSH. Nothing set up: the Engine room is not connected.
+/// A server, deploy or backup in the Server room. They come from their own source (D20): the servers set up in the
+/// app's settings, checked over SSH. Nothing set up: the Server room is not connected.
 /// What the built-in check measured on a server: the numbers behind its detail line, for the gauges and history.
 public struct ServerMetrics: Codable, Sendable, Hashable {
     public var load: Double?
@@ -237,7 +237,7 @@ public struct Server: Identifiable, Codable, Sendable, Hashable {
     }
 }
 
-/// How many servers are ok, warn and down; what the Engine room shows in one line.
+/// How many servers are ok, warn and down; what the Server room shows in one line.
 public struct ServerSummary: Sendable, Hashable {
     public var ok = 0, warn = 0, down = 0
     public init(_ servers: [Server]) {
@@ -267,9 +267,9 @@ public struct ServerSummary: Sendable, Hashable {
 public struct World: Sendable, Hashable {
     public var now: Date
     public var buildings: [ProviderBuilding]
-    /// The Engine room (D26). Empty until a server source is connected.
+    /// The Server room (D26). Empty until a server source is connected.
     public var servers: [Server]
-    /// The Engine room's DevOps agent, held like a factory (its questions and journal), never a floor on the campus.
+    /// The Server room's DevOps agent, held like a factory (its questions and journal), never a floor on the campus.
     public var ops: Project?
     public static let opsID = "ops:engine-room"
     /// The DevOps agent's state as Orbit shows it at the black hole (nil: switched off): working while it runs, waiting

@@ -291,7 +291,7 @@
     for (const r of ROOMS) { const [x, y] = P(r.i + r.w / 2, r.j + r.d / 2); light += glow(x, y, 90, "#ffd9a0", .22); }
     { const [x, y] = P(10.5, 8); light += glow(x, y, 120, "#ffd9a0", .25); }
     const bridgeLights = bridge.map(([i, j]) => { const [x, y] = P(i, j, 6); return `<rect class="bw-lantern" x="${f(x - 2.5)}" y="${f(y - 5)}" width="5" height="6" fill="#3a3550" stroke="#2a1a2e" stroke-width="1.2"/>`; }).join("");
-    { const [x, y] = P(1.5, 19.2, -6); tp("bridge", `<text x="${f(x)}" y="${f(y + 26)}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="#c9a0ff" stroke="#2a1a2e" stroke-width="2" paint-order="stroke">← ENGINE ROOM</text>`); }
+    { const [x, y] = P(1.5, 19.2, -6); tp("bridge", `<text x="${f(x)}" y="${f(y + 26)}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="#c9a0ff" stroke="#2a1a2e" stroke-width="2" paint-order="stroke">← SERVER ROOM</text>`); }
 
     /* ---------- put it together ---------- */
     objs.sort((a, b) => a.key - b.key);
@@ -452,7 +452,7 @@
       sign: P(i + w / 2, j + d - .3, zr + 11.5), plaques: floors.map((fl, k) => ({at: P(i + w + .05 + proud(k), j + d / 2, 8 + k * FLOOR_H + FLOOR_H / 2), fl})), storeys: floors.map((fl, k) => ({fl, faces: faces(k)}))};
   }
   let bx2 = null;
-  /* the campus: a floating island with the provider buildings, the Engine room, a square plaza with the fountain
+  /* the campus: a floating island with the provider buildings, the Server room, a square plaza with the fountain
      that counts what waits for you, roads on the grid, trees, lamps, benches and people about */
   function campus(svg, opts = {}) {
     const objs = [], boxes = [], base = new E.Scene(S), under = new E.Scene(S);
@@ -489,7 +489,7 @@
     // the buildings
     const claude = tower(null, 3, 3, 5, 4, "claude", opts.claude || [{name: "SHOPFRONT", wait: true}, {name: "RECIPE BOX"}, {name: "TIDE NOTES"}, {name: "CHAT · FONTS", wait: true}], add);
     const gpt = tower(null, 21, 16, 5, 4, "chatgpt", opts.chatgpt || [{name: "HARBOR API"}, {name: "RECIPE BOX", wait: true}], add);
-    // the Engine room: a low datacenter, racks behind glass, AC units and a dish on the roof
+    // the Server room: a low datacenter, racks behind glass, AC units and a dish on the roof
     add(25 + 8, sc => {
       bx(sc, 19, 3, 0, 26, 8, 22, "#6a5ab0", {front: [[19.4 * T, 3, 25.6 * T, 18, "#1e1a3a"], ...Array.from({length: 10}, (_, k) => [(19.6 + k * .6) * T, 4, (19.6 + k * .6 + .4) * T, 17, "#2a2a4e"]), ...Array.from({length: 20}, (_, k) => [(19.7 + (k % 10) * .6) * T, 6 + Math.floor(k / 10) * 6, (19.7 + (k % 10) * .6) * T + 2, 7 + Math.floor(k / 10) * 6, "#34305a"])], right: [[-8 * T + 4, 3, -7 * T, 16, "#2a2433"], [-6.6 * T, 12, -4 * T, 14, "#c9a0ff"]]});
       for (const a of [19.6, 21.2, 22.8]) bx(sc, a, 3.6, 22, a + 1.2, 4.8, 28, "#9aa3b4", {top: [[(a + .2) * T, 3.8 * T, (a + 1) * T, 4.6 * T, "#5d6178"]]});
@@ -506,7 +506,7 @@
     { // the sign on the roof, and above it a chip that says how the servers are (nothing when all is well)
       const [x, y] = P(22.5, 8, 44), eng = opts.engine || {total: 0, warn: 0, down: 0};
       // the board stands on its posts along the front face, so it is sheared along it (down to the right)
-      let sign = `<rect x="-52" y="-9" width="104" height="15" fill="#c9a0ff" stroke="#2a1a2e" stroke-width="1.8"/><text x="0" y="2.4" text-anchor="middle" font-family="${FONT}" font-size="9" fill="#2a1a2e">ENGINE ROOM</text>`;
+      let sign = `<rect x="-52" y="-9" width="104" height="15" fill="#c9a0ff" stroke="#2a1a2e" stroke-width="1.8"/><text x="0" y="2.4" text-anchor="middle" font-family="${FONT}" font-size="9" fill="#2a1a2e">SERVER ROOM</text>`;
       const parts = [], down = eng.down || 0, warn = eng.warn || 0;
       if (down) parts.push(`${down} DOWN`);
       if (warn) parts.push(`${warn} WARNING`);
@@ -521,7 +521,7 @@
     // a plot for the next provider: scaffolding
     add(5 + 21 + 1, sc => { bx(sc, 3, 18, 0, 8, 22, 1, "#a8743a"); for (const [a, b] of [[3, 18], [8, 18], [3, 22], [8, 22]]) bx(sc, a - .1, b - .1, 1, a + .1, b + .1, 34, "#c9a46a"); for (const z of [12, 24, 34]) { bx(sc, 3, 21.9, z, 8, 22.1, z + 1, "#c9a46a"); bx(sc, 7.9, 18, z, 8.1, 22, z + 1, "#c9a46a"); } bx(sc, 5, 22.1, 0, 6.4, 22.3, 10, "#fff3d6", {front: [[5.1 * T, 2, 6.3 * T, 9, "#3f6fd8"]]}); }, {i0: 3, j0: 18, i1: 8, j1: 22}, "plot");
     { // the plot's board hangs on the scaffold's front, its top edge on the top beam, sheared along the face like the
-      // Engine room's; opaque, so no post shows through
+      // Server room's; opaque, so no post shows through
       const [x, y] = P(5.5, 22.12, 29), txt = "GEMINI · SOON", w = 72;
       tp("plot", `<g transform="translate(${f(x)} ${f(y)}) matrix(1 .5 0 1 0 0)"><rect x="${f(-w / 2)}" y="-7" width="${w}" height="13" fill="#fff3d6" stroke="#2a1a2e" stroke-width="1.6"/><text x="0" y="2.4" text-anchor="middle" font-family="${FONT}" font-size="6.6" fill="#6a6478">${txt}</text></g>`); }
     // trees, lamps, benches round the plaza and along the roads

@@ -11,7 +11,7 @@ public struct WorldSelection: Equatable, Sendable {
     public var projectID: String?
     public var sessionID: String?
     public var subAgentID: String?
-    /// The server, deploy or backup picked in the Engine room (round the black hole in Orbit).
+    /// The server, deploy or backup picked in the Server room (round the black hole in Orbit).
     public var serverID: String?
     /// A factory's question open in the inspector (D25, D11): the Project level of its factory, with the decision card.
     public var decisionID: String?
@@ -293,11 +293,11 @@ public final class WorldController {
     }
 
     private func showDetail(in projectID: String) {
-        // the DevOps agent's questions belong to the Engine room: no floor to fly into
+        // the DevOps agent's questions belong to the Server room: no floor to fly into
         if projectID == World.opsID {
             if !inOrbit { if floor != nil { exitFloor() }; campus.focus(on: "engine") }
             selection = WorldSelection(); selection.engineRoom = true; selection.level = .provider; selection.projectID = projectID
-            // the Engine room sits at the building level, so the question is kept here, not by keepDecision's project rule
+            // the Server room sits at the building level, so the question is kept here, not by keepDecision's project rule
             selection.decisionID = decisionFocus.flatMap { $0.project == projectID && !$0.workstream ? $0.id : nil }
             emit()
             return
@@ -338,7 +338,7 @@ public final class WorldController {
         if selection.projectID != nil || selection.level.rawValue > Level.project.rawValue { decisionFocus = nil }
     }
 
-    /// A server (D52): in the Office its slot slides out of its rack in the Engine room, in Orbit its body round the
+    /// A server (D52): in the Office its slot slides out of its rack in the Server room, in Orbit its body round the
     /// black hole is picked; the inspector shows its detail. nil closes it (the slot slides back in).
     public func select(server id: String?) {
         if inOrbit { orbit.select(infra: id); return }
@@ -399,7 +399,7 @@ public final class WorldController {
 
     private func emit() {
         var crumb = [selection.orbit ? "Universe" : "Campus"]
-        if selection.engineRoom { crumb.append("Engine room") }
+        if selection.engineRoom { crumb.append("Server room") }
         if let p = selection.provider { crumb.append(p.displayName) }
         if let id = selection.projectID, id != World.opsID, let p = world.project(id: id) { crumb.append(p.name) }
         if let id = selection.sessionID, let s = world.projects.flatMap(\.sessions).first(where: { $0.id == id }) { crumb.append(selection.orbit ? s.title : s.persona.name) }

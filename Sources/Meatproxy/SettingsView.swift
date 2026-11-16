@@ -3,14 +3,14 @@ import FactoryCore
 import FactoryCollector
 
 /// The settings: a drawer from the right edge of the window, over the dimmed world (not a window of their own), the
-/// full height. The Engine room's servers, and what the app reads and keeps. ⌘, or the gear in the top bar opens it;
+/// full height. The Server room's servers, and what the app reads and keeps. ⌘, or the gear in the top bar opens it;
 /// Esc, the cross or a click on the world beside it closes it.
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var section: Section = .general
 
     enum Section: String, CaseIterable, Identifiable {
-        case general = "General", projects = "Projects", engine = "Engine room", privacy = "Privacy"
+        case general = "General", projects = "Projects", engine = "Server room", privacy = "Privacy"
         var id: String { rawValue }
         var icon: String {
             switch self { case .general: "slider.horizontal.3"; case .projects: "building.2"; case .engine: "server.rack"; case .privacy: "lock.shield" }
@@ -54,6 +54,10 @@ struct SettingsView: View {
                     .id(section)
                 }
                 .onChange(of: section) { _, new in DispatchQueue.main.async { scroll.scrollTo(new, anchor: .top) } }
+                .onChange(of: model.settingsScrollTo) { _, id in
+                    guard let id else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { withAnimation { scroll.scrollTo(id, anchor: .top) }; model.settingsScrollTo = nil }
+                }
                 .onAppear {
                     if model.settingsAtProjects { section = .projects; model.settingsAtProjects = false }
                     if let p = model.settingsPage {
@@ -113,7 +117,7 @@ private struct GeneralSettings: View {
     }
 }
 
-// MARK: Engine room
+// MARK: Server room
 
 /// The DevOps agent on top, then the servers as a short list; a server opens on a page of its own.
 private struct EngineRoomSettings: View {
@@ -139,7 +143,7 @@ private struct EngineRoomSettings: View {
 
     private var list: some View {
         VStack(alignment: .leading, spacing: 18) {
-            PageTitle("Engine room", "Your servers and sites, checked over SSH every minute, with alerts and a DevOps agent that keeps an eye on them.")
+            PageTitle("Server room", "Your servers and sites, checked over SSH every minute, with alerts and a DevOps agent that keeps an eye on them.")
             DevOpsCard()
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
@@ -156,7 +160,7 @@ private struct EngineRoomSettings: View {
                     Button { withAnimation(.easeOut(duration: 0.2)) { open = "new" } } label: { Label("Add server", systemImage: "plus") }.buttonStyle(SettingsButton())
                 }
                 if model.serverConfigs.isEmpty {
-                    Text("No servers yet: the Engine room says “not connected”.").font(.system(size: 13)).foregroundStyle(Color.muted).padding(14)
+                    Text("No servers yet: the Server room says “not connected”.").font(.system(size: 13)).foregroundStyle(Color.muted).padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading).background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
                 }
                 VStack(spacing: 0) {
@@ -246,7 +250,7 @@ private struct ServerPage: View {
     var body: some View {
         let config = id.flatMap { i in model.serverConfigs.first { $0.id == i } }
         VStack(alignment: .leading, spacing: 18) {
-            BackButton("Engine room", action: back)
+            BackButton("Server room", action: back)
             PageTitle(config?.name ?? "Add a server", config?.host ?? "Any server you reach with ssh without a password.")
             if config == nil {
                 Note(icon: "key.horizontal", title: "Password-free SSH only") {
@@ -364,7 +368,7 @@ private struct ServerForm: View {
                 TextField("deploy@web-01.example.com", text: $host).focused($focus, equals: .host).font(.system(size: 13, design: .monospaced))
             }
             VStack(alignment: .leading, spacing: 14) {
-                field("Name", focused: .name, hint: "On its rack in the Engine room.") {
+                field("Name", focused: .name, hint: "On its rack in the Server room.") {
                     TextField(suggestedName.isEmpty ? "web-01" : suggestedName, text: $name).focused($focus, equals: .name).font(.system(size: 13, design: .monospaced))
                 }
                 VStack(alignment: .leading, spacing: 6) {
@@ -502,6 +506,8 @@ private struct ProjectsSettings: View {
             group("Factories", all.filter(\.factory))
             group("On campus", all.filter { $0.pinned && !$0.factory })
             group("Recent", all.filter { !$0.pinned && !$0.factory })
+            group("Hidden", model.projectSettings.hidden.filter { r in !all.contains { $0.root == r } }
+                .map { (root: $0, name: WorldBuilder.pretty(($0 as NSString).lastPathComponent), pinned: false, factory: false) })
         }
     }
 
@@ -564,7 +570,9 @@ private struct ProjectPage: View {
                 SwitchRow("Dark Software Factory", "Its CEO's queue in factory/ shows on its floor, and its CEO runs on a heartbeat. Switching on creates no files.",
                           isOn: Binding(get: { factory }, set: { model.setFactory(root, on: $0) }))
                 SwitchRow("Keep on campus", factory ? "A factory always stays on the campus." : "Its floor stays without recent sessions.",
-                          isOn: Binding(get: { pinned }, set: { model.setPinned(root, on: $0) }), disabled: factory)
+                          isOn: Binding(get: { pinned }, set: { v in if v { model.setHidden(root, on: false) }; model.setPinned(root, on: v) }), disabled: factory)
+                SwitchRow("Hide from campus", factory ? "A factory is never hidden: its questions must reach you." : "Its floor and sessions stay off the campus until you show it again. Nothing is deleted.",
+                          isOn: Binding(get: { model.projectSettings.hidden.contains(root) }, set: { model.setHidden(root, on: $0) }), disabled: factory)
             }
             if factory, let f = model.world.projects.first(where: { $0.root == root })?.factory {
                 if f.takesMandate { MandateCards(root: root) }
@@ -640,7 +648,7 @@ private struct HeartbeatCards: View {
                               ?? "Name the project in factory/contract.yml: tracker: <slug>.",
                               isOn: Binding(get: { hb.wakeOnTracker }, set: { v in update { $0.wakeOnTracker = v } }), disabled: !v4 || src.tracker == nil)
                 }
-            }
+            }.id("wakes")
         }
         SettingsCard("Limits on automatic runs") {
             ChoiceRow("Per day") {

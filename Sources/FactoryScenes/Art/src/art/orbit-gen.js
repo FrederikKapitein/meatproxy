@@ -1,6 +1,6 @@
 /* The Orbit generator, in the Starfield style (D18, D42): a stable id always makes the same body, like
    BlockyCast.person makes the same person. Galaxy = provider, solar system / star = project, planet = session,
-   moon = sub-agent (D6), plus the Engine room's black hole (D26) and the wormhole of a project at two providers (D16).
+   moon = sub-agent (D6), plus the Server room's black hole (D26) and the wormhole of a project at two providers (D16).
 
    The look follows the prototype's Starfield skin and the game it is named after: minimal and clinical, grounded in
    reality. Stars, planets and moons are lit spheres with procedural textures, rendered per pixel on a canvas, in
@@ -689,7 +689,7 @@
     return L;
   }
 
-  /* ---------- the Engine room: one supermassive black hole at the top of Orbit, violet and always on (D23, D26) ----------
+  /* ---------- the Server room: one supermassive black hole at the top of Orbit, violet and always on (D23, D26) ----------
      blackHole(id, {state, activity}) → look + .paint(ctx, x, y, r, o) + .sprite(r, o) + .svg(r, o) + .slot(i, n) → [x, y] at r = 1.
      Rendered per pixel like the planets: a black shadow, a thin photon ring, a thin accretion disk seen almost edge on with
      turbulent streaks, the far side of the disk bent over the top of the shadow (and faintly under it) by lensing, and the side

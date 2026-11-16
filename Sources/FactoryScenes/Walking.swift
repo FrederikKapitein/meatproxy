@@ -306,7 +306,7 @@ struct MinHeap {
     }
 }
 
-/// The Engine room's rack lights (D26): how bright each LED is at time t. Pure, so a still frame and the tests agree.
+/// The Server room's rack lights (D26): how bright each LED is at time t. Pure, so a still frame and the tests agree.
 public enum RackLights {
     /// The status LED (top): ok breathes, warn blinks, down blinks fast. With animations off: fully on.
     public static func status(_ state: String, rack: Int, t: Double, animated: Bool) -> CGFloat {

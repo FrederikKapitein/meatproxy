@@ -25,8 +25,10 @@ public struct ProjectSettings: Codable, Equatable, Sendable {
     public var heartbeatWhenClosed = false
     /// the kill switch (D48): no heartbeat starts anything, and running CEOs are stopped
     public var pauseAll = false
-    /// the Engine room's DevOps agent and its alerts
+    /// the Server room's DevOps agent and its alerts
     public var devops = DevOpsSettings()
+    /// project folders you hid from the campus (a factory is never hidden)
+    public var hidden: [String] = []
 
     public init(projects: [Entry] = [], showChats: Bool = true, heartbeatWhenClosed: Bool = false) {
         self.projects = projects; self.showChats = showChats; self.heartbeatWhenClosed = heartbeatWhenClosed
@@ -46,7 +48,7 @@ public struct ProjectSettings: Codable, Equatable, Sendable {
     }
 
     // tolerant decoding: a field added later has its default
-    enum CodingKeys: String, CodingKey { case projects, showChats, heartbeatWhenClosed, pauseAll, devops }
+    enum CodingKeys: String, CodingKey { case projects, showChats, heartbeatWhenClosed, pauseAll, devops, hidden }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         projects = try c.decodeIfPresent([Entry].self, forKey: .projects) ?? []
@@ -54,6 +56,7 @@ public struct ProjectSettings: Codable, Equatable, Sendable {
         heartbeatWhenClosed = try c.decodeIfPresent(Bool.self, forKey: .heartbeatWhenClosed) ?? false
         pauseAll = try c.decodeIfPresent(Bool.self, forKey: .pauseAll) ?? false
         devops = try c.decodeIfPresent(DevOpsSettings.self, forKey: .devops) ?? DevOpsSettings()
+        hidden = try c.decodeIfPresent([String].self, forKey: .hidden) ?? []
     }
 }
 
@@ -82,7 +85,7 @@ public struct ProjectSettingsStore: Sendable {
     }
 }
 
-/// The Engine room's DevOps agent (it watches your servers and sites, and may work semi-autonomously per server) and the
+/// The Server room's DevOps agent (it watches your servers and sites, and may work semi-autonomously per server) and the
 /// alerts the app sends you. Off until you switch it on; alerts are on.
 public struct DevOpsSettings: Codable, Equatable, Sendable {
     public var enabled = false

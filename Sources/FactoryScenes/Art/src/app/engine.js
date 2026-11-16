@@ -173,14 +173,14 @@
     return raster(markup, "", [-13.5, -11.5, 13.5, 15], o.R || 5);
   }
 
-  /* ---------- the campus (D22, D33): the island, the provider towers, the Engine room ---------- */
+  /* ---------- the campus (D22, D33): the island, the provider towers, the Server room ---------- */
   async function campus(input) {
     const R = input.R || 3, svg = scratch();
     const floors = list => list.map(f => ({name: String(f.name).toUpperCase(), wait: !!f.wait, kind: ["factory", "chats"].includes(f.kind) ? f.kind : "project", logo: /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(f.logo || "") ? f.logo : null}));
     const c = W.campus(svg, {claude: floors(input.claude || []), chatgpt: floors(input.chatgpt || []), waiting: input.waiting || 0, people: [], engine: input.engine});
     const parts = c.parts, view = viewBox(svg);
     const ground = image([...parts.under, parts.base], R);
-    // the buildings get more pixels than the rest: the camera comes close to them (the Provider and Engine room levels)
+    // the buildings get more pixels than the rest: the camera comes close to them (the Provider and Server room levels)
     const objects = atlas(parts.objs.filter(o => !(o.id || "").startsWith("building:")), R);
     const buildings = atlas(parts.objs.filter(o => (o.id || "").startsWith("building:")), input.RB || 10);
     const light = await raster(parts.light, parts.defs, view, Math.min(R, 2));
