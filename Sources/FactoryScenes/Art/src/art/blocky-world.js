@@ -30,7 +30,7 @@
   const plaqueBoxW = fl => plaqueW(fl.name) + (fl.logo ? LOGO_W : 0);
   const plaqueSVG = (x, y, fl) => {
     const w = plaqueBoxW(fl), lw = fl.logo ? LOGO_W : 0, dark = fl.kind === "factory" && !fl.wait;
-    const logo = fl.logo ? `<rect x="${f(x + 18)}" y="${f(y - 4.6)}" width="9.2" height="9.2" rx="1.6" fill="#ffffff" stroke="#2a1a2e" stroke-width="1"/><image href="${fl.logo}" x="${f(x + 18.6)}" y="${f(y - 4)}" width="8" height="8" preserveAspectRatio="xMidYMid meet"/>` : "";
+    const logo = fl.logo ? `<rect x="${f(x + 18)}" y="${f(y - 4.6)}" width="9.2" height="9.2" fill="#ffffff" stroke="#2a1a2e" stroke-width="1"/><image href="${fl.logo}" x="${f(x + 18.6)}" y="${f(y - 4)}" width="8" height="8" preserveAspectRatio="xMidYMid meet"/>` : "";
     return `<g><line x1="${f(x)}" y1="${f(y)}" x2="${f(x + 14)}" y2="${f(y)}" stroke="#2a1a2e" stroke-width="1.6"/><rect x="${f(x + 14)}" y="${f(y - 7)}" width="${f(w)}" height="13" fill="${fl.wait ? "#FFD83D" : dark ? "#2a1a2e" : "#fff3d6"}" stroke="#2a1a2e" stroke-width="1.6"/>${dark ? `<rect x="${f(x + 15.6)}" y="${f(y - 5.4)}" width="1.6" height="9.8" fill="#9be7ff"/>` : ""}${logo}<text x="${f(x + 20 + lw)}" y="${f(y + 2.6)}" font-family="${FONT}" font-size="7.4" fill="${dark ? "#fff3d6" : "#2a1a2e"}">${fl.name}</text></g>`;
   };
 
@@ -511,7 +511,7 @@
       const parts = [], down = eng.down || 0, warn = eng.warn || 0;
       if (down) parts.push(`${down} DOWN`);
       if (warn) parts.push(`${warn} WARNING`);
-      const txt = !eng.total ? "NOT CONNECTED" : parts.join(" · ");
+      const txt = !eng.total ? "NOT CONNECTED" : parts.join(", ");
       if (txt) {
         // a strip along the board's top edge, as wide as the board: part of the sign, not a chip in the air
         const fill = !eng.total ? "#20182c" : down ? "#ff4a4a" : "#FF9F43", ink = !eng.total ? "#a4a3b6" : down ? "#fff8ec" : "#2a1a2e";

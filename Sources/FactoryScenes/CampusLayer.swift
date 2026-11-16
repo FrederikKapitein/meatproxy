@@ -27,10 +27,12 @@ extension CampusScene {
                 let g = glow(Self.artP(i, j, 17), size: CGSize(width: 18, height: 18), color: col); g.zPosition = 0.1
                 n.addChild(g)
                 let label = SKLabelNode(text: s.name.uppercased())
-                label.fontName = "Menlo-Bold"; label.fontSize = 5.2 * px; label.fontColor = SKColor(white: 0.95, alpha: 1)
+                label.fontName = "Menlo-Bold"; label.fontSize = 5.2 * px; label.fontColor = Self.ink
                 label.position = scenePoint(CGPoint(x: Self.artP(i, j, 0).x, y: Self.artP(i, j, 0).y + 7)); label.verticalAlignmentMode = .center
-                let plate = SKShapeNode(rectOf: CGSize(width: label.frame.width + 5 * px, height: 7.5 * px), cornerRadius: 1.5 * px)
-                plate.fillColor = Self.ink.withAlphaComponent(0.85); plate.strokeColor = .clear; plate.position = label.position; plate.zPosition = -0.01
+                // a little plaque like the storeys': cream, an ink edge, square corners
+                let plate = SKShapeNode(rectOf: CGSize(width: label.frame.width + 6 * px, height: 8.5 * px), cornerRadius: 0)
+                plate.fillColor = SKColor(red: 1, green: 0.953, blue: 0.839, alpha: 1); plate.strokeColor = Self.ink; plate.lineWidth = 1 * px
+                plate.position = label.position; plate.zPosition = -0.01
                 n.addChild(plate); n.addChild(label)
                 ov.addChild(n); life.layerNodes.append(n)
                 let st = s.shown(now: world.now)

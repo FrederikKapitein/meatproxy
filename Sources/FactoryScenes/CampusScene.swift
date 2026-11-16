@@ -525,6 +525,9 @@ public final class CampusScene: WorldScene {
         }
         tickStacks(dt)
         tickLife(dt)
+        // close up, the storey plaques keep about their size on screen instead of filling the view
+        let k = max(0.5, min(1, cam.xScale / max(homeScale, 0.0001)))
+        for sg in signs where sg.plaque && abs(sg.node.xScale - k) > 0.005 { sg.node.setScale(k) }
         animateLights()
         fadePlaques(dt)
         for l in screenLines { l.node.lineWidth = screenWidth(l.width) }
@@ -758,7 +761,7 @@ public final class CampusScene: WorldScene {
         else if let titled, let v = view, let words = title(for: titled),
            let at = markLabelPoint() ?? p.map({ q -> CGPoint in let q = convertPoint(toView: q); return CGPoint(x: q.x, y: v.bounds.height - q.y) }) {
             var left = false
-            switch titled { case .storey, .building: left = wheelMark == nil; default: break }
+            switch titled { case .storey, .building: left = true; default: break }
             onHoverTitle?(HoverTitle(title: words.0, line: words.1, at: at, left: left))
         } else { onHoverTitle?(nil) }
         guard t != hoverTarget else { return }

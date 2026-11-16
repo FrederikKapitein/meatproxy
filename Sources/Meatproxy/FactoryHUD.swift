@@ -209,7 +209,7 @@ struct FactoryOverview: View {
     private var tabs: [LiftedSegments<Tab>.Item] {
         let hb = model.heartbeat(project)
         let newIdeas = factory.ideas.filter { $0.status == .new }.count
-        let ceoFlag = hb?.running == true ? " ·" : (hb?.blocked?.waitsForYou == true || hb?.last?.warning != nil || hb?.last?.outcome == .failed) ? " !" : ""
+        let ceoFlag = hb?.running == true ? " ●" : (hb?.blocked?.waitsForYou == true || hb?.last?.warning != nil || hb?.last?.outcome == .failed) ? " ▲" : ""
         return [
             .init(id: .overview, title: newIdeas > 0 ? "Overview · \(newIdeas)" : "Overview", help: "The CEO's briefing and your ideas"),
             .init(id: .work, title: "Work · \(factory.activeWorkstreams.count + project.sessions.count)", help: "Workstreams and sessions"),
@@ -239,7 +239,7 @@ struct FactoryOverview: View {
             }
         }
         let dropped = factory.workstreams.count - streams.count
-        if dropped > 0 { Text("\(dropped) dropped").font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted) }
+        if dropped > 0 { Text("\(dropped) dropped").font(.system(size: 11.5)).foregroundStyle(Color.muted) }
         Heading(text: "SESSIONS · \(project.sessions.count)")
         if project.sessions.isEmpty { Text("No session in the last 8 hours.").font(.system(size: 12)).foregroundStyle(Color.muted) }
         else { StateBar(sessions: project.sessions, now: model.world.now) }
@@ -266,7 +266,7 @@ struct FactoryOverview: View {
         } else if let a = factory.autonomy { AutonomyLine(autonomy: a) }
         HStack(spacing: 6) {
             Text("CONTRACT").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-            Text("v\(factory.contractVersion)\(factory.contract == nil ? " (no contract.yml)" : "")").font(.system(size: 12, design: .monospaced))
+            Text("Version \(factory.contractVersion)\(factory.contract == nil ? " (no contract.yml)" : "")").font(.system(size: 12))
             if factory.newerContract {
                 Text("newer than this Meatproxy (v\(FactoryContract.current))").font(.system(size: 11.5)).foregroundStyle(Color.warn)
             }
@@ -291,7 +291,7 @@ private struct BriefingCard: View {
             HStack {
                 Text("CEO BRIEFING").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
                 Spacer()
-                Text(Self.day(briefing.name)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted)
+                Text(Self.day(briefing.name)).font(.system(size: 11.5)).foregroundStyle(Color.muted)
             }
             ForEach(Array(briefing.briefing.enumerated()), id: \.offset) { _, line in
                 Text(Self.plain(line)).font(.system(size: 12.5)).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
@@ -384,9 +384,9 @@ struct AutonomyCard: View {
             ForEach(looseGates, id: \.name) { g in
                 Divider().overlay(Color.divider)
                 HStack(spacing: 8) {
-                    Text("\(g.name) (the CEO's own gate)").font(.system(size: 12)).foregroundStyle(Color.muted)
+                    Text("\(g.name.prefix(1).uppercased() + g.name.dropFirst()) · its own gate").font(.system(size: 12)).foregroundStyle(Color.muted)
                     Spacer(minLength: 0)
-                    Text(g.notify ? "notify" : "ask").font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted)
+                    Text(g.notify ? "Tell me" : "Ask").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted)
                 }.padding(.vertical, 6)
                 .help("A gate in the CEO's autonomy.yml with no mandate item: it does not change what the mandate allows")
             }
@@ -565,7 +565,7 @@ struct DecisionCard: View {
             if let g = d.gate, g != d.kind { Chip(text: "gate \(g)") }
             if let w = d.workstream { Chip(text: w) }
             Spacer(minLength: 0)
-            if let a = d.asked { Text("asked \(a.ago)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted) }
+            if let a = d.asked { Text("asked \(a.ago)").font(.system(size: 11.5)).foregroundStyle(Color.muted) }
         }
         if let w = d.workstream, let ws = project.factory?.workstreams.first(where: { $0.id == w }) {
             Text("\(ws.title) · \(ws.phase.label)").font(.system(size: 12)).foregroundStyle(Color.muted).lineLimit(1)

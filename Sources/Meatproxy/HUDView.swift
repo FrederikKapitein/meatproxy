@@ -35,9 +35,12 @@ struct HUDView: View {
             if !model.settingsOpen && !loading {
                 if let m = model.contextMenuState {
                     Color.black.opacity(0.001).ignoresSafeArea().onTapGesture { model.contextMenuState = nil }
+                    // its top left corner at the pointer, kept inside the window (an estimate of its height: rows of 27 pt)
                     GeometryReader { geo in
+                        let h = CGFloat(m.items.count) * 27 + 40
                         ContextMenuView(menu: m)
-                            .position(x: min(m.at.x + 140, geo.size.width - 140), y: min(m.at.y + CGFloat(m.items.count) * 15 + 30, geo.size.height - CGFloat(m.items.count) * 15 - 40))
+                            .offset(x: min(m.at.x + 4, geo.size.width - 276), y: min(m.at.y + 4, geo.size.height - h - 8))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     }
                     .ignoresSafeArea()
                     .onExitCommand { model.contextMenuState = nil }
@@ -281,12 +284,12 @@ private struct ServerLine: View {
             if !summary.connected || (summary.warn == 0 && summary.down == 0) {
                 Text(summary.line.lowercased()).foregroundStyle(summary.connected ? Color.done : Color.muted)
             } else {
-                if summary.warn > 0 { Text("\(summary.warn) warning").foregroundStyle(Color.warn) }
-                if summary.warn > 0 && summary.down > 0 { Text(" · ").foregroundStyle(Color.muted) }
                 if summary.down > 0 { Text("\(summary.down) down").foregroundStyle(Color.stuck) }
+                if summary.warn > 0 && summary.down > 0 { Text(" · ").foregroundStyle(Color.muted) }
+                if summary.warn > 0 { Text("\(summary.warn) warning").foregroundStyle(Color.warn) }
             }
         }
-        .font(.system(size: 11, design: .monospaced)).lineLimit(1)
+        .font(.system(size: 11.5, weight: .medium).monospacedDigit()).lineLimit(1)
     }
 }
 
@@ -344,10 +347,10 @@ private struct NeedsYouRow: View {
     let item: NeedsYou; let first: Bool; let number: Int
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Text(isQuestion ? "?" : "\(number)").font(.system(size: 11, weight: .bold).monospacedDigit())
+            Text("\(number)").font(.system(size: 11, weight: .bold).monospacedDigit())
                 .foregroundStyle(first ? Color.onSignal : Color.inkText)
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(first ? Color.signal : Color.raised, in: RoundedRectangle(cornerRadius: 4))
+                .frame(minWidth: 20, minHeight: 20)
+                .background(first ? Color.signal : Color.divider, in: RoundedRectangle(cornerRadius: 4))
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.title).font(.system(size: 13.5, weight: .bold)).lineLimit(2).multilineTextAlignment(.leading)
                 // what a waiting session wants: the gist of its last words
@@ -357,6 +360,7 @@ private struct NeedsYouRow: View {
                 }
                 // the project gives way first (cut at its end), then nothing: who or what, and the age, always show
                 HStack(spacing: 0) {
+                    if isQuestion { Image(systemName: "questionmark.bubble").font(.system(size: 11, weight: .semibold)).padding(.trailing, 5) }
                     if item.project.logo != nil { ProjectLogoView(path: item.project.logo, size: 13).padding(.trailing, 5) }
                     Text(item.project.name).lineLimit(1).truncationMode(.tail)
                     Text(" · \(detail) · \(item.since.ago)").lineLimit(1).fixedSize().layoutPriority(1)
@@ -374,7 +378,7 @@ private struct NeedsYouRow: View {
     private var detail: String {
         switch item {
         case .session(_, let s): s.persona.name
-        case .decision(_, let d): "\(d.kind) question"
+        case .decision(_, let d): d.kind
         }
     }
 }
@@ -409,7 +413,8 @@ private struct InspectorPanel: View {
             // a factory says a lot: it scrolls when the window is short, and stays as small as it is otherwise
             ViewThatFits(in: .vertical) {
                 VStack(alignment: .leading, spacing: 10) { content(sel) }
-                ScrollView { VStack(alignment: .leading, spacing: 10) { content(sel) }.padding(.trailing, 6) }.scrollIndicators(.automatic)
+                ScrollView { VStack(alignment: .leading, spacing: 10) { content(sel) }.padding(.bottom, 18) }.scrollIndicators(.never)
+                    .mask(VStack(spacing: 0) { Color.black; LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 22) })
             }
             .id(contentKey(sel))
             .transition(reduceMotion ? .identity : .asymmetric(insertion: .opacity.combined(with: .offset(y: 8)), removal: .opacity))
@@ -481,7 +486,7 @@ private struct InspectorPanel: View {
             Text("Helper of \(owner.persona.name) · \(owner.title)").font(.system(size: 12)).foregroundStyle(Color.muted)
             Text("\(sub.cast.role.label) · \(sub.persona.name)").font(.system(size: 12)).foregroundStyle(Color.muted)
         } else if let (_, session) = model.session(s.sessionID) {
-            SessionCard(session: session, expanded: true)
+            SessionCard(session: session, expanded: true, inInspector: true)
             VStack(alignment: .leading, spacing: 5) {
                 Text("LATELY").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
                 ForEach(Array(session.activities.suffix(6).reversed().enumerated()), id: \.offset) { _, a in
@@ -489,7 +494,7 @@ private struct InspectorPanel: View {
                         Circle().fill(a.failed ? Color.stuck : Color.border).frame(width: 6, height: 6)
                         Text(a.text.prefix(1).uppercased() + a.text.dropFirst()).font(.system(size: 12)).foregroundStyle(a.failed ? Color.stuck : Color.inkText).lineLimit(1)
                         Spacer(minLength: 4)
-                        Text(a.at.ago).font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted)
+                        Text(a.at.ago).font(.system(size: 11)).foregroundStyle(Color.muted)
                     }
                 }
             }
@@ -517,11 +522,10 @@ private struct InspectorPanel: View {
                         Text("\(k + 1)").font(.system(size: 11, weight: .bold).monospacedDigit()).foregroundStyle(Color.muted).frame(width: 16)
                         Text(p.name).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
                         Spacer()
-                        if let c = p.cost, c.today > 0 {
-                            Text(ProjectCost.format(c.today)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted)
-                                .help("Today at API prices (an estimate)")
-                        }
-                        HStack(spacing: 3) { ForEach(p.sessions) { Circle().fill(Color.state($0.state(now: model.world.now))).frame(width: 7, height: 7) } }
+                        HStack(spacing: 3) { ForEach(p.sessions.prefix(8)) { Rectangle().fill(Color.state($0.state(now: model.world.now))).frame(width: 6, height: 6) } }
+                            .help("One per session, coloured by what it is doing")
+                        Text(p.cost.map { $0.today > 0 ? ProjectCost.format($0.today) : "" } ?? "").font(.system(size: 11.5).monospacedDigit()).foregroundStyle(Color.muted)
+                            .frame(width: 52, alignment: .trailing).help("Today at API prices (an estimate)")
                     }
                     .padding(.horizontal, 10).padding(.vertical, 9).background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.divider)).contentShape(Rectangle())
@@ -583,13 +587,15 @@ private struct ServerRow: View {
 struct SessionCard: View {
     @EnvironmentObject private var model: AppModel
     let session: Session; let expanded: Bool
+    /// in the inspector the header already has the title
+    var inInspector = false
     var body: some View {
         let st = session.state(now: model.world.now), persona = session.persona
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 12) {
                 Avatar(cg: model.controller.portrait(model.cast(of: session))).frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(session.title).font(.system(size: 14, weight: .bold)).lineLimit(2).multilineTextAlignment(.leading)
+                    if !inInspector { Text(session.title).font(.system(size: 14, weight: .bold)).lineLimit(2).multilineTextAlignment(.leading) }
                     Text("\(persona.name) · \(model.cast(of: session).role.label) · \(session.room(now: model.world.now).name)\(session.wentBack(now: model.world.now) ? " ↩" : "")")
                         .font(.system(size: 12)).foregroundStyle(Color.muted).lineLimit(1)
                     Text(stateLine(st)).font(.system(size: 12.5, weight: .bold)).foregroundStyle(Color.state(st)).lineLimit(1)
@@ -840,7 +846,8 @@ private struct TerminalToggle: View {
         Button { withAnimation(.easeOut(duration: 0.2)) { center.toggle() } } label: {
             HStack(spacing: 6) {
                 Image(systemName: "terminal").font(.system(size: 12.5, weight: .semibold))
-                if !center.tabs.isEmpty { Text("\(center.tabs.count)").font(.system(size: 12, weight: .bold).monospacedDigit()) }
+                // the count sits in a fixed slot, so the bar does not shift when a tab opens
+                Text(center.tabs.isEmpty ? "" : "\(center.tabs.count)").font(.system(size: 12, weight: .bold).monospacedDigit()).frame(width: 10)
                 KeyCap("⌘J")
             }
             .padding(.horizontal, 9).frame(height: 30)
@@ -876,8 +883,8 @@ struct ServicesCard: View {
         let now = model.world.now, red = model.world.projects.filter { $0.github?.ciFailing == true }
         VStack(alignment: .leading, spacing: 6) {
             Text("SERVICES").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-            ForEach(model.world.services) { s in ServiceRow(name: s.name, state: s.shown(now: now), detail: Self.detail(s, now: now), page: s.page) }
-            ForEach(red, id: \.id) { p in ServiceRow(name: p.name, state: .down, detail: "CI on main failing: " + (p.github?.failing.joined(separator: ", ") ?? ""), page: nil) }
+            ForEach(model.world.services) { s in ServiceRow(name: s.name, state: s.shown(now: now), detail: Self.detail(s, now: now), checked: s.checkedAt.map { "Checked " + $0.ago }, page: s.page) }
+            ForEach(red, id: \.id) { p in ServiceRow(name: p.name, state: .down, detail: "CI on main is red: " + (p.github?.failing.joined(separator: ", ") ?? ""), checked: p.github.map { "Checked " + $0.checkedAt.ago }, page: nil) }
             if model.world.services.isEmpty && red.isEmpty {
                 Text("No status pages watched. Add them in Settings › General.").font(.system(size: 12)).foregroundStyle(Color.muted)
             }
@@ -885,20 +892,21 @@ struct ServicesCard: View {
         .padding(.bottom, 4)
     }
     static func detail(_ s: ServiceStatus, now: Date) -> String {
-        guard let c = s.checkedAt else { return "Not read yet" }
-        let stale = s.shown(now: now) == .unknown ? "Not read for a while · " : ""
-        return stale + (s.detail.isEmpty ? "" : s.detail + " · ") + "checked " + c.ago
+        guard s.checkedAt != nil else { return "Not read yet" }
+        if s.shown(now: now) == .unknown { return "Not read for a while" }
+        return s.detail.isEmpty ? s.state.rawValue.capitalized : s.detail
     }
 }
 
 private struct ServiceRow: View {
-    let name: String, state: ServiceStatus.State, detail: String, page: String?
+    let name: String, state: ServiceStatus.State, detail: String, checked: String?, page: String?
     var body: some View {
         HStack(spacing: 9) {
             Rectangle().fill(colour).frame(width: 9, height: 9).overlay(Rectangle().stroke(Color.ink, lineWidth: 1))
             VStack(alignment: .leading, spacing: 1) {
                 Text(name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
-                Text(detail).font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(2)
+                Text(detail).font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(1)
+                if let checked { Text(checked).font(.system(size: 11)).foregroundStyle(Color.muted.opacity(0.8)).lineLimit(1) }
             }
             Spacer(minLength: 0)
             if let page, let u = URL(string: page) {

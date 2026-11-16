@@ -225,11 +225,14 @@ extension CampusScene {
         return true
     }
 
-    /// The marked storey's plaque, in view points from the top left: its line hangs there.
+    /// Beside the marked storey, on the side away from the plaques (they hang to the right): its line hangs there, in
+    /// view points from the top left.
     func markLabelPoint() -> CGPoint? {
-        guard let m = wheelMark, let v = view,
-              let sg = signs.first(where: { $0.owner == m.key && $0.plaque && $0.storey == m.index }) else { return nil }
-        let q = convertPoint(toView: CGPoint(x: sg.node.frame.maxX + 4 * px, y: sg.node.frame.midY))
+        guard let m = wheelMark, let v = view, let s = storeys.first(where: { $0.storey.building == m.key && $0.storey.index == m.index })?.storey,
+              let f = s.faces.first, f.count == 4 else { return nil }
+        let off = stacks[m.key]?.offset(m.index) ?? 0
+        let left = CGPoint(x: f[0].x - 6, y: (f[0].y + f[3].y) / 2 - off)
+        let q = convertPoint(toView: scenePoint(left))
         return CGPoint(x: q.x, y: v.bounds.height - q.y)
     }
 

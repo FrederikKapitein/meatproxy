@@ -27,7 +27,7 @@ struct SettingsView: View {
                 if model.fixture { Text("Demo data: nothing is saved").font(.system(size: 11)).foregroundStyle(Color.muted).padding(.leading, 8) }
                 Spacer()
                 Button { close() } label: {
-                    Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).frame(width: 28, height: 26)
+                    HStack(spacing: 5) { KeyCap("esc"); Image(systemName: "xmark").font(.system(size: 11, weight: .bold)) }.padding(.horizontal, 6).frame(height: 26)
                 }
                 .buttonStyle(TactileButtonStyle(kind: .neutral))
                 .keyboardShortcut(.cancelAction).help("Close (Esc)")

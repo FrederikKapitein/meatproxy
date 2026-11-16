@@ -31,7 +31,7 @@ extension AppModel {
         var c: [AppCommand] = [
             AppCommand(id: "go.campus", title: "Campus", detail: "The whole island", icon: "map", group: .go, keys: "⌘1") { [weak self] in self?.controller.showOrbit(false); self?.controller.focusBuilding(nil) },
             AppCommand(id: "go.next", title: "Next that needs you", detail: "Answers, questions, stuck sessions", icon: "exclamationmark.bubble", group: .go, keys: "N") { [weak self] in self?.controller.nextWaiting() },
-            AppCommand(id: "go.up", title: "Up a level", detail: "Floor → building → campus", icon: "arrow.up", group: .go, keys: "Esc") { [weak self] in self?.controller.up() },
+            AppCommand(id: "go.up", title: "Up a level", detail: "Floor → building → campus", icon: "arrow.up", group: .go, keys: "esc") { [weak self] in self?.controller.up() },
             AppCommand(id: "go.engine", title: "Server room", detail: "Servers, services, the DevOps agent", icon: "server.rack", group: .go) { [weak self] in self?.controller.focusBuilding("engine") },
             AppCommand(id: "go.zoomin", title: "Zoom in", icon: "plus.magnifyingglass", group: .go, keys: "+") { [weak self] in self?.controller.zoom(0.8) },
             AppCommand(id: "go.zoomout", title: "Zoom out", icon: "minus.magnifyingglass", group: .go, keys: "−") { [weak self] in self?.controller.zoom(1.25) },
@@ -173,7 +173,7 @@ struct CommandPalette: View {
                 TextField("", text: $query, prompt: Text("Search projects, sessions, questions, servers, commands").foregroundStyle(Color.muted))
                     .textFieldStyle(.plain).font(.system(size: 15)).focused($focused)
                     .onSubmit { run(results) }
-                KeyCap("Esc")
+                CloseKey { model.paletteOpen = false }
             }
             .padding(.horizontal, 14).padding(.vertical, 12)
             Rectangle().fill(Color.divider).frame(height: 1)
@@ -223,7 +223,7 @@ struct CommandSheet: View {
             HStack {
                 Text("Commands and keys").font(.system(size: 18, weight: .bold))
                 Spacer()
-                KeyCap("Esc")
+                CloseKey { model.commandsOpen = false }
             }
             HStack(alignment: .top, spacing: 22) {
                 ForEach(groups, id: \.self) { g in
@@ -284,7 +284,7 @@ private struct CommandRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(command.title).font(.system(size: compact ? 12.5 : 13, weight: .semibold)).lineLimit(1)
                 if !command.detail.isEmpty && !compact {
-                    Text(command.detail).font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(1)
+                    Text(command.detail).font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(showGroup ? 1 : 2).fixedSize(horizontal: false, vertical: !showGroup)
                 }
             }
             Spacer(minLength: 6)
@@ -313,5 +313,16 @@ private struct LegendColumn: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
+/// The one close control (D74): "esc ×", as on the inspector and in Settings.
+struct CloseKey: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) { KeyCap("esc"); Image(systemName: "xmark").font(.system(size: 11, weight: .bold)) }.padding(.horizontal, 6).frame(height: 26)
+        }
+        .buttonStyle(TactileButtonStyle(kind: .neutral)).help("Close (Esc)")
     }
 }

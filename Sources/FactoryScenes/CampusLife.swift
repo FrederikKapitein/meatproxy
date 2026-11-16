@@ -128,7 +128,7 @@ extension CampusScene {
         // 5B: a cloud over a building, rain from it while something is broken
         for (key, wx) in weather where wx != .clear {
             guard let host = key == "engine" ? overlays["engine"] : layer(key, storey: nil), let at = cloudPoint(key) else { continue }
-            let c = cloud(rain: wx == .rain); c.position = scenePoint(at); c.zPosition = 0.9
+            let c = cloud(rain: wx == .rain); c.position = scenePoint(at); c.zPosition = 0.1   // under the signs and plaques (+0.45)
             host.addChild(c); life.nodes.append(c)
             explain(c, weatherWords(key, wx, w))
         }
@@ -202,7 +202,7 @@ extension CampusScene {
         let col = rain ? SKColor(red: 0.6, green: 0.62, blue: 0.72, alpha: 1) : SKColor(red: 0.86, green: 0.87, blue: 0.93, alpha: 1)
         let top = rain ? SKColor(red: 0.72, green: 0.74, blue: 0.83, alpha: 1) : SKColor(white: 0.97, alpha: 1)
         for (x, y, w, h) in [(-18.0, 0.0, 36.0, 9.0), (-11.0, 7.0, 16.0, 8.0), (1.0, 6.0, 12.0, 7.0)] {
-            let r = SKShapeNode(rect: CGRect(x: x * px, y: y * px, width: w * px, height: h * px), cornerRadius: 2 * px)
+            let r = SKShapeNode(rect: CGRect(x: x * px, y: y * px, width: w * px, height: h * px), cornerRadius: 0)
             r.fillColor = col; r.strokeColor = Self.ink; r.lineWidth = 0.9 * px
             let hi = SKShapeNode(rect: CGRect(x: (x + 1.5) * px, y: (y + h - 2.6) * px, width: (w - 3) * px, height: 1.4 * px))
             hi.fillColor = top; hi.strokeColor = .clear
@@ -245,7 +245,7 @@ extension CampusScene {
                 n.addChild(line([a, b], Self.ink, 2.6)); n.addChild(line([a, b], wood, 1.6))
             }
         }
-        n.zPosition = 0.3
+        n.zPosition = 0.15   // under the plaques
         return n
     }
 
