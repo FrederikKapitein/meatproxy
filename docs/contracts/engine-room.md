@@ -1,8 +1,8 @@
-# Meatproxy engine room contract
+# Meatproxy Server room contract
 
 **Name:** `meatproxy-engine-room` · **Current version:** 1 · **Owner:** this repository
 
-The Engine room's DevOps agent watches your servers and sites and may work on them
+The Server room's DevOps agent watches your servers and sites and may work on them
 semi-autonomously, as far as each server allows. This document is the contract between the
 agent and Meatproxy. Anything that is not in it is not agreed.
 
@@ -113,7 +113,7 @@ dedicated ops account. What the agent may run stays limited by the ops tool's fi
 ## Decisions
 
 Same format as the factory contract (`docs/contracts/factory.md`), in `decisions/`. They
-appear in Needs you as the Engine room's, and Meatproxy writes your answer into them. A
+appear in Needs you as the Server room's, and Meatproxy writes your answer into them. A
 repair the tool refuses becomes a decision: what is wrong, the evidence, and the exact
 action the agent wants to take on yes.
 

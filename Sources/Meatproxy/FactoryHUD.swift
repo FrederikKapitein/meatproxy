@@ -29,16 +29,16 @@ struct FactorySwitch: View {
     private func switchCard(_ on: Bool) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
-                Text("Dark Software Factory").font(.system(size: 12.5, weight: .bold))
-                if !on { Text("Off: a project like any other").font(.system(size: 11)).foregroundStyle(Color.muted) }
+                Text("Factory").font(.system(size: 12.5, weight: .bold))
+                if !on { Text("Off: a project like any other. On: an AI CEO runs it").font(.system(size: 11)).foregroundStyle(Color.muted) }
             }
             Spacer(minLength: 0)
-            Toggle("Dark Software Factory", isOn: Binding(get: { on }, set: { model.setFactory(project.root, on: $0) }))
+            Toggle("Factory", isOn: Binding(get: { on }, set: { model.setFactory(project.root, on: $0) }))
                 .labelsHidden().toggleStyle(TactileToggleStyle())
         }
         .padding(.horizontal, 10).padding(.vertical, 7)
         .background((on ? Color.raised : Color.surface), in: RoundedRectangle(cornerRadius: 10))
-        .help("Switch this project on as a Dark Software Factory. Nothing in the project changes; the app reads factory/ and only writes your answers.")
+        .help("Switch this project on as a factory: an AI CEO works on it on a schedule. Nothing is written until you set it up and approve each file.")
     }
 }
 

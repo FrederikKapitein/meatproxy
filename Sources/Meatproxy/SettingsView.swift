@@ -502,7 +502,7 @@ private struct ProjectsSettings: View {
     private var list: some View {
         let all = model.projectCandidates
         return VStack(alignment: .leading, spacing: 18) {
-            PageTitle("Projects", "Every project folder with recent sessions gets a floor. Keep one there, or switch it on as a Dark Software Factory with a CEO on a heartbeat.")
+            PageTitle("Projects", "Every project folder with recent sessions gets a floor. Keep one there, or switch it on as a factory: an AI CEO that works on it on a schedule and asks you here.")
             HStack {
                 Spacer()
                 Button { choose() } label: { Label("Add folder…", systemImage: "folder.badge.plus") }.buttonStyle(SettingsButton())
@@ -571,7 +571,7 @@ private struct ProjectPage: View {
             BackButton("Projects", action: back)
             PageTitle(name, root.replacingOccurrences(of: NSHomeDirectory(), with: "~"), mono: true)
             SettingsCard("On the campus") {
-                SwitchRow("Dark Software Factory", "Its CEO's queue in factory/ shows on its floor, and its CEO runs on a heartbeat. Switching on creates no files.",
+                SwitchRow("Factory", "An AI CEO works on this project on a schedule and asks you here. Switching on writes nothing; setting it up shows each file first.",
                           isOn: Binding(get: { factory }, set: { model.setFactory(root, on: $0) }))
                 SwitchRow("Keep on campus", factory ? "A factory always stays on the campus." : "Its floor stays without recent sessions.",
                           isOn: Binding(get: { pinned }, set: { v in if v { model.setHidden(root, on: false) }; model.setPinned(root, on: v) }), disabled: factory)
@@ -587,8 +587,8 @@ private struct ProjectPage: View {
             if factory, let f = model.world.projects.first(where: { $0.root == root })?.factory {
                 if f.takesMandate { MandateCards(root: root) }
                 else {
-                    Note(icon: "doc.text", title: "Mandate needs contract v3") {
-                        Text("This factory follows meatproxy-factory v\(f.contractVersion). Once its CEO declares version 3 in factory/contract.yml, you set here what it may do on its own, its role and your preferences.")
+                    Note(icon: "doc.text", title: "Upgrade this factory's contract") {
+                        Text("This factory follows meatproxy-factory v\(f.contractVersion); the current one is v\(FactoryContract.current). Ask its CEO to upgrade factory/contract.yml (the contract is in docs/contracts/factory.md); then you set here what it may do on its own, its role and your preferences.")
                     }
                 }
             }

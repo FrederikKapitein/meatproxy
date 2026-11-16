@@ -1,11 +1,38 @@
-# Tuinstra Meatproxy
+# Meatproxy
 
 > Approved by a human. Reviewed by nobody.
 
-De native Apple-apps van **Tuinstra Meatproxy** (D45): een parodie-zusterbedrijf van
-Tuinstra.DEV, waar de agents alles bouwen en de mens alleen nog ja zegt. Dit is de **Mac-app**: de collector, het gedeelde model, de twee werelden
-in SpriteKit (Office in blocky, Orbit in de Starfield-stijl) en de Game HUD in SwiftUI. Het ontwerp en alle besluiten
-staan op het designbord: <https://claude.ai/artifact/WSotGHsjjyc6CspeuAndzs>.
+**Meatproxy turns the Claude Code and Codex sessions on your Mac into a small blocky campus.** One tower per tool,
+one floor per project, one person per chat. You see at a glance who works, who is stuck and who waits for you, and
+answer them without hunting through terminals. A project can become a **factory**: an AI CEO that works on it on a
+schedule, within limits you set, and asks you when it needs a yes. A **Server room** watches your servers over SSH.
+
+![The campus, with made-up data](docs/images/campus.jpg)
+
+*Made-up data (`--fixture`).*
+
+### Install
+
+You need macOS 15 or newer and Xcode 26 (Swift 6). There is no download yet: build it from source.
+
+```bash
+git clone https://github.com/marcel-tuinstra/meatproxy.git
+cd meatproxy
+scripts/make-app.sh        # builds build/Meatproxy.app; drag it to Applications
+open build/Meatproxy.app
+```
+
+Or run it straight from the package with `swift run Meatproxy`. It reads `~/.claude/projects` and
+`~/.codex/sessions` (read-only) and shows what it finds; nothing needs setting up. In the app, **Take the walk**
+shows you round in a minute, and **?** explains every key and every thing that moves.
+
+What it reads and what it contacts is listed in Settings › Privacy. There is no account and no analytics.
+
+---
+
+*The notes below are the maker's working notes, in Dutch. Meatproxy is the parody sister company of Tuinstra.DEV
+(D45). The design and every decision are on the design board:
+<https://claude.ai/artifact/WSotGHsjjyc6CspeuAndzs>.*
 
 ## Starten
 
@@ -43,9 +70,9 @@ wacht, ⌘1 en ⌘2 wisselen tussen Campus en Orbit. Niveaus in Office: campus �
 binnen (project) → een persoon (sessie) → een helper (sub-agent). In Orbit: alle galaxies → galaxy → zonnestelsel →
 planeet → maan, in één doorlopende zoom (D14).
 
-## Instellingen en de Engine room
+## Instellingen en de Server room
 
-⌘, of het tandwiel rechtsboven opent de instellingen: een lade van rechts in het venster zelf. Onder **Engine room**
+⌘, of het tandwiel rechtsboven opent de instellingen: een lade van rechts in het venster zelf. Onder **Server room**
 zet je je servers, deploys en backups: een host zoals je hem na `ssh` typt (`user@host` of een alias uit
 `~/.ssh/config`), een naam en een soort. De app checkt ze elke minuut met `ssh -o BatchMode=yes`: met je eigen sleutels
 en agent, nooit met een wachtwoord of passphrase, en met de gewone host-key-controle. Toevoegen kan pas na een test
@@ -64,7 +91,7 @@ houden. Losse chats (thuismap, scratch-mappen) delen één verdieping *Chats*, d
 
 ## Dark Software Factories
 
-Een project wordt een Dark Software Factory als je het aanzet (D44): met de schakelaar bovenin de inspector van het
+Een project wordt een factory als je het aanzet (D44): met de schakelaar bovenin de inspector van het
 project, of in Settings onder **Projects** (daar kan ook een map die nu niet op de campus staat). Alleen aangezette
 projecten zijn factories; ze staan in `projects.json`. Aanzetten
 verandert niets in het project en maakt geen bestanden: de CEO schrijft ze in `factory/`, naast `code/`. Zolang er geen
@@ -111,18 +138,18 @@ een tijdelijke map die bij elke start opnieuw wordt geschreven: antwoorden daar 
 
 Wat Meatproxy en een agent van elkaar verwachten staat in een contract met een versie (D50), niet in losse afspraken:
 
-- [`docs/contracts/factory.md`](docs/contracts/factory.md): `meatproxy-factory`, versie 3. Een factory zegt in
+- [`docs/contracts/factory.md`](docs/contracts/factory.md): `meatproxy-factory`, versie 4. Een factory zegt in
   `factory/contract.yml` welke versie hij volgt; ideeën voor de CEO (`factory/ideas/`) werken vanaf versie 2, je
   mandaat (`factory/mandate.yml`: autonomie per onderdeel, de rol van de CEO, je voorkeuren) vanaf versie 3 (D56).
 - [`docs/contracts/engine-room.md`](docs/contracts/engine-room.md): `meatproxy-engine-room`, versie 1: de werkplaats
   van de DevOps-agent, de alarmen en de ops-tool.
 
-## Engine room: alarmen en de DevOps-agent
+## Server room: alarmen en de DevOps-agent
 
 Een server of site die twee checks achter elkaar slecht is, slechter wordt of weer goed is, wordt een melding op deze
 Mac (D49). Per server: alarmen aan of uit, publieke adressen (elke vijf minuten: antwoord en TLS-certificaat) en wat de
 DevOps-agent er mag: laat met rust, diagnoseer en vraag, of veilige reparaties. De agent (aan te zetten in Settings ›
-Engine room) komt alleen via `Meatproxy --ops <server> <actie>` op een server; die tool controleert zelf per server
+Server room) komt alleen via `Meatproxy --ops <server> <actie>` op een server; die tool controleert zelf per server
 wat mag en logt elke actie. Wat niet mag wordt een ja/nee-vraag in Needs you.
 
 ```bash
