@@ -17,6 +17,8 @@ public final class Collector: @unchecked Sendable {
     public let costs: CostLedger
     /// CI and merged pull requests per project (D67); `github.update(roots:)` asks gh, off this queue
     public let github = GitHubWatch()
+    /// the status pages you watch (D69); `status.update(_:)` reads them, off this queue
+    public let status = StatusPages()
 
     public init(home: URL = FileManager.default.homeDirectoryForCurrentUser, resolver: ProjectResolver = ProjectResolver(),
                 costStore: URL? = CostLedger.defaultStore) {
@@ -51,6 +53,7 @@ public final class Collector: @unchecked Sendable {
             w.buildings[b].projects[p].cost = cost[w.buildings[b].projects[p].id]
             if !w.buildings[b].projects[p].isChat { w.buildings[b].projects[p].github = github.status(root: w.buildings[b].projects[p].root) }
         } }
+        w.services = status.current()
         return w
     }
 

@@ -74,6 +74,18 @@ struct HUDView: View {
             // lockup heads the left one), and the bottom bar on the same gutters; centred things sit on the window's axis
             VStack(spacing: 0) {
                 TopBar().arrive(hudShown, from: .top, order: 0)
+                    .overlay(alignment: .topTrailing) {
+                        // ⌘I (D68): the idea panel hangs under its button, inside the HUD (not a system popover)
+                        if model.ideaOpen {
+                            IdeaSheet(close: { model.ideaOpen = false })
+                                .background(Color.surface, in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.divider))
+                                .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
+                                .offset(x: -Shell.gutter - 150, y: 46)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                    }
+                    .zIndex(2)
                 HStack(alignment: .top, spacing: 0) {
                     VStack(alignment: .leading, spacing: Shell.gap) {
                         Button { Brand.showAbout() } label: {
@@ -123,6 +135,8 @@ struct HUDView: View {
                 else if step.hasPrefix("mark:"), let k = Int(step.dropFirst(5)) { model.controller.campus.mark(k) }
                 else if step == "life:demo" { model.controller.campus.demoLife() }
                 else if step.hasPrefix("hour:"), let h = Double(step.dropFirst(5)) { model.controller.campus.setHour(h) }
+                else if step == "layer:status" { model.setStatusLayer(true) }
+                else if step == "idea" { model.ideaOpen = true }
                 else if step.hasPrefix("building:") { model.controller.focusBuilding(String(step.dropFirst(9))) }
                 // "tab:<overview|work|ceo>": that tab in the open factory's inspector
                 else if step.hasPrefix("tab:"), let id = model.selection.projectID, let t = FactoryOverview.Tab(rawValue: String(step.dropFirst(4))) { model.factoryTabs[id] = t }
@@ -210,6 +224,8 @@ private struct TopBar: View {
                 Color.clear.frame(width: Shell.lightsWidth - Shell.gutter, height: 1)          // the traffic lights
                 Breadcrumb(crumb: model.selection.crumb, provider: model.selection.provider)
                 Spacer(minLength: 0)
+                StatusLayerToggle()
+                IdeaButton()
                 TerminalToggle(center: model.terminals)
                 Button { model.settingsOpen = true } label: {
                     Image(systemName: "gearshape").font(.system(size: 13, weight: .semibold)).frame(width: 30, height: 30)
@@ -425,6 +441,7 @@ private struct InspectorPanel: View {
             ServerDetail(server: server)
         } else if s.engineRoom && s.decisionID == nil {
             if model.projectSettings.devops.enabled { OpsCard() }
+            ServicesCard()
             if model.world.servers.isEmpty {
                 Text("No servers set up yet. Add yours in the settings: they are checked over SSH with your own keys, without a password.")
                     .font(.system(size: 13)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
@@ -810,5 +827,157 @@ private struct TerminalToggle: View {
         }
         .buttonStyle(TactileButtonStyle(kind: .neutral)).help("Terminal (⌘J)")
         .keyboardShortcut("j", modifiers: .command)
+    }
+}
+
+/// ⌘I (D68): an idea for Meatproxy itself, from anywhere in the app, to the factory that works on the app.
+private struct IdeaButton: View {
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        Button { withAnimation(.easeOut(duration: 0.16)) { model.ideaOpen.toggle() } } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "lightbulb").font(.system(size: 12.5, weight: .semibold))
+                KeyCap("⌘I")
+            }
+            .padding(.horizontal, 9).frame(height: 30)
+        }
+        .buttonStyle(TactileButtonStyle(kind: .neutral)).help("An idea for Meatproxy (⌘I)")
+        .keyboardShortcut("i", modifiers: .command)
+    }
+}
+
+struct IdeaSheet: View {
+    @EnvironmentObject private var model: AppModel
+    let close: () -> Void
+    @State private var text = ""
+    @State private var sending = false
+    @State private var error: String?
+    @State private var sent: String?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("AN IDEA FOR MEATPROXY").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+            if let target = model.ownFactoryProject { editor(target) } else { missing }
+        }
+        .padding(14).frame(width: 360)
+        .onAppear { focused = true }
+        .onExitCommand { close() }
+    }
+
+    @ViewBuilder private func editor(_ target: Project) -> some View {
+        let prompt = Text("What would make Meatproxy better? Its own CEO turns it into a workstream.").foregroundStyle(Color.muted)
+        TextField("", text: $text, prompt: prompt, axis: .vertical)
+            .lineLimit(3...8).font(.system(size: 12.5)).textFieldStyle(.plain).focused($focused)
+            .padding(8).background(Color.raised, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(focused ? Color.signal : Color.border))
+        HStack(spacing: 8) {
+            footnote(target)
+            Spacer(minLength: 0)
+            sendButton(target)
+        }
+    }
+
+    private func footnote(_ target: Project) -> some View {
+        let line: String = error ?? sent ?? "To \(target.name)"
+        return Text(line).font(.system(size: 11.5)).foregroundStyle(error == nil ? Color.muted : Color.warn).lineLimit(2)
+    }
+
+    private func sendButton(_ target: Project) -> some View {
+        let empty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return Button { send(target) } label: {
+            HStack(spacing: 6) {
+                Label(sending ? "Sending" : "Send idea", systemImage: "paperplane.fill").font(.system(size: 12, weight: .semibold)).lineLimit(1).fixedSize()
+                KeyCap("⌘↩")
+            }
+        }
+        .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)))
+        .disabled(sending || empty)
+        .keyboardShortcut(.return, modifiers: .command)
+    }
+
+    @ViewBuilder private var missing: some View {
+        Text("No factory works on Meatproxy yet. In Settings › Projects, make the Meatproxy project a factory and switch on \"Meatproxy's own factory\".")
+            .font(.system(size: 12.5)).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
+        Button { close(); model.settingsOpen = true } label: { Text("Open Settings").font(.system(size: 12, weight: .semibold)) }
+            .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)))
+    }
+
+    private func send(_ p: Project) {
+        let t = text
+        sending = true; error = nil
+        Task {
+            let e = await model.sendIdea(p, text: t)
+            sending = false
+            if let e { error = e } else { text = ""; sent = "Sent to \(p.name)'s CEO"; try? await Task.sleep(nanoseconds: 900_000_000); close() }
+        }
+    }
+}
+
+/// The Status layer's switch (D69): the outside on the campus, or the calm campus.
+private struct StatusLayerToggle: View {
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        let on = model.statusLayer
+        Button { model.setStatusLayer(!on) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "square.3.layers.3d").font(.system(size: 12.5, weight: .semibold))
+                Text("Status").font(.system(size: 12.5, weight: .semibold)).lineLimit(1).fixedSize()
+                KeyCap("⌘L")
+            }
+            .padding(.horizontal, 9).frame(height: 30)
+        }
+        .buttonStyle(TactileButtonStyle(kind: on ? .primary : .neutral))
+        .help(on ? "Hide the Status layer (⌘L)" : "Show the Status layer: status pages and CI on the campus (⌘L)")
+        .keyboardShortcut("l", modifiers: .command)
+    }
+}
+
+/// The Server room's Services (D69): every status page you watch, and the projects whose CI on main is red.
+struct ServicesCard: View {
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        let now = model.world.now, red = model.world.projects.filter { $0.github?.ciFailing == true }
+        VStack(alignment: .leading, spacing: 6) {
+            Text("SERVICES").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+            ForEach(model.world.services) { s in ServiceRow(name: s.name, state: s.shown(now: now), detail: Self.detail(s, now: now), page: s.page) }
+            ForEach(red, id: \.id) { p in ServiceRow(name: p.name, state: .down, detail: "CI on main failing: " + (p.github?.failing.joined(separator: ", ") ?? ""), page: nil) }
+            if model.world.services.isEmpty && red.isEmpty {
+                Text("No status pages watched. Add them in Settings › General.").font(.system(size: 12)).foregroundStyle(Color.muted)
+            }
+        }
+        .padding(.bottom, 4)
+    }
+    static func detail(_ s: ServiceStatus, now: Date) -> String {
+        guard let c = s.checkedAt else { return "Not read yet" }
+        let stale = s.shown(now: now) == .unknown ? "Not read for a while · " : ""
+        return stale + (s.detail.isEmpty ? "" : s.detail + " · ") + "checked " + c.ago
+    }
+}
+
+private struct ServiceRow: View {
+    let name: String, state: ServiceStatus.State, detail: String, page: String?
+    var body: some View {
+        HStack(spacing: 9) {
+            Rectangle().fill(colour).frame(width: 9, height: 9).overlay(Rectangle().stroke(Color.ink, lineWidth: 1))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                Text(detail).font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(2)
+            }
+            Spacer(minLength: 0)
+            if let page, let u = URL(string: page) {
+                Link(destination: u) { Image(systemName: "arrow.up.right.square").font(.system(size: 12)) }.foregroundStyle(Color.muted).help("Open the status page")
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 6))
+    }
+    private var colour: Color {
+        switch state {
+        case .ok: return Color(hex: 0x7DFF99)
+        case .degraded: return Color.warn
+        case .down: return Color(hex: 0xFF4A4A)
+        case .unknown: return Color(hex: 0x8C8C8C)
+        }
     }
 }

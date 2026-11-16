@@ -186,6 +186,25 @@ struct HeartbeatGuardTests {
     }
     private let ok: HeartbeatRunner.Resolve = { _ in HeartbeatRunner.Launch(executable: URL(fileURLWithPath: "/usr/bin/true"), arguments: []) }
 
+    @Test func aProviderThatIsDownHoldsItsFactoriesOnly() throws {
+        let p = try tempDir()
+        let center = HeartbeatCenter(runner: HeartbeatRunner(folder: try tempDir(), resolve: ok))
+        let hb = Heartbeat(paused: false)
+        let s = ProjectSettings(projects: [.init(root: p.path, factory: true, heartbeat: hb)])
+        center.providerDown = { $0 == .claude ? "Claude" : nil }
+        let t0 = Date()
+        center.wake(p.path, .ciFailed(repo: "app", run: "1"), now: t0)
+        #expect(center.tick(s, now: t0).isEmpty)
+        #expect(center.state(p.path, heartbeat: hb, now: t0).blocked == .providerDown("Claude"))
+        #expect(Block.providerDown("Claude").text.contains("Claude is down"))
+        // a factory on Codex is not held by Claude's outage
+        var codex = hb; codex.runtime = .codex
+        #expect(center.state(p.path, heartbeat: codex, now: t0).blocked == nil)
+        // back up: it runs
+        center.providerDown = { _ in nil }
+        #expect(center.tick(s, now: t0) == [p.path]); center.runner.wait(p.path)
+    }
+
     @Test func costCapHoldsAutomaticRunsButNotRunNow() throws {
         let p = try tempDir()
         let center = HeartbeatCenter(runner: HeartbeatRunner(folder: try tempDir(), resolve: ok))

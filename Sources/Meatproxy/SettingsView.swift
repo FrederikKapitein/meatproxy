@@ -102,6 +102,9 @@ private struct GeneralSettings: View {
                 TokenRow(key: .sentry, text: "A token with read access to issues (Sentry › Settings › Auth tokens). Factories name their project in contract.yml.")
                 TokenRow(key: .tracker, text: "A read token from Tracker › Account settings › MCP access. Kept in the Keychain, never in a file.")
             }
+            SettingsCard("Status pages") {
+                StatusSourcesRows()
+            }
             SettingsCard("Alerts") {
                 SwitchRow("Notifications on this Mac", "A server or site that goes down or warns, and comes back. Push to your phone comes with the iPhone app.",
                           isOn: Binding(get: { model.projectSettings.devops.notify }, set: { v in model.updateDevOps { $0.notify = v } }))
@@ -574,6 +577,14 @@ private struct ProjectPage: View {
                 SwitchRow("Hide from campus", factory ? "A factory is never hidden: its questions must reach you." : "Its floor and sessions stay off the campus until you show it again. Nothing is deleted.",
                           isOn: Binding(get: { model.projectSettings.hidden.contains(root) }, set: { model.setHidden(root, on: $0) }), disabled: factory)
             }
+            if factory {
+                SettingsCard("Meatproxy itself") {
+                    SwitchRow("Meatproxy's own factory", "Its CEO works on this app. ⌘I sends your ideas for Meatproxy here, from anywhere in the app.",
+                              isOn: Binding(get: { model.projectSettings.ownFactory == root }, set: { model.setOwnFactory(root, on: $0) }))
+                    SwitchRow("Allow Dark", "Off: its CEO runs Assistant or Hybrid at most. Meatproxy's own factory starts with Dark off.",
+                              isOn: Binding(get: { model.projectSettings.darkAllowed(root) }, set: { model.setDarkAllowed(root, on: $0) }))
+                }
+            }
             if factory, let f = model.world.projects.first(where: { $0.root == root })?.factory {
                 if f.takesMandate { MandateCards(root: root) }
                 else {
@@ -909,11 +920,20 @@ private struct MandateCards: View {
         .custom: "You set each item yourself below.",
     ]
 
+    /// Dark is switched off where you capped the factory (D68)
+    private var levelItems: [LiftedSegments<FactoryMandate.Level>.Item] {
+        let dark = model.projectSettings.darkAllowed(root)
+        return FactoryMandate.Level.allCases.map { l in
+            LiftedSegments<FactoryMandate.Level>.Item(id: l, title: l.rawValue.capitalized, enabled: l != .dark || dark,
+                                                      help: l == .dark && !dark ? "Dark is off for this factory (Allow Dark, above)" : nil)
+        }
+    }
+
     var body: some View {
         let m = model.mandate(root)
         SettingsCard("Autonomy") {
             ChoiceRow("Level") {
-                LiftedSegments(items: FactoryMandate.Level.allCases.map { .init(id: $0, title: $0.rawValue.capitalized) }, selected: m.level,
+                LiftedSegments(items: levelItems, selected: m.level,
                                fontSize: 11.5, padding: segInset) { l in model.setMandate(root) { $0.set(level: l) } }
             }
             Text(Self.levelText[m.level] ?? "").font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
@@ -981,5 +1001,46 @@ private struct MandateCards: View {
         let n = notes.trimmingCharacters(in: .whitespacesAndNewlines), q = quiet.trimmingCharacters(in: .whitespaces)
         guard n != m.notes || q != m.quietHours else { return }
         model.setMandate(root) { $0.notes = n; $0.quietHours = q }
+    }
+}
+
+/// The status pages you watch (D69): the providers, GitHub, and any Statuspage of your own. Public pages, no tokens.
+private struct StatusSourcesRows: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var address = ""
+    @FocusState private var focused: Bool
+    var body: some View {
+        ForEach(model.statusSources) { s in row(s) }
+        HStack(spacing: 10) {
+            TextField("", text: $address, prompt: Text("status.example.com").foregroundStyle(Color.muted)).focused($focused)
+                .font(.system(size: 12, design: .monospaced)).textFieldStyle(.plain)
+                .padding(.horizontal, 10).padding(.vertical, 6).lifted(focused: focused).onSubmit(add)
+            Button(action: add) { Text("Add page") }.buttonStyle(SettingsButton()).disabled(StatusSource.custom(address) == nil)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+    }
+
+    private func row(_ s: StatusSource) -> some View {
+        let builtIn = StatusSource.defaults.contains { $0.id == s.id }
+        let line = s.runtime.map { "Factories on \($0 == "codex" ? "Codex" : "Claude") wait while it is down. " } ?? ""
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(s.name).font(.system(size: 13.5, weight: .semibold))
+                Text(line + s.page.replacingOccurrences(of: "https://", with: "")).font(.system(size: 12)).foregroundStyle(Color.muted)
+            }
+            Spacer(minLength: 0)
+            if !builtIn {
+                Button { model.updateStatusSources { $0.removeAll { $0.id == s.id } } } label: { Text("Remove") }.buttonStyle(SettingsButton())
+            }
+            Toggle(s.name, isOn: Binding(get: { s.on }, set: { v in model.updateStatusSources { l in if let k = l.firstIndex(where: { $0.id == s.id }) { l[k].on = v } } }))
+                .labelsHidden().toggleStyle(TactileToggleStyle())
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+    }
+
+    private func add() {
+        guard let s = StatusSource.custom(address), !model.statusSources.contains(where: { $0.id == s.id }) else { return }
+        model.updateStatusSources { $0.append(s) }
+        address = ""
     }
 }

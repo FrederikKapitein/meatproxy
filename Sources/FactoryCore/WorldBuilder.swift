@@ -155,6 +155,12 @@ public enum Fixture {
             world.buildings[b].projects[p].github = GitHubStatus(failing: ["harbor-api"], merged: [ago(300)], checkedAt: now)
         } }
         world.servers = servers
+        // the status pages (D69), made up: OpenAI degraded, the others fine
+        world.services = [
+            ServiceStatus(id: "claude", name: "Claude", page: "https://status.claude.com", state: .ok, detail: "All Systems Operational", checkedAt: ago(2), runtime: "claude"),
+            ServiceStatus(id: "openai", name: "OpenAI", page: "https://status.openai.com", state: .degraded, detail: "Partially Degraded Service", checkedAt: ago(2), runtime: "codex"),
+            ServiceStatus(id: "github", name: "GitHub", page: "https://www.githubstatus.com", state: .ok, detail: "All Systems Operational", checkedAt: ago(2)),
+        ]
         return world
     }
 

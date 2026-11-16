@@ -271,6 +271,8 @@ public struct World: Sendable, Hashable {
     public var buildings: [ProviderBuilding]
     /// The Server room (D26). Empty until a server source is connected.
     public var servers: [Server]
+    /// outside services and their status pages (D69): the providers, GitHub, your own
+    public var services: [ServiceStatus] = []
     /// The Server room's DevOps agent, held like a factory (its questions and journal), never a floor on the campus.
     public var ops: Project?
     public static let opsID = "ops:engine-room"
@@ -352,4 +354,26 @@ public struct GitHubStatus: Sendable, Hashable {
         self.failing = failing; self.merged = merged.sorted(); self.checkedAt = checkedAt
     }
     public var ciFailing: Bool { !failing.isEmpty }
+}
+
+/// An outside service as its status page says (D69). A page not read for 15 minutes counts as unknown: never a false green.
+public struct ServiceStatus: Sendable, Hashable, Identifiable {
+    public enum State: String, Sendable, Hashable { case ok, degraded, down, unknown }
+    public var id: String
+    public var name: String
+    /// the status page people open (not the JSON)
+    public var page: String
+    public var state: State
+    public var detail: String
+    public var checkedAt: Date?
+    /// the runtime that depends on it, when it is a provider (claude, codex)
+    public var runtime: String?
+    public init(id: String, name: String, page: String, state: State, detail: String = "", checkedAt: Date?, runtime: String? = nil) {
+        self.id = id; self.name = name; self.page = page; self.state = state; self.detail = detail; self.checkedAt = checkedAt; self.runtime = runtime
+    }
+    public static let staleAfter: TimeInterval = 15 * 60
+    public func shown(now: Date) -> State {
+        guard let c = checkedAt, now.timeIntervalSince(c) < Self.staleAfter else { return .unknown }
+        return state
+    }
 }

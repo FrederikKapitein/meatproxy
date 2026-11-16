@@ -14,6 +14,12 @@ final class AppModel: ObservableObject {
     @Published var lastRead: Date?
     /// The settings page, inside the window over the world.
     @Published var settingsOpen = false
+    /// the ⌘I panel: an idea for Meatproxy itself (D68)
+    @Published var ideaOpen = false
+    /// the Status layer on the campus (D69), remembered between launches
+    @Published var statusLayer = !ProcessInfo.processInfo.arguments.contains("--fixture") && UserDefaults.standard.bool(forKey: "statusLayer")
+    /// the status pages you watch (D69)
+    @Published var statusSources: [StatusSource] = StatusSourcesStore.load()
     /// Open the settings at the form to add a server (and, for window shots, test this host there at once).
     @Published var settingsAtForm = false
     /// a card in settings to scroll to, by its id ("wakes": a factory's "Also wakes on")
@@ -75,6 +81,7 @@ final class AppModel: ObservableObject {
     /// Sentry and Tracker, every 15 minutes (D61)
     private let wakeSources = WakeSources()
     private var sourcesTimer: Timer?, sourcesChecking = false
+    private var statusTimer: Timer?, statusChecking = false
     private var reading = false
     /// the settings file as last read or written by the app: a newer one was edited outside it
     private var settingsStamp: Date?
@@ -116,9 +123,14 @@ final class AppModel: ObservableObject {
         alerts.onRunDevOps = { [weak self] in self?.runDevOpsNow() }
         controller.onHoverTitle = { [weak self] t in if self?.hoverTitle != t { self?.hoverTitle = t } }
         // a factory's cost cap (D61) reads today's API price of its floors (the CEO may run on either provider)
+        // a factory waits while its provider is down on its status page (D69)
+        heartbeats.providerDown = { [weak self] runtime in
+            MainActor.assumeIsolated { self?.collector?.status.down(runtime.rawValue) }
+        }
         heartbeats.costToday = { [weak self] root in
             MainActor.assumeIsolated { self?.world.projects.filter { $0.root == root }.compactMap { $0.cost?.today }.reduce(0, +) ?? 0 }
         }
+        controller.setStatusLayer(statusLayer)
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -138,6 +150,10 @@ final class AppModel: ObservableObject {
                 Task { @MainActor in guard let self else { return }; self.heartbeats.checkCI(self.projectSettings); self.checkGitHub() }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.checkGitHub() }
+            checkStatusPages()
+            statusTimer = Timer.scheduledTimer(withTimeInterval: StatusPages.interval, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.checkStatusPages() }
+            }
         }
         if !fixture {
             sourcesTimer = Timer.scheduledTimer(withTimeInterval: WakeSources.interval, repeats: true) { [weak self] _ in
@@ -262,6 +278,26 @@ final class AppModel: ObservableObject {
             collector.costs.update()
             DispatchQueue.main.async { self.costing = false }
         }
+    }
+
+    /// The status pages (D69), every five minutes, off the main queue.
+    func checkStatusPages() {
+        guard let collector, !statusChecking else { return }
+        statusChecking = true
+        let list = statusSources
+        costQueue.async {
+            collector.status.update(list)
+            DispatchQueue.main.async { self.statusChecking = false; self.refresh() }
+        }
+    }
+    func setStatusLayer(_ on: Bool) {
+        statusLayer = on
+        if !fixture { UserDefaults.standard.set(on, forKey: "statusLayer") }
+        controller.setStatusLayer(on)
+    }
+    func updateStatusSources(_ change: (inout [StatusSource]) -> Void) {
+        change(&statusSources)
+        if !fixture { StatusSourcesStore.save(statusSources); checkStatusPages() }
     }
 
     /// CI and merged pull requests per project (D67), every five minutes, off the main queue.
@@ -517,6 +553,33 @@ final class AppModel: ObservableObject {
             s.hidden.removeAll { $0 == root }
             if on { s.update(root) { $0.pinned = false }; s.hidden.append(root) }
         }
+    }
+    /// Meatproxy's own factory (D68): ⌘I sends ideas for the app there. It never runs Dark unless you allow it.
+    func setOwnFactory(_ root: String, on: Bool) {
+        changeProjects { s in
+            if on { s.ownFactory = root; if !s.darkOff.contains(root) { s.darkOff.append(root) } }
+            else if s.ownFactory == root { s.ownFactory = nil }
+        }
+        guard on else { return }
+        // Meatproxy's own factory starts as an assistant: it asks before everything (D68)
+        if world.projects.first(where: { $0.root == root })?.factory?.mandate == nil { setMandate(root) { $0.set(level: .assistant) } }
+        else { capMandate(root) }
+    }
+    /// Allows a factory's CEO to run Dark, or caps it at Hybrid (D68).
+    func setDarkAllowed(_ root: String, on: Bool) {
+        changeProjects { s in s.darkOff.removeAll { $0 == root }; if !on { s.darkOff.append(root) } }
+        if !on { capMandate(root) }
+    }
+    /// A mandate that is Dark where Dark is off steps down to Hybrid.
+    private func capMandate(_ root: String) {
+        if mandate(root).level == .dark { setMandate(root) { $0.set(level: .hybrid) } }
+    }
+    /// Meatproxy's own factory, when you chose one and it is on the campus.
+    var ownFactoryProject: Project? {
+        // the demo has no settings of yours: its made-up factory stands in
+        if fixture && projectSettings.ownFactory == nil { return world.projects.first { $0.factory != nil } }
+        guard let r = projectSettings.ownFactory else { return nil }
+        return world.projects.first { $0.root == r && $0.factory != nil }
     }
     func updateHeartbeat(_ root: String, _ change: @escaping (inout Heartbeat) -> Void) { changeProjects { $0.update(root) { change(&$0.heartbeat) } } }
 
