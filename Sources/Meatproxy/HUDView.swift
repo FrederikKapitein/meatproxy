@@ -331,7 +331,14 @@ private struct NeedsYouPanel: View {
                 Text(Brand.emptyState).font(.system(size: 13)).foregroundStyle(Color.muted).padding(.vertical, 4)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            ForEach(Array(model.world.needsYou.prefix(6).enumerated()), id: \.element.id) { k, item in
+            let shown = Array(model.world.needsYou.prefix(6))
+            let groups = Set(shown.map(\.group))
+            ForEach(Array(shown.enumerated()), id: \.element.id) { k, item in
+                // a heading where a group starts, once there is more than one group
+                if groups.count > 1, k == 0 || shown[k - 1].group != item.group {
+                    Text(item.group.label.uppercased()).font(.system(size: 10.5, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+                        .padding(.top, k == 0 ? 0 : 4)
+                }
                 Button { model.controller.open(item) } label: { NeedsYouRow(item: item, first: k == 0, number: k + 1) }.buttonStyle(CardPressStyle())
                     // a new one slides in from the edge; an answered one folds away
                     .transition(reduceMotion ? .identity : .asymmetric(insertion: .move(edge: .leading).combined(with: .opacity),

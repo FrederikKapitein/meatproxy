@@ -612,6 +612,10 @@ struct DecisionCard: View {
         if let w = d.workstream, let ws = project.factory?.workstreams.first(where: { $0.id == w }) {
             Text("\(ws.title) · \(ws.phase.label)").font(.system(size: 12)).foregroundStyle(Color.muted).lineLimit(1)
         }
+        if d.status == .open, let t = model.trigger(for: d, in: project) {
+            Label(t, systemImage: "arrow.turn.down.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.inkText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
         if !d.why.isEmpty { Part(title: "WHY") { Prose(text: d.why) } }
         if !d.evidence.isEmpty { Part(title: "EVIDENCE") { Evidence(text: d.evidence, root: project.factory?.root ?? project.root) } }
         if !d.onYes.isEmpty || !d.onNo.isEmpty {
@@ -649,6 +653,9 @@ struct DecisionCard: View {
             }
             Text(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Writes \(pending ? "yes" : "no") into \(fileName)." : "Writes \(pending ? "yes" : "no") and your note into \(fileName).")
                 .font(.system(size: 11)).foregroundStyle(Color.muted).lineLimit(2)
+            // what happens next, in plain words: what the CEO will do, and when
+            Text(model.consequence(of: decision, yes: pending, in: project)).font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
         } else {
             HStack(spacing: 10) {
                 Button { pending = true; failure = nil } label: {
@@ -674,7 +681,8 @@ struct DecisionCard: View {
             Text("\(d.status.rawValue.capitalized)\(d.answered.map { " · \($0.ago)" } ?? "")").font(.system(size: 14, weight: .bold)).foregroundStyle(color)
             if !d.answer.isEmpty { Text(d.answer).font(.system(size: 12.5)).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true) }
             if d.status == .yes || d.status == .no {
-                Text("The CEO acts on it at its next run.").font(.system(size: 11.5)).foregroundStyle(Color.muted)
+                Label(model.receipt(for: d, in: project), systemImage: "checklist").font(.system(size: 11.5)).foregroundStyle(Color.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         }

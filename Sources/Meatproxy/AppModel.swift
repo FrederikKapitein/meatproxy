@@ -808,6 +808,52 @@ final class AppModel: ObservableObject {
         return ("Heartbeat paused: Run now only", false)
     }
 
+    // MARK: a question in words (D77)
+
+    /// What brought the question up now: your yeses in a row (a promote), your idea, or where its work came from.
+    func trigger(for d: FactoryDecision, in p: Project) -> String? {
+        let f = p.factory
+        if d.kind == "promote", let gates = f?.autonomy?.gates,
+           let g = gates.first(where: { $0.name.lowercased() == d.gate?.lowercased() && $0.streak > 0 })
+                ?? gates.first(where: { d.title.lowercased().contains($0.name.lowercased()) && $0.streak > 0 })
+                ?? gates.max(by: { $0.streak < $1.streak }), g.streak > 0 {
+            return "You said yes \(g.streak) times in a row to \(g.name.lowercased()): it asks to stop asking"
+        }
+        if let w = d.workstream {
+            if let idea = f?.ideas.first(where: { $0.workstream == w || $0.decision == d.id }) { return "From your idea: \(idea.title)" }
+            if let src = f?.workstreams.first(where: { $0.id == w })?.source, !src.isEmpty { return "Its work came from \(src)" }
+        }
+        if let idea = f?.ideas.first(where: { $0.decision == d.id }) { return "From your idea: \(idea.title)" }
+        return p.id == World.opsID ? "Found by the DevOps agent on its round" : nil
+    }
+
+    /// When the CEO picks an answer up: a few minutes after it, or at its next beat.
+    func pickUp(_ p: Project) -> String {
+        let wakes = p.id == World.opsID ? projectSettings.devops.heartbeat.wakeOnAnswer : projectSettings.entry(p.root)?.heartbeat.wakeOnAnswer ?? false
+        if wakes { return "about \(Int(Heartbeat.answerWindow / 60)) minutes after you answer" }
+        if let n = heartbeat(p)?.next { return "at its next beat, " + HeartbeatCard.when(n) }
+        return "at its next run"
+    }
+
+    /// What happens on your answer, from the question's own On yes / On no, and when.
+    func consequence(of d: FactoryDecision, yes: Bool, in p: Project) -> String {
+        let who = p.id == World.opsID ? "The DevOps agent" : "The CEO"
+        let plan = (yes ? d.onYes : d.onNo).components(separatedBy: .newlines).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-*• ").union(.whitespaces)) }
+            .first { !$0.isEmpty }
+        let what = plan.map { ": " + $0.prefix(1).lowercased() + $0.dropFirst() } ?? (yes ? " goes ahead" : " drops it, or asks again with another way")
+        return "\(who) acts on it \(pickUp(p))\(what)"
+    }
+
+    /// After you answered: whether the CEO has taken it up yet, and where its work stands.
+    func receipt(for d: FactoryDecision, in p: Project) -> String {
+        guard let at = d.answered else { return "The CEO acts on it at its next run." }
+        let phase = d.workstream.flatMap { w in p.factory?.workstreams.first { $0.id == w } }.map { " \($0.id) is now in \($0.phase.label.lowercased())." } ?? ""
+        if let run = heartbeat(p)?.last, run.started > at {
+            return "Taken up in the run of \(HeartbeatCard.when(run.started)).\(phase)"
+        }
+        return "Waiting for the CEO: it acts on it \(pickUp(p))."
+    }
+
     func runNow(_ project: Project) { runNow(root: project.root) }
     func runNow(root: String) {
         heartbeats.wake(root, .runNow)

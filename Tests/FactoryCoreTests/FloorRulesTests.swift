@@ -97,3 +97,25 @@ extension FloorRulesTests {
         #expect(s.state(now: now) == .working)
     }
 }
+
+/// Needs you in groups (D77): the factories' questions, the Server room's, then chats; oldest first in each. N follows
+/// the same order.
+@Suite struct NeedsYouOrderTests {
+    @Test func questionsComeInGroups() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func ago(_ m: Double) -> Date { now.addingTimeInterval(-m * 60) }
+        let waiting = Session(id: "s", provider: .claude, cwd: "/demo/a", title: "Pick a font", startedAt: ago(60), lastAt: ago(50), turnOpen: true,
+                              activities: [Activity(at: ago(50), kind: .ask, text: "Which one?", failed: false)])
+        var chat = Project(id: "claude:/demo/a", provider: .claude, root: "/demo/a", name: "A", isChat: false, sessions: [waiting])
+        chat.factory = nil
+        var fac = Project(id: "claude:/demo/f", provider: .claude, root: "/demo/f", name: "F", isChat: false, sessions: [])
+        fac.factory = Factory(root: "/demo/f", decisions: [FactoryDecision(id: "D-2", title: "Ship?", kind: "ship", asked: ago(5)),
+                                                           FactoryDecision(id: "D-1", title: "Plan?", kind: "plan", asked: ago(30))])
+        var w = World(now: now, buildings: [ProviderBuilding(provider: .claude, projects: [chat, fac])])
+        w.ops = Project(id: World.opsID, provider: .claude, root: "/demo/ops", name: "Server room", isChat: false, sessions: [],
+                        factory: Factory(root: "/demo/ops", decisions: [FactoryDecision(id: "D-9", title: "Prune?", kind: "fix", asked: ago(90))]))
+        #expect(w.needsYou.map(\.id) == ["decision:claude:/demo/f/D-1", "decision:claude:/demo/f/D-2", "decision:ops:engine-room/D-9", "session:s"])
+        #expect(w.needsYou.map(\.group) == [.factories, .factories, .serverRoom, .chats])
+        #expect(NeedsYou.Group.chats.label == "Chats")
+    }
+}
