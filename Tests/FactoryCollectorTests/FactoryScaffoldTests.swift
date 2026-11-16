@@ -64,3 +64,21 @@ import FactoryCore
         #expect(FactoryScaffold.testCommands(try tempProject([:])).isEmpty)
     }
 }
+
+/// What the CEO can really do: the project's allowlist, not the mandate, is the lock.
+@Suite struct AllowlistTests {
+    @Test func theStarterAllowlistTestsAndCommitsButNeverPushesOrMerges() {
+        let a = Allowlist(json: FactoryScaffold.allowlist(tests: ["swift test", "swift build"]))
+        #expect(a.exists && a.tests && a.commit && !a.push && !a.merge && a.rules > 20)
+        #expect(a.line == "Tests yes · commit yes · push no · merge no")
+    }
+
+    @Test func broadRulesCountAndADenyWins() {
+        let all = Allowlist(json: #"{"permissions":{"allow":["Bash"]}}"#)
+        #expect(all.push && all.merge && all.commit)
+        let denied = Allowlist(json: #"{"permissions":{"allow":["Bash(git:*)"],"deny":["Bash(git push:*)"]}}"#)
+        #expect(denied.commit && !denied.push)
+        #expect(!Allowlist(json: nil).exists && Allowlist(json: nil).line == "No allowlist: it can only read and edit files")
+        #expect(!Allowlist(json: "not json").exists)
+    }
+}

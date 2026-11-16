@@ -760,6 +760,23 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// What a factory's CEO can run without asking. The demo's factory has the standard allowlist.
+    func allowlist(_ root: String) -> Allowlist {
+        if fixture { return demoAllowlist.contains(root) || root == Fixture.factoryRoot ? Allowlist(json: FactoryScaffold.allowlist(tests: ["swift test", "swift build"])) : Allowlist(json: nil) }
+        return Allowlist(root: root)
+    }
+    private var demoAllowlist: Set<String> = []
+    func standardAllowlist(_ root: String) -> String {
+        FactoryScaffold.plan(root: root, name: "").first { $0.path == ".claude/settings.json" }?.text ?? ""
+    }
+    /// Writes the standard allowlist when the project has none; never replaces one.
+    func addAllowlist(_ project: Project) {
+        if fixture { demoAllowlist.insert(project.root); objectWillChange.send(); return }
+        let file = FactoryScaffold.plan(root: project.root, name: project.name).filter { $0.path == ".claude/settings.json" }
+        do { let w = try FactoryScaffold.create(file, root: project.root); status = w.isEmpty ? "\(project.name) already has an allowlist" : "Wrote .claude/settings.json in \(project.name)"; objectWillChange.send() }
+        catch { status = "Could not write the allowlist: \(error.localizedDescription)" }
+    }
+
     func runNow(_ project: Project) { runNow(root: project.root) }
     func runNow(root: String) {
         heartbeats.wake(root, .runNow)

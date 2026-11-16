@@ -890,9 +890,10 @@ private struct SettingsCard<C: View>: View {
 /// A switch with its name and one line on what it does.
 /// A token for a wake-up source (D61): typed once, kept in the macOS Keychain, shown only as saved.
 /// How a wake source did at its last check: works, or what fails and since when; or what is still missing.
-private struct SourceHealthLine: View {
+struct SourceHealthLine: View {
     let health: SourceHealth?
     let missing: String?
+    var label: String? = nil
     var body: some View {
         let (ok, line): (Bool, String) = {
             if let missing { return (false, missing) }
@@ -901,7 +902,7 @@ private struct SourceHealthLine: View {
             let since = h.since.map { " since " + $0.formatted(.dateTime.weekday(.abbreviated).hour().minute()) } ?? ""
             return (false, h.line + since + ". The CEO is not woken by it until it works.")
         }()
-        Label(line, systemImage: ok ? "checkmark.circle" : "exclamationmark.triangle.fill")
+        Label((label.map { $0 + ": " } ?? "") + line, systemImage: ok ? "checkmark.circle" : "exclamationmark.triangle.fill")
             .font(.system(size: 11.5)).foregroundStyle(ok ? Color.muted : Color.warn)
             .padding(.horizontal, 14).padding(.bottom, 8).frame(maxWidth: .infinity, alignment: .leading)
     }

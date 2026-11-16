@@ -159,7 +159,7 @@ public enum FactoryScaffold {
     """
 
     /// A project allowlist for `claude -p`: reading, editing, the project's tests and local git; never a push or merge.
-    static func allowlist(tests: [String]) -> String {
+    public static func allowlist(tests: [String]) -> String {
         var allow = ["Read", "Edit", "Write", "Glob", "Grep",
                      "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)",
                      "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout -b:*)", "Bash(git branch:*)",
@@ -180,5 +180,42 @@ public enum FactoryScaffold {
         }
 
         """
+    }
+}
+
+/// What a factory's CEO may run without asking, read from the project's `.claude/settings.json` (the allowlist the
+/// heartbeat passes with `--settings`). The mandate says what it should do; this is what it can.
+public struct Allowlist: Equatable, Sendable {
+    public var exists = false, rules = 0
+    public var tests = false, commit = false, push = false, merge = false
+
+    public init(root: String) {
+        self.init(json: try? String(contentsOfFile: (root as NSString).appendingPathComponent(".claude/settings.json"), encoding: .utf8))
+    }
+
+    public init(json: String?) {
+        guard let json, let o = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else { return }
+        let p = o["permissions"] as? [String: Any]
+        let allow = p?["allow"] as? [String] ?? [], deny = p?["deny"] as? [String] ?? []
+        exists = true; rules = allow.count
+        /// a command is allowed when a rule covers it ("Bash", "Bash(git:*)", "Bash(git push:*)") and no deny does
+        func covers(_ rules: [String], _ command: String) -> Bool {
+            rules.contains { r in
+                if r == "Bash" || r == "Bash(*)" { return true }
+                guard r.hasPrefix("Bash("), r.hasSuffix(")") else { return false }
+                let body = String(r.dropFirst(5).dropLast()).replacingOccurrences(of: ":*", with: "").replacingOccurrences(of: "*", with: "")
+                return command.hasPrefix(body)
+            }
+        }
+        func can(_ c: String) -> Bool { covers(allow, c) && !covers(deny, c) }
+        tests = ["swift test", "npm test", "cargo test", "go test", "pytest", "flutter test", "make test"].contains(where: can)
+        commit = can("git commit"); push = can("git push"); merge = can("gh pr merge")
+    }
+
+    /// "Tests yes · commit yes · push no · merge no"
+    public var line: String {
+        guard exists else { return "No allowlist: it can only read and edit files" }
+        func yn(_ b: Bool) -> String { b ? "yes" : "no" }
+        return "Tests \(yn(tests)) · commit \(yn(commit)) · push \(yn(push)) · merge \(yn(merge))"
     }
 }

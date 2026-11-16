@@ -93,14 +93,37 @@ struct HeartbeatCard: View {
                     line("Next", "Only Run now: the heartbeat is paused", tone: nil)
                 }
             }
-            if let w = state.last?.warning, state.last?.outcome != .running {
+            // a warning that is fixed meanwhile (the allowlist is there now) is not shown again
+            if let w = state.last?.warning, state.last?.outcome != .running, !(w.hasPrefix("No allowlist") && model.allowlist(project.root).exists) {
                 Label(w, systemImage: "exclamationmark.triangle.fill").font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(Color.warn).fixedSize(horizontal: false, vertical: true)
+            }
+            // what to do about the last run, in one button; or that nothing needs doing
+            if let last = state.last, last.outcome != .running {
+                if last.outcome == .failed, last.detail?.contains("was closed") == true, !model.projectSettings.heartbeatWhenClosed {
+                    fix("Meatproxy was closed, so the run stopped. With Heartbeat when closed it carries on.", "Turn it on") { model.setHeartbeatWhenClosed(true) }
+                } else if case .caughtUp = last.reason, last.outcome == .ok {
+                    Label("A beat missed while Meatproxy was closed, caught up. Normal: nothing to do.", systemImage: "checkmark.circle")
+                        .font(.system(size: 11.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                }
             }
             if let b = state.blocked { blocked(b) }
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// A problem with its fix: one line and one button.
+    private func fix(_ text: String, _ button: String, _ action: @escaping () -> Void) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text(text).font(.system(size: 11.5)).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button(action: action) { Text(button).font(.system(size: 11.5, weight: .semibold)).lineLimit(1).fixedSize() }
+                .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 9)))
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(Color.surface, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.warn.opacity(0.6)))
     }
 
     /// A guard holds the heartbeat (D48): said in words, amber; a hold that waits for you has Resume.
@@ -265,6 +288,18 @@ struct FactoryOverview: View {
 
     @ViewBuilder private var ceo: some View {
         if let hb = model.heartbeat(project) { HeartbeatCard(project: project, state: hb) }
+        PermissionsCard(project: project)
+        if factory.takesSources, factory.sources.hasSentry || factory.sources.tracker != nil, let e = model.projectSettings.entry(project.root) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("WAKE-UP SOURCES").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted).padding(.horizontal, 14)
+                if factory.sources.hasSentry, e.heartbeat.wakeOnSentry {
+                    SourceHealthLine(health: model.sourceHealth[project.root]?.sentry, missing: nil, label: "Sentry")
+                }
+                if factory.sources.tracker != nil, e.heartbeat.wakeOnTracker {
+                    SourceHealthLine(health: model.sourceHealth[project.root]?.tracker, missing: nil, label: "Tracker")
+                }
+            }.padding(.horizontal, -14)
+        }
         if factory.takesMandate {
             AutonomyCard(mandate: model.mandate(project.root), autonomy: factory.autonomy) {
                 model.settingsPage = "project:\(project.root)"; model.settingsOpen = true
@@ -373,6 +408,7 @@ struct AutonomyCard: View {
                         }
                     }
                     Text(mandate.level.rawValue.capitalized).font(.system(size: 16, weight: .bold))
+                    Text(mandate.level.sentence).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
                     Text(mandate.summary.components(separatedBy: " · ").filter { $0 != mandate.level.rawValue.capitalized }.joined(separator: " · "))
                         .font(.system(size: 11.5)).foregroundStyle(Color.muted)
                 }
@@ -946,5 +982,47 @@ private struct FirstBeatCard: View {
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.raised, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+
+/// What the CEO can really do (the project's allowlist is the lock; the mandate says what it should do). Without an
+/// allowlist it offers the standard one, shown first, written only when you press Create.
+private struct PermissionsCard: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    @State private var showing = false
+    var body: some View {
+        let a = model.allowlist(project.root)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("WHAT IT CAN DO").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+                Spacer(minLength: 0)
+                if a.exists { Text("\(a.rules) rules in .claude/settings.json").font(.system(size: 11)).foregroundStyle(Color.muted) }
+            }
+            Label(a.line, systemImage: a.exists ? "lock.shield" : "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(a.exists ? Color.inkText : Color.warn)
+            if !a.exists {
+                Text("Without an allowlist the CEO cannot run tests or commit, so most runs end with a question. The standard one lets it read, edit, test and commit; it can never push or merge.")
+                    .font(.system(size: 11.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                if showing {
+                    ScrollView { Text(model.standardAllowlist(project.root)).font(.system(size: 10.5, design: .monospaced)).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading) }
+                        .frame(maxHeight: 160).padding(8).background(Color.surface, in: RoundedRectangle(cornerRadius: 8))
+                }
+                HStack(spacing: 8) {
+                    if showing {
+                        Button { model.addAllowlist(project); showing = false } label: { Text("Create .claude/settings.json") }
+                            .buttonStyle(TactileButtonStyle(kind: .primary, inset: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)))
+                        Button("Cancel") { showing = false }.buttonStyle(.plain).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted)
+                    } else {
+                        Button { showing = true } label: { Text("Add the standard allowlist…") }
+                            .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)))
+                    }
+                }
+            }
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
     }
 }
