@@ -82,13 +82,13 @@ public final class HeartbeatRunner: @unchecked Sendable {
         You are the CEO of the \(name) Dark Software Factory. Meatproxy's heartbeat started this run; nobody is watching it.
         This factory follows the Meatproxy factory contract (meatproxy-factory, the version in factory/contract.yml; \
         version 1 when that file is missing). Only what that contract says is agreed with Meatproxy. If factory/mandate.yml \
-        exists, it is Marcel's mandate: what you may do on your own (ask, notify, off per item), your role (orchestrator: \
-        delegate all work; hands-on: small things yourself) and his preferences. Follow it; it wins over autonomy.yml and \
+        exists, it is the user's mandate: what you may do on your own (ask, notify, off per item), your role (orchestrator: \
+        delegate all work; hands-on: small things yourself) and their preferences. Follow it; it wins over autonomy.yml and \
         the playbook.
         Work from \(root). First read, in this order, and follow them exactly: factory/CHARTER.md, factory/README.md, \
         factory/CEO.md, then AGENTS.md in that folder and the AGENTS.md of the repos the playbook names.
-        Marcel answers your yes/no questions in Meatproxy, which writes his answer into the decision file (status, \
-        answered, and his note under ## Answer); read the answers there. Only the permissions in this project's \
+        The user answers your yes/no questions in Meatproxy, which writes their answer into the decision file (status, \
+        answered, and their note under ## Answer); read the answers there. Only the permissions in this project's \
         allowlist are available: when something you need is denied, say so in the briefing instead of working round it.
         End the run with the briefing written. If questions are open, list them in your final message, numbered, each \
         answerable with yes or no.
@@ -100,7 +100,7 @@ public final class HeartbeatRunner: @unchecked Sendable {
     public static func opsPrompt(root: String, reason: WakeReason) -> String {
         let tool = opsToolPath
         return """
-        You are the DevOps agent of Marcel's Server room. Meatproxy's heartbeat started this run; nobody is watching it.
+        You are the DevOps agent of the Server room on this Mac. Meatproxy's heartbeat started this run; nobody is watching it.
         Work from \(root). This workspace follows the Meatproxy server room contract (meatproxy-engine-room, contract.yml); \
         only what that contract says is agreed with Meatproxy.
         Read README.md first: it has the exact file formats (a question is decisions/D-NNNN-<slug>.md with id, title and \

@@ -43,21 +43,37 @@ public final class WakeSources: @unchecked Sendable {
     /// per factory: the Sentry issues seen and how they stood ("id" → substatus), the Tracker stories and their state
     private var sentrySeen: [String: [String: String]] = [:]
     private var trackerSeen: [String: [String: String]] = [:]
+    private var healthByRoot: [String: FactoryHealth] = [:]
+    /// How each factory's sources did at their last check (Settings and the floor show it; a new failure notifies).
+    public var health: [String: FactoryHealth] { lock.lock(); defer { lock.unlock() }; return healthByRoot }
+    private func note(_ root: String, _ source: WritableKeyPath<FactoryHealth, SourceHealth?>, ok: Bool, _ line: String, _ now: Date) {
+        lock.lock(); defer { lock.unlock() }
+        let was = healthByRoot[root]?[keyPath: source]
+        let since: Date? = ok ? nil : (was.flatMap { $0.ok ? nil : $0.since } ?? now)
+        healthByRoot[root, default: FactoryHealth()][keyPath: source] = SourceHealth(ok: ok, line: line, at: now, since: since)
+    }
+
+    /// Tracker's MCP address as typed in Settings: https only; nil (Tracker off) for anything else.
+    public static func trackerURL(_ text: String) -> URL? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let u = URL(string: t), u.scheme == "https", u.host?.isEmpty == false else { return nil }
+        return u
+    }
 
     public init(transport: @escaping HTTPTransport = WakeSources.systemTransport) { self.transport = transport }
 
     /// What wakes which factory now. `factories`: each factory's folder, its sources, its heartbeat and whether its
     /// mandate allows bug work (bugs: off means no Sentry wake). Blocking: call it off the main queue.
     public func check(_ factories: [(root: String, sources: FactorySources, heartbeat: Heartbeat, bugsAllowed: Bool)],
-                      tokens: (sentry: String?, tracker: String?)) -> [(String, WakeReason)] {
+                      tokens: (sentry: String?, tracker: String?), trackerURL: URL? = nil, now: Date = Date()) -> [(String, WakeReason)] {
         var wakes: [(String, WakeReason)] = []
         for f in factories where !f.heartbeat.paused {
             if f.heartbeat.wakeOnSentry, f.bugsAllowed, f.sources.hasSentry, let t = tokens.sentry,
-               let found = sentry(f.root, f.sources, token: t), !found.isEmpty {
+               let found = sentry(f.root, f.sources, token: t, now: now), !found.isEmpty {
                 wakes.append((f.root, .sentry(found)))
             }
-            if f.heartbeat.wakeOnTracker, let slug = f.sources.tracker, let t = tokens.tracker,
-               let found = tracker(f.root, slug: slug, token: t), !found.isEmpty {
+            if f.heartbeat.wakeOnTracker, let slug = f.sources.tracker, let t = tokens.tracker, let url = trackerURL,
+               let found = tracker(f.root, slug: slug, token: t, url: url, now: now), !found.isEmpty {
                 wakes.append((f.root, .tracker(found)))
             }
         }
@@ -67,7 +83,7 @@ public final class WakeSources: @unchecked Sendable {
     // MARK: Sentry
 
     /// New errors (an id not seen before) and returning ones (now regressed or escalating), as "APP-12: title".
-    func sentry(_ root: String, _ s: FactorySources, token: String) -> [String]? {
+    func sentry(_ root: String, _ s: FactorySources, token: String, now at: Date = Date()) -> [String]? {
         guard let org = s.sentryOrg, let project = s.sentryProject,
               var c = URLComponents(string: "https://\(s.sentryHost)/api/0/projects/\(org)/\(project)/issues/") else { return nil }
         c.queryItems = [.init(name: "query", value: "is:unresolved level:[error,fatal]"), .init(name: "statsPeriod", value: "14d"),
@@ -75,8 +91,12 @@ public final class WakeSources: @unchecked Sendable {
         guard let url = c.url else { return nil }
         var r = URLRequest(url: url, timeoutInterval: 20)
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        guard let (data, status, _) = transport(r), status == 200,
-              let issues = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return nil }
+        guard let (data, status, _) = transport(r) else { note(root, \.sentry, ok: false, "Sentry did not answer", at); return nil }
+        guard status == 200 else { note(root, \.sentry, ok: false, Self.reason(status), at); return nil }
+        guard let issues = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else {
+            note(root, \.sentry, ok: false, "Sentry's answer was not a list of issues", at); return nil
+        }
+        note(root, \.sentry, ok: true, "Works", at)
         var now: [String: String] = [:], names: [String: String] = [:]
         for i in issues {
             guard let id = i["id"] as? String else { continue }
@@ -95,18 +115,24 @@ public final class WakeSources: @unchecked Sendable {
     // MARK: Tracker
 
     /// Stories that became rejected, or newly ready to pick up (unstarted), as "NTF-3 rejected: title".
-    func tracker(_ root: String, slug: String, token: String) -> [String]? {
-        let mcp = MCPClient(url: Self.trackerMCP, token: token, transport: transport)
+    func tracker(_ root: String, slug: String, token: String, url: URL, now at: Date = Date()) -> [String]? {
+        let mcp = MCPClient(url: url, token: token, transport: transport)
         var now: [String: String] = [:], names: [String: String] = [:]
         for state in ["rejected", "unstarted"] {
-            guard let result = try? mcp.call("list_stories", ["project": slug, "state": state, "limit": 50]).get(),
-                  let items = result["items"] as? [[String: Any]] else { return nil }
+            let result: [String: Any]
+            switch mcp.call("list_stories", ["project": slug, "state": state, "limit": 50]) {
+            case .success(let r): result = r
+            case .failure(.refused(let why)): note(root, \.tracker, ok: false, "\(slug): \(why)", at); return nil
+            case .failure(let e): note(root, \.tracker, ok: false, e.line, at); return nil
+            }
+            guard let items = result["items"] as? [[String: Any]] else { note(root, \.tracker, ok: false, "Tracker's answer had no stories", at); return nil }
             for s in items {
                 guard let key = s["key"] as? String else { continue }
                 now[key] = state
                 names[key] = "\(key) \(state == "unstarted" ? "ready" : state): \((s["title"] as? String ?? "").prefix(80))"
             }
         }
+        note(root, \.tracker, ok: true, "Works", at)
         lock.lock(); let before = trackerSeen[root]; trackerSeen[root] = now; lock.unlock()
         guard let before else { return [] }
         return now.keys.sorted().filter { before[$0] != now[$0] }.compactMap { names[$0] }
@@ -135,8 +161,9 @@ public final class WakeSources: @unchecked Sendable {
     }
 
     /// Whether a Tracker token works: one small read of each project the factories name, or a hello when none does.
-    public func testTracker(token: String, slugs: [String]) -> (ok: Bool, line: String) {
-        let mcp = MCPClient(url: Self.trackerMCP, token: token, transport: transport)
+    public func testTracker(token: String, slugs: [String], url: URL?) -> (ok: Bool, line: String) {
+        guard let url else { return (false, "Add Tracker's MCP address first") }
+        let mcp = MCPClient(url: url, token: token, transport: transport)
         if slugs.isEmpty {
             if case .failure(let e) = mcp.hello() { return (false, e.line) }
             return (true, "Token accepted. No factory names a Tracker project yet.")
@@ -150,9 +177,6 @@ public final class WakeSources: @unchecked Sendable {
         }
         return (true, "Works: reads " + slugs.joined(separator: ", "))
     }
-
-    /// Tracker's MCP endpoint: the address Claude Code's own tracker server uses.
-    static let trackerMCP = URL(string: "https://tracker.tuinstra.dev/mcp")!
 
     static func request(_ url: String, token: String) -> URLRequest {
         var r = URLRequest(url: URL(string: url)!, timeoutInterval: 15)
@@ -183,6 +207,18 @@ public final class WakeSources: @unchecked Sendable {
         _ = done.wait(timeout: .now() + 30)
         return out
     }
+}
+
+/// How one wake source did at its last check: whether it worked, in words, when, and since when it fails.
+public struct SourceHealth: Equatable, Sendable {
+    public var ok: Bool, line: String, at: Date, since: Date?
+    public init(ok: Bool, line: String, at: Date, since: Date?) { self.ok = ok; self.line = line; self.at = at; self.since = since }
+    /// It failed just now for the first time (worth a notification once).
+    public var isNewFailure: Bool { !ok && since == at }
+}
+public struct FactoryHealth: Equatable, Sendable {
+    public var sentry: SourceHealth?, tracker: SourceHealth?
+    public init(sentry: SourceHealth? = nil, tracker: SourceHealth? = nil) { self.sentry = sentry; self.tracker = tracker }
 }
 
 /// Why an MCP exchange failed, in words for the Settings test line.

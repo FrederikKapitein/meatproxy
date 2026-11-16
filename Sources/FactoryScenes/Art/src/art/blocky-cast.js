@@ -88,6 +88,8 @@
   const ROLES = {
     // the CEO (D73): all black, suit, shirt and tie, long dark hair swept back and a short beard; nobody else dresses so
     ceo:        {label: "CEO", outfits: ["suit"], tops: ["#18181d"], legs: ["#18181d"], hair: ["long"], hairColor: "#17120f", beard: true, shirt: "#222228", tie: "#0b0b0e", shoes: "#0b0b0e", props: ["mug"], extras: [null, "watch"]},
+    // a plain project's main chat: smart casual, a navy jacket over a light shirt, a lanyard and a mug; not the CEO's black
+    lead:       {label: "Lead", outfits: ["blazer"], tops: ["#33507e", "#3d6a6a"], legs: ["#2a2433", "#5a6a8a"], hair: ["short", "curly", "bob", "slick"], props: ["mug"], extras: ["lanyard"]},
     sales:      {label: "Sales", outfits: ["blazer"], tops: ["#5a7ab0", "#8a5a7a", "#4a8a8a"], legs: ["#b89a6a", "#3a3f63"], hair: ["slick", "long", "short"], props: ["phone"], extras: [null]},
     marketing:  {label: "Marketing", outfits: ["tee"], tops: ["#ff7a5a", "#ff6ad5", "#3fd0a0"], legs: ["#3b5a9a", "#2a2433"], hair: ["long", "spiky", "short"], hats: ["beanie", "cap", null], props: ["megaphone"], extras: [null]},
     pm:         {label: "Product", outfits: ["cardigan"], tops: ["#2fb0a8", "#e0a04a", "#8a5cf0"], legs: ["#3a3f63", "#d9a43a"], hair: ["bun", "short", "long"], props: ["clipboard"], extras: ["lanyard"]},

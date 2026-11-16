@@ -634,7 +634,7 @@ public struct FactoryMandate: Hashable, Sendable {
     public var yaml: String {
         func q(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
         var out = """
-        # Marcel's mandate for this factory, written by Meatproxy (meatproxy-factory v3). The CEO follows it on every run;
+        # The user's mandate for this factory, written by Meatproxy (meatproxy-factory v3). The CEO follows it on every run;
         # it wins over autonomy.yml and the playbook. Change it in Meatproxy, not here.
         level: \(level.rawValue)            # assistant | hybrid | dark | custom
         role: \(role.rawValue)        # orchestrator (delegates all work) | hands-on (may do small things itself)

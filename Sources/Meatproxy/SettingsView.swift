@@ -100,7 +100,8 @@ private struct GeneralSettings: View {
             }
             SettingsCard("Wake-up sources") {
                 TokenRow(key: .sentry, text: "A token with read access to issues (Sentry › Settings › Auth tokens). Factories name their project in contract.yml.")
-                TokenRow(key: .tracker, text: "A read token from Tracker › Account settings › MCP access. Kept in the Keychain, never in a file.")
+                TrackerAddressRow()
+                TokenRow(key: .tracker, text: "A read token for that address (in Tracker: Account settings › MCP access).")
             }
             SettingsCard("Status pages") {
                 StatusSourcesRows()
@@ -604,6 +605,7 @@ private struct ProjectPage: View {
 
 /// A heartbeat as cards: when it beats, what else wakes it, and its limits (D47, D48).
 private struct HeartbeatCards: View {
+    @EnvironmentObject private var model: AppModel
     let hb: Heartbeat
     /// a factory also wakes on your answers, ideas and a failed CI run
     let factoryWakes: Bool
@@ -652,10 +654,19 @@ private struct HeartbeatCards: View {
                               : src.hasSentry ? "New or returning errors (error, fatal) in \(src.sentryOrg!)/\(src.sentryProject!), every 15 minutes. Not when the mandate has bugs off."
                               : "Name the project in factory/contract.yml: sentry: org/project.",
                               isOn: Binding(get: { hb.wakeOnSentry }, set: { v in update { $0.wakeOnSentry = v } }), disabled: !v4 || !src.hasSentry)
+                    if v4, src.hasSentry, hb.wakeOnSentry {
+                        SourceHealthLine(health: model.sourceHealth[f.root]?.sentry,
+                                         missing: Secrets.get(.sentry) == nil && !model.fixture ? "No Sentry token yet: add one in General › Wake-up sources." : nil)
+                    }
                     SwitchRow("A Tracker story", !v4 ? "Needs factory contract v4: the CEO names its Tracker project in factory/contract.yml."
                               : src.tracker.map { "A story in \($0) that is rejected or ready to pick up, every 15 minutes." }
                               ?? "Name the project in factory/contract.yml: tracker: <slug>.",
                               isOn: Binding(get: { hb.wakeOnTracker }, set: { v in update { $0.wakeOnTracker = v } }), disabled: !v4 || src.tracker == nil)
+                    if v4, src.tracker != nil, hb.wakeOnTracker {
+                        SourceHealthLine(health: model.sourceHealth[f.root]?.tracker,
+                                         missing: WakeSources.trackerURL(model.projectSettings.trackerURL) == nil ? "No Tracker address yet: add it in General › Wake-up sources."
+                                         : Secrets.get(.tracker) == nil && !model.fixture ? "No Tracker token yet: add one in General › Wake-up sources." : nil)
+                    }
                 }
             }.id("wakes")
         }
@@ -760,12 +771,21 @@ private struct PrivacySettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Data & privacy").font(.system(size: 22, weight: .bold))
-            Text("Everything stays on this Mac. Nothing is sent anywhere.").font(.system(size: 13)).foregroundStyle(Color.muted)
+            Text("What Meatproxy reads, what it contacts, and what your agents send. Nothing goes to Tuinstra or anyone else: there is no analytics and no account.")
+                .font(.system(size: 13)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            Eyebrow("Read on this Mac")
             item("doc.text.magnifyingglass", "Sessions", "Read-only from the files Claude Code and Codex already keep: ~/.claude/projects and ~/.codex/sessions. The app never writes there.")
+            item("building.2", "Projects", "Your campus and factory settings, in ~/Library/Application Support/Meatproxy/projects.json. The app reads a factory's factory/ folder; it writes only your answers and ideas there, and the starter files you approve.")
             item("server.rack", "Servers", "Host names and kinds only, in ~/Library/Application Support/Meatproxy/servers.json. No passwords, no keys: ssh uses yours.")
-            item("building.2", "Projects", "The projects you keep on the campus and switched on as factories, with their heartbeats, in ~/Library/Application Support/Meatproxy/projects.json. The app reads a factory's factory/ folder and writes only your answer into an open question.")
-            item("waveform.path.ecg", "Heartbeat", "A factory's CEO runs as claude -p or codex exec in its own folder, with that project's allowlist. Logs and run state stay in ~/Library/Application Support/Meatproxy/heartbeats. CI is read with your own gh login.")
-            item("terminal", "Checks", "ssh in batch mode, with your keys and ~/.ssh/config. The built-in check reads load, disk and memory and changes nothing.")
+            Eyebrow("Contacted over the network")
+            item("antenna.radiowaves.left.and.right", "Status pages", "Every few minutes: the status pages in General (Claude, OpenAI and GitHub by default). Only a read of their public status.")
+            item("chevron.left.forwardslash.chevron.right", "GitHub", "With your own gh login: the newest CI run on main and merged pull requests of each project's repo. Read only.")
+            item("ladybug", "Sentry and Tracker", "Only when you add a token and a factory names a project: new issues and stories, read with that token.")
+            item("terminal", "Your servers", "ssh in batch mode, with your keys and ~/.ssh/config. The built-in check reads load, disk and memory and changes nothing.")
+            Eyebrow("Sent to the model")
+            item("waveform.path.ecg", "A factory's CEO", "Runs as claude -p or codex exec in the project's folder. What it reads there (code, files, your answers) goes to Anthropic or OpenAI, as with any Claude Code or Codex session. Logs stay in ~/Library/Application Support/Meatproxy/heartbeats.")
+            Eyebrow("Tokens")
+            item("key", "In the Keychain", "Sentry and Tracker tokens are kept in your login Keychain, never in a file or a log.")
             item("photo", "Screenshots", "Start the app with --fixture to show made-up data, safe to share.")
         }
     }
@@ -869,6 +889,51 @@ private struct SettingsCard<C: View>: View {
 
 /// A switch with its name and one line on what it does.
 /// A token for a wake-up source (D61): typed once, kept in the macOS Keychain, shown only as saved.
+/// How a wake source did at its last check: works, or what fails and since when; or what is still missing.
+private struct SourceHealthLine: View {
+    let health: SourceHealth?
+    let missing: String?
+    var body: some View {
+        let (ok, line): (Bool, String) = {
+            if let missing { return (false, missing) }
+            guard let h = health else { return (true, "Not checked yet: the first look is within 15 minutes.") }
+            if h.ok { return (true, "Works · checked \(h.at.formatted(date: .omitted, time: .shortened))") }
+            let since = h.since.map { " since " + $0.formatted(.dateTime.weekday(.abbreviated).hour().minute()) } ?? ""
+            return (false, h.line + since + ". The CEO is not woken by it until it works.")
+        }()
+        Label(line, systemImage: ok ? "checkmark.circle" : "exclamationmark.triangle.fill")
+            .font(.system(size: 11.5)).foregroundStyle(ok ? Color.muted : Color.warn)
+            .padding(.horizontal, 14).padding(.bottom, 8).frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Your Tracker's MCP address: Tracker is anyone's, so it is yours to name. Empty: Tracker is off.
+private struct TrackerAddressRow: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var text = ""
+    @FocusState private var focused: Bool
+    var body: some View {
+        let valid = WakeSources.trackerURL(text) != nil
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Tracker address").font(.system(size: 13.5, weight: .semibold))
+                Text(text.isEmpty ? "Your Tracker's MCP address. Empty: Tracker is off."
+                     : valid ? "Factories naming a Tracker project in contract.yml are woken from here."
+                     : "Use the full https:// address of the MCP endpoint.")
+                    .font(.system(size: 12)).foregroundStyle(text.isEmpty || valid ? Color.muted : Color.warn).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            TextField("", text: $text, prompt: Text("https://tracker.example.com/mcp").foregroundStyle(Color.muted)).focused($focused)
+                .font(.system(size: 12, design: .monospaced)).textFieldStyle(.plain)
+                .padding(.horizontal, 10).padding(.vertical, 6).frame(width: 250).lifted(focused: focused)
+                .onSubmit { if text.isEmpty || valid { model.setTrackerURL(text) } }
+                .onChange(of: focused) { _, on in if !on, text.isEmpty || valid { model.setTrackerURL(text) } }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .onAppear { text = model.projectSettings.trackerURL }
+    }
+}
+
 private struct TokenRow: View {
     @EnvironmentObject private var model: AppModel
     let key: Secrets.Key

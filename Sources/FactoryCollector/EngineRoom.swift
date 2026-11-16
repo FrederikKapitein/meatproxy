@@ -51,7 +51,7 @@ public enum EngineRoom {
     Meatproxy writes contract.yml, servers.json, this README, .claude/settings.json and alerts/. You write decisions/
     and journal/. Reach servers only with the ops tool (`Meatproxy --ops list`). Formats, exactly:
 
-    ## A question for Marcel: decisions/D-NNNN-<slug>.md
+    ## A question for the user: decisions/D-NNNN-<slug>.md
 
     The next free number, four digits (D-0001, D-0002 …), a short slug. Meatproxy shows it in Needs you and writes his
     answer into it. Only these front matter fields; required: id, title, status.
@@ -209,7 +209,7 @@ public enum OpsTool {
         } else if arg != nil { return .refused("\(name) takes no argument") }
         switch (autonomy, a.kind) {
         case (.off, _): return .refused("this server is left alone: nothing runs here")
-        case (.observe, .fix): return .refused("this server allows diagnosing only: file a decision with this exact action for Marcel's yes")
+        case (.observe, .fix): return .refused("this server allows diagnosing only: file a decision with this exact action for the user's yes")
         default: return .run(a.command(arg ?? ""))
         }
     }

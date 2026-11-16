@@ -72,8 +72,11 @@ struct FloorRulesTests {
         let main = session([.prompt, .delegate], id: "main", subAgents: 2), other = session([.prompt, .edit], id: "other")
         let p = Project(id: "p", provider: .claude, root: "/demo/x", name: "X", isChat: false, sessions: [other, main])
         #expect(p.ceoID == "main")
-        #expect(p.role(of: main) == .ceo)
+        // a plain project's main chat is its Lead; only a factory has a CEO (in black, D73)
+        #expect(p.role(of: main) == .lead && CastRole.lead.label == "Lead")
         #expect(p.role(of: other) == .dev)
+        var f = p; f.factory = Factory(root: "/demo/x")
+        #expect(f.role(of: main) == .ceo)
         // alone, a session is not a CEO of anyone
         #expect(Project(id: "q", provider: .claude, root: "/x", name: "Y", isChat: false, sessions: [main]).ceoID == nil)
     }

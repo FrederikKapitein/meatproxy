@@ -267,6 +267,11 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// How each factory's Sentry and Tracker did at their last check (root → health).
+    @Published var sourceHealth: [String: FactoryHealth] = [:]
+    /// Your Tracker's MCP address (https); empty switches Tracker off.
+    func setTrackerURL(_ text: String) { changeProjects { $0.trackerURL = text.trimmingCharacters(in: .whitespacesAndNewlines) } }
+
     /// Asks each factory's Sentry and Tracker project what is new (D61), off the main queue, and wakes its CEO.
     private func checkSources() {
         guard !sourcesChecking else { return }
@@ -276,12 +281,23 @@ final class AppModel: ObservableObject {
             return (e.root, f.sources, e.heartbeat, (f.mandate?.mode(.bugs) ?? .ask) != .off)
         }
         guard !factories.isEmpty, !projectSettings.pauseAll else { return }
+        let trackerURL = WakeSources.trackerURL(projectSettings.trackerURL)
         sourcesChecking = true
         let sources = wakeSources
         DispatchQueue.global(qos: .utility).async {
-            let wakes = sources.check(factories, tokens: (Secrets.get(.sentry), Secrets.get(.tracker)))
+            let wakes = sources.check(factories, tokens: (Secrets.get(.sentry), Secrets.get(.tracker)), trackerURL: trackerURL)
+            let health = sources.health
             DispatchQueue.main.async {
                 self.sourcesChecking = false
+                self.sourceHealth = health
+                // a source that just stopped working: say so once, naming the factory
+                for (root, h) in health {
+                    let name = self.world.projects.first { $0.root == root }?.name ?? (root as NSString).lastPathComponent
+                    for (label, s) in [("Sentry", h.sentry), ("Tracker", h.tracker)] where s?.isNewFailure == true {
+                        self.alerts.post(title: "\(name): \(label) stopped working", body: (s?.line ?? "") + ". The CEO is not woken by \(label) until it works again.",
+                                         key: "source:\(root):\(label)", kind: .warn)
+                    }
+                }
                 for (root, reason) in wakes { self.heartbeats.wake(root, reason) }
             }
         }
@@ -301,12 +317,12 @@ final class AppModel: ObservableObject {
     func testToken(_ key: Secrets.Key) async -> (ok: Bool, line: String) {
         if fixture { return (true, "Demo data: nothing is sent") }
         let sources = world.projects.compactMap { $0.factory }.filter(\.takesSources).map(\.sources)
-        let ws = wakeSources
+        let ws = wakeSources, trackerURL = WakeSources.trackerURL(projectSettings.trackerURL)
         return await Task.detached(priority: .userInitiated) {
             guard let token = Secrets.get(key) else { return (false, "No token saved") }
             switch key {
             case .sentry: return ws.testSentry(token: token, projects: sources)
-            case .tracker: return ws.testTracker(token: token, slugs: sources.compactMap(\.tracker))
+            case .tracker: return ws.testTracker(token: token, slugs: sources.compactMap(\.tracker), url: trackerURL)
             }
         }.value
     }

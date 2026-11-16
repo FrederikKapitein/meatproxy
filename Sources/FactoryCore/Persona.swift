@@ -3,11 +3,12 @@ import Foundation
 /// The roles you see on a floor (D41): every role its own outfit and something in its hand. The CEO is the main chat of
 /// a project, where the work starts and gets handed out; you are the stakeholder, not one of the cast.
 public enum CastRole: String, Sendable, CaseIterable {
-    case ceo, sales, marketing, pm, dev, designer, tester, devops, researcher
+    case ceo, lead, sales, marketing, pm, dev, designer, tester, devops, researcher
 
     public var label: String {
         switch self {
         case .ceo: "CEO"
+        case .lead: "Lead"
         case .sales: "Sales"
         case .marketing: "Marketing"
         case .pm: "Product"
@@ -200,7 +201,11 @@ extension Project {
         return scored.max { $0.1 < $1.1 || ($0.1 == $1.1 && ($0.0.startedAt ?? $0.0.lastAt) > ($1.0.startedAt ?? $1.0.lastAt)) }?.0.id
     }
 
-    public func role(of s: Session) -> CastRole { s.id == ceoID ? .ceo : s.workRole }
+    /// The main chat's role: a factory's (or a heartbeat run's) is its CEO; a plain project's is its Lead.
+    public func role(of s: Session) -> CastRole {
+        guard s.id == ceoID else { return s.workRole }
+        return factory != nil || s.heartbeatRun == true || s.id.hasPrefix(Self.standingCEOPrefix) ? .ceo : .lead
+    }
 
     /// The id of a factory's resting CEO, before its first heartbeat run.
     public static let standingCEOPrefix = "ceo-standing:"

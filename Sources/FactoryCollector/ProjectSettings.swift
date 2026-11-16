@@ -32,6 +32,8 @@ public struct ProjectSettings: Codable, Equatable, Sendable {
     /// factories whose CEO may not run Dark: Assistant and Hybrid only
     public var darkOff: [String] = []
     public func darkAllowed(_ root: String) -> Bool { !darkOff.contains(root) }
+    /// your Tracker's MCP address (https); empty: Tracker is off
+    public var trackerURL = ""
 
     public init(projects: [Entry] = [], showChats: Bool = true, heartbeatWhenClosed: Bool = false) {
         self.projects = projects; self.showChats = showChats; self.heartbeatWhenClosed = heartbeatWhenClosed
@@ -51,7 +53,7 @@ public struct ProjectSettings: Codable, Equatable, Sendable {
     }
 
     // tolerant decoding: a field added later has its default
-    enum CodingKeys: String, CodingKey { case projects, showChats, heartbeatWhenClosed, pauseAll, devops, hidden, darkOff }
+    enum CodingKeys: String, CodingKey { case projects, showChats, heartbeatWhenClosed, pauseAll, devops, hidden, darkOff, trackerURL }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         projects = try c.decodeIfPresent([Entry].self, forKey: .projects) ?? []
@@ -61,6 +63,7 @@ public struct ProjectSettings: Codable, Equatable, Sendable {
         devops = try c.decodeIfPresent(DevOpsSettings.self, forKey: .devops) ?? DevOpsSettings()
         hidden = try c.decodeIfPresent([String].self, forKey: .hidden) ?? []
         darkOff = try c.decodeIfPresent([String].self, forKey: .darkOff) ?? []
+        trackerURL = try c.decodeIfPresent(String.self, forKey: .trackerURL) ?? ""
     }
 }
 
