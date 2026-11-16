@@ -77,6 +77,7 @@ public final class WorldController {
         world = w
         let sig = Self.signature(w)
         if sig != campusSignature { campusSignature = sig; Task { await repaintCampus() } }
+        else { campus.updateLife(w) }
         if sig != orbitSignature { orbitSignature = sig; Task { await repaintOrbit() } }
         if let f = floor, let p = w.project(id: f.projectID) { Task { await paintFloor(p, present: false) } }
         emit()

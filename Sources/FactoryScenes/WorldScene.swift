@@ -131,6 +131,9 @@ public class WorldScene: SKScene {
     /// The level follows the zoom: subclasses decide what is "in" at this zoom.
     func didZoom(zoomingIn: Bool) {}
     func didPan() {}
+    /// The wheel turned (points, or lines when not precise): a scene that uses it for something else says true and
+    /// nothing zooms.
+    func wheel(_ dy: CGFloat, precise: Bool) -> Bool { false }
     func click(at scenePoint: CGPoint) {}
     /// The pointer moved over the scene (nil: it left the view, went over a HUD panel, or a drag started). Scenes
     /// highlight what a click there would pick and set `hovering`. Things move under a still pointer, so scenes may
@@ -178,6 +181,7 @@ public class WorldScene: SKScene {
     }
     public override func mouseUp(with event: NSEvent) { if !dragged { click(at: event.location(in: self)) } }
     public override func scrollWheel(with event: NSEvent) {
+        if wheel(event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas) { return }
         let k: CGFloat = event.hasPreciseScrollingDeltas ? 0.006 : 0.06
         zoom(by: exp(-event.scrollingDeltaY * k), around: event.location(in: self))
     }
