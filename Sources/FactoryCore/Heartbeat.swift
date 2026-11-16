@@ -215,6 +215,8 @@ public enum Block: Equatable, Sendable {
     case coolingDown(until: Date)
     /// you took over in Meatproxy's terminal: nothing starts until you close that tab (D57)
     case takenOver
+    /// the runtime's provider is down on its status page (D69): no run burns on an outage
+    case providerDown(String)
 
     public var waitsForYou: Bool { if case .held = self { return true }; return false }
     public var text: String {
@@ -227,6 +229,7 @@ public enum Block: Equatable, Sendable {
         case .costCap(let spent, let cap): return "\(ProjectCost.format(spent)) today at API prices, over the cap of \(ProjectCost.format(cap)): the next run tomorrow"
         case .coolingDown(let until): return "Cooling down until \(f.string(from: until))"
         case .takenOver: return "In your hands: you took over in the terminal"
+        case .providerDown(let name): return "\(name) is down on its status page: the run waits until it is back"
         }
     }
 }

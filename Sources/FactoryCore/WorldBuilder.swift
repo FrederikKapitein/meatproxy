@@ -150,7 +150,17 @@ public enum Fixture {
                 : ProjectKey(root: cwd, name: WorldBuilder.pretty((cwd as NSString).lastPathComponent), isChat: false)
         }
         WorldBuilder.attach([factory(now: now)], to: &world)
+        // GitHub (D67): the made-up Harbor API's CI on main is red, so it rains over the ChatGPT tower
+        for b in world.buildings.indices { for p in world.buildings[b].projects.indices where world.buildings[b].projects[p].root == "/demo/harbor-api" {
+            world.buildings[b].projects[p].github = GitHubStatus(failing: ["harbor-api"], merged: [ago(300)], checkedAt: now)
+        } }
         world.servers = servers
+        // the status pages (D69), made up: OpenAI degraded, the others fine
+        world.services = [
+            ServiceStatus(id: "claude", name: "Claude", page: "https://status.claude.com", state: .ok, detail: "All Systems Operational", checkedAt: ago(2), runtime: "claude"),
+            ServiceStatus(id: "openai", name: "OpenAI", page: "https://status.openai.com", state: .degraded, detail: "Partially Degraded Service", checkedAt: ago(2), runtime: "codex"),
+            ServiceStatus(id: "github", name: "GitHub", page: "https://www.githubstatus.com", state: .ok, detail: "All Systems Operational", checkedAt: ago(2)),
+        ]
         return world
     }
 

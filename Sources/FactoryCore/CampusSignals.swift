@@ -42,8 +42,10 @@ public enum CampusSignals {
 
     /// A project left broken: a session whose turn has ended while its last test, push or deploy failed, in the last
     /// 12 hours. A red test in the middle of a turn is part of the work (the session shows it as stuck), not weather.
+    /// With GitHub (D67) it is simply CI: the newest run on main failed.
     public static func broken(_ p: Project, now: Date) -> Bool {
-        p.sessions.contains { s in
+        if let g = p.github { return g.ciFailing }
+        return p.sessions.contains { s in
             guard !s.turnOpen, s.liveRun != true,
                   let last = s.activities.last(where: { $0.kind == .test || $0.kind == .push || $0.kind == .deploy }) else { return false }
             return last.failed && now.timeIntervalSince(last.at) < 12 * 3600
@@ -60,8 +62,10 @@ public enum CampusSignals {
 
     // MARK: 5C delivery
 
-    /// A factory's deliveries after a moment: pushes and deploys that went through, oldest first.
+    /// Deliveries after a moment, oldest first: with GitHub (D67) every merged pull request of any project; without it a
+    /// factory's pushes and deploys that went through.
     public static func deliveries(_ p: Project, after: Date) -> [Date] {
+        if let g = p.github { return g.merged.filter { $0 > after } }
         guard p.factory != nil else { return [] }
         return p.sessions.flatMap(\.activities).filter { ($0.kind == .push || $0.kind == .deploy) && !$0.failed && $0.at > after }.map(\.at).sorted()
     }

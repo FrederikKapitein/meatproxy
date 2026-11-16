@@ -30,11 +30,16 @@ struct CampusLife {
     var helpers: Set<String> = []
     var building: Set<String> = []
     var weather: [String: CampusSignals.Weather] = [:]
+    /// the Status layer (D69): on or off, what it drew, and its lamps for the blink
+    var layerOn = false
+    var layerSig = ""
+    var layerNodes: [SKNode] = []
+    var layerLamps: [(node: SKNode, glow: SKNode, state: ServiceStatus.State)] = []
 
     struct Lift { var z: CGFloat = 0, target: CGFloat = 0, hold = 0.0, queue: [Int] = [] }
 
     /// The campus was drawn anew: what hung on it is gone, the moments in the air and the rides stay.
-    mutating func reset() { nodes = []; sig = ""; shafts = [:]; cars = [:]; ground.removeAllChildren() }
+    mutating func reset() { nodes = []; sig = ""; shafts = [:]; cars = [:]; ground.removeAllChildren(); layerNodes = []; layerLamps = [] }
 }
 
 extension CampusScene {
@@ -90,8 +95,10 @@ extension CampusScene {
                 if !fresh.isEmpty { ride(s.storey.building, to: s.storey.index) }
             }
         } else {
-            for p in world.projects where p.factory != nil { life.delivered[p.id] = now }
+            for p in world.projects { life.delivered[p.id] = now }
         }
+        let layerSig = world.services.map { "\($0.id)=\($0.shown(now: now).rawValue)" }.joined() + world.projects.map { "\($0.id)=\($0.github?.ciFailing.description ?? "-")" }.joined()
+        if layerSig != life.layerSig || life.layerNodes.isEmpty { life.layerSig = layerSig; drawStatusLayer(world) }
         life.helpers = Set(world.projects.flatMap { CampusSignals.helpers($0) })
         life.building = building
         life.weather = weather
@@ -376,6 +383,7 @@ extension CampusScene {
         life.sky?.size = full; life.sky?.alpha = life.daylight
         life.shade?.size = full; life.shade?.alpha = (1 - life.daylight) * 0.6
         content.childNode(withName: "lamplight")?.alpha = 0.3 + 0.65 * (1 - life.daylight)
+        animateLayer(clock)
         // 5E: the lifts
         for (key, var l) in life.lifts {
             if l.hold > 0 { l.hold -= dt; if l.hold <= 0 { l.target = 0 } }

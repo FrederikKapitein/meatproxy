@@ -15,6 +15,10 @@ public final class Collector: @unchecked Sendable {
     private var codexIndexDate: Date?
     /// what the sessions would have cost at API prices (D61); `updateCosts()` reads the files, off this queue
     public let costs: CostLedger
+    /// CI and merged pull requests per project (D67); `github.update(roots:)` asks gh, off this queue
+    public let github = GitHubWatch()
+    /// the status pages you watch (D69); `status.update(_:)` reads them, off this queue
+    public let status = StatusPages()
 
     public init(home: URL = FileManager.default.homeDirectoryForCurrentUser, resolver: ProjectResolver = ProjectResolver(),
                 costStore: URL? = CostLedger.defaultStore) {
@@ -47,7 +51,9 @@ public final class Collector: @unchecked Sendable {
         }
         for b in w.buildings.indices { for p in w.buildings[b].projects.indices {
             w.buildings[b].projects[p].cost = cost[w.buildings[b].projects[p].id]
+            if !w.buildings[b].projects[p].isChat { w.buildings[b].projects[p].github = github.status(root: w.buildings[b].projects[p].root) }
         } }
+        w.services = status.current()
         return w
     }
 

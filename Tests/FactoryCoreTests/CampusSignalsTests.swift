@@ -44,6 +44,19 @@ import Testing
         #expect(CampusSignals.weather(ProviderBuilding(provider: .claude, projects: [busy, fixed]), now: now) == .clear)
     }
 
+    @Test func withGitHubTheWeatherIsCIAndADeliveryIsAMergedPR() {
+        // the sessions say all is fine, GitHub says main is red: rain; and the other way round
+        var p = project([session("h", open: false, acts: [(.test, false)])])
+        p.github = GitHubStatus(failing: ["pebble"], merged: [ago(30), ago(5)], checkedAt: now)
+        #expect(CampusSignals.broken(p, now: now))
+        var q = project([session("i", open: false, acts: [(.push, true)])])
+        q.github = GitHubStatus(checkedAt: now)
+        #expect(!CampusSignals.broken(q, now: now))
+        // any project with GitHub delivers its merged pull requests, factory or not
+        #expect(CampusSignals.deliveries(p, after: ago(10)) == [ago(5)])
+        #expect(CampusSignals.deliveries(q, after: ago(60)).isEmpty)
+    }
+
     @Test func theServerRoomsWeather() {
         let ok = Server(id: "web-01", name: "web-01", kind: .server, state: .ok)
         var warn = ok; warn.state = .warn

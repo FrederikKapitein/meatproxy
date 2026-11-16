@@ -243,6 +243,9 @@ public final class WorldController {
         emit()
     }
 
+    /// The Status layer on the campus (D69).
+    public func setStatusLayer(_ on: Bool) { campus.setStatusLayer(on) }
+
     public func focusBuilding(_ key: String?) {
         if inOrbit { orbit.fly(toProvider: key); return }
         if floor != nil { exitFloor() }
