@@ -256,19 +256,11 @@ struct FactoryOverview: View {
 
     @ViewBuilder private var ceo: some View {
         if let hb = model.heartbeat(project) { HeartbeatCard(project: project, state: hb) }
-        if let a = factory.autonomy { AutonomyLine(autonomy: a) }
         if factory.takesMandate {
-            Button { model.settingsPage = "project:\(project.root)"; model.settingsOpen = true } label: {
-                HStack(spacing: 8) {
-                    Text("MANDATE").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-                    Text(model.mandate(project.root).summary).font(.system(size: 12, weight: .semibold))
-                    Spacer(minLength: 0)
-                    Text("Edit").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted)
-                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.muted)
-                }
-                .padding(.horizontal, 10).padding(.vertical, 8).background(Color.raised, in: RoundedRectangle(cornerRadius: 10)).contentShape(Rectangle())
-            }.buttonStyle(CardPressStyle()).help("What the CEO may do on its own, its role and your preferences")
-        }
+            AutonomyCard(mandate: model.mandate(project.root), autonomy: factory.autonomy) {
+                model.settingsPage = "project:\(project.root)"; model.settingsOpen = true
+            }
+        } else if let a = factory.autonomy { AutonomyLine(autonomy: a) }
         HStack(spacing: 6) {
             Text("CONTRACT").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
             Text("v\(factory.contractVersion)\(factory.contract == nil ? " (no contract.yml)" : "")").font(.system(size: 12, design: .monospaced))
@@ -327,7 +319,116 @@ private struct BriefingCard: View {
     }
 }
 
-/// How dark the floor is: the level, each gate ask or notify with its streak, and STOP.
+/// What the CEO may do (D59): one card. Your mandate is what counts: its level and role on top, and per item your
+/// setting. The CEO's own record (autonomy.yml) only adds its yeses in a row on a gate, as dots beside the item: at
+/// five it may propose to stop asking. Edit opens the mandate in Settings.
+struct AutonomyCard: View {
+    let mandate: FactoryMandate
+    let autonomy: Autonomy?
+    let edit: () -> Void
+
+    static func short(_ i: FactoryMandate.Item) -> String {
+        switch i {
+        case .propose: "Its own ideas"
+        case .bugs: "Sentry and CI bugs"
+        case .dependencies: "Dependency updates"
+        case .prs: "Merge its own PRs"
+        case .ship: "Ship to production"
+        case .store: "Store releases"
+        case .spend: "Spend money"
+        case .promote: "Change its own gates"
+        }
+    }
+
+    static func modeLabel(_ m: FactoryMandate.Mode) -> String {
+        switch m { case .ask: "Ask"; case .notify: "Tell me"; case .off: "Off" }
+    }
+
+    /// the CEO's gate for a mandate item, when it keeps one (its gate names match the items)
+    func gate(_ i: FactoryMandate.Item) -> Autonomy.Gate? { autonomy?.gates.first { $0.name.lowercased() == i.rawValue } }
+
+    /// the CEO's gates that have no mandate item (they cannot override it; shown so nothing is hidden)
+    var looseGates: [Autonomy.Gate] {
+        (autonomy?.gates ?? []).filter { g in !FactoryMandate.Item.allCases.contains { $0.rawValue == g.name.lowercased() } }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("AUTONOMY").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+                        if autonomy?.paused == true {
+                            Text("STOPPED").font(.system(size: 10.5, weight: .bold)).tracking(0.6).foregroundStyle(Color.stuck)
+                                .help("STOP is on line 1 of the CEO's autonomy.yml: it starts and ships nothing")
+                        }
+                    }
+                    Text(mandate.level.rawValue.capitalized).font(.system(size: 16, weight: .bold))
+                    Text(mandate.summary.components(separatedBy: " · ").filter { $0 != mandate.level.rawValue.capitalized }.joined(separator: " · "))
+                        .font(.system(size: 11.5)).foregroundStyle(Color.muted)
+                }
+                Spacer(minLength: 0)
+                Button(action: edit) {
+                    HStack(spacing: 4) { Text("Edit"); Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)) }
+                        .font(.system(size: 12, weight: .semibold)).padding(.horizontal, 10).frame(height: 26)
+                }.buttonStyle(TactileButtonStyle(kind: .neutral)).help("Change the mandate in Settings › Projects")
+            }
+            .padding(.bottom, 8)
+            ForEach(FactoryMandate.Item.allCases, id: \.self) { item in
+                Divider().overlay(Color.divider)
+                row(item)
+            }
+            ForEach(looseGates, id: \.name) { g in
+                Divider().overlay(Color.divider)
+                HStack(spacing: 8) {
+                    Text("\(g.name) (the CEO's own gate)").font(.system(size: 12)).foregroundStyle(Color.muted)
+                    Spacer(minLength: 0)
+                    Text(g.notify ? "notify" : "ask").font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted)
+                }.padding(.vertical, 6)
+                .help("A gate in the CEO's autonomy.yml with no mandate item: it does not change what the mandate allows")
+            }
+            if FactoryMandate.Item.allCases.contains(where: { gate($0) != nil }) {
+                Text("Dots: your yeses in a row on that step. At \(Autonomy.promoteAfter) the CEO may propose to stop asking; your setting still decides.")
+                    .font(.system(size: 11)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true).padding(.top, 7)
+            }
+        }
+        .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 8)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func row(_ item: FactoryMandate.Item) -> some View {
+        let mode = mandate.mode(item), g = gate(item), strong = mode != .notify
+        return HStack(spacing: 8) {
+            Text(Self.short(item)).font(.system(size: 12.5)).foregroundStyle(mode == .off ? Color.muted : Color.inkText)
+            Spacer(minLength: 0)
+            if let g, mode == .ask { StreakDots(count: min(g.streak, Autonomy.promoteAfter), of: Autonomy.promoteAfter) }
+            Text(Self.modeLabel(mode)).font(.system(size: 11.5, weight: strong ? .semibold : .regular))
+                .foregroundStyle(mode == .ask ? Color.inkText : Color.muted)
+                .frame(width: 62).padding(.vertical, 1)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(mode == .ask ? Color.border : Color.divider))
+        }
+        .padding(.vertical, 6)
+        .help(FactoryMandate.meaning(item))
+    }
+}
+
+/// Yeses in a row as dots: filled up to the count, open after it.
+private struct StreakDots: View {
+    let count: Int, of: Int
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<of, id: \.self) { k in
+                Circle().fill(k < count ? Color.inkText : Color.clear).frame(width: 5, height: 5)
+                    .overlay(Circle().stroke(k < count ? Color.clear : Color.border, lineWidth: 1))
+            }
+        }
+        .accessibilityElement().accessibilityLabel("\(count) of \(of) yes in a row")
+        .help("\(count) of \(of) yes in a row on this step")
+    }
+}
+
+/// How dark the floor is, for a factory before contract v3 (no mandate): the level, each gate ask or notify with its
+/// streak, and STOP.
 private struct AutonomyLine: View {
     let autonomy: Autonomy
     var body: some View {

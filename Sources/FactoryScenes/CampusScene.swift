@@ -478,7 +478,8 @@ public final class CampusScene: WorldScene {
     func tick(_ dt: Double) {
         if animationsEnabled {
             clock += dt
-            for w in walkers.values {
+            // in a fixed order: who moves first decides who waits, so the walk is the same on every machine and run
+            for w in walkers.values.sorted(by: { $0.key < $1.key }) {
                 if w.idle > 0 {
                     // resting at the end of the road while someone comes up behind: up and off, so nobody queues there
                     if w.idle > 0.3, walkers.values.contains(where: { o in o !== w && o.idle <= 0 && Self.distanceAlong(o, to: w.pos) != nil }) { w.idle = 0.3 }

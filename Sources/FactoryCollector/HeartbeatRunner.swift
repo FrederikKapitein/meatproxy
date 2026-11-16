@@ -55,14 +55,17 @@ public final class HeartbeatRunner: @unchecked Sendable {
     }
 
     public static let systemLaunch: Resolve = { r in
-        let runtime = r.runtime, prompt = r.prompt
-        guard let path = cli(runtime == .claude ? "claude" : "codex") else { return nil }
-        let args = runtime == .claude
-            ? ["-p", prompt, "--permission-mode", "acceptEdits", "--output-format", "text", "--max-turns", String(r.maxTurns)]
+        guard let path = cli(r.runtime == .claude ? "claude" : "codex") else { return nil }
+        return Launch(executable: URL(fileURLWithPath: path), arguments: arguments(r))
+    }
+
+    /// The command line for a run, without the program (testable where claude or codex is not installed).
+    public static func arguments(_ r: Request) -> [String] {
+        r.runtime == .claude
+            ? ["-p", r.prompt, "--permission-mode", "acceptEdits", "--output-format", "text", "--max-turns", String(r.maxTurns)]
                 + (r.settings.map { ["--settings", $0.path] } ?? [])
             // a factory's folder or the Engine room's workspace need not be a git repo of its own
-            : ["exec", "-s", "workspace-write", "--skip-git-repo-check"] + (r.network ? ["-c", "sandbox_workspace_write.network_access=true"] : []) + [prompt]
-        return Launch(executable: URL(fileURLWithPath: path), arguments: args)
+            : ["exec", "-s", "workspace-write", "--skip-git-repo-check"] + (r.network ? ["-c", "sandbox_workspace_write.network_access=true"] : []) + [r.prompt]
     }
 
     /// The CEO's prompt: the same playbook the factory's files describe, and why it woke.
