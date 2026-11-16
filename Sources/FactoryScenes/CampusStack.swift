@@ -2,8 +2,9 @@ import SpriteKit
 import FactoryCore
 
 /// 4A (D65): a tower apart. Its picture is cut along the storeys' edges into the plinth, one piece per storey and the
-/// roof; apart, the pieces lift, each by its own step, and the gap under each storey shows a thin cut through it
-/// (desks, people, screens). Together (e = 0) the tower is its own sprite again, pixel for pixel.
+/// roof. Only the storey under the pointer comes loose (D73): it lifts a little, everything above it lifts a whole gap,
+/// and the gap shows a thin cut through that one storey (desks, people, screens). Together (e = 0) the tower is its
+/// own sprite again, pixel for pixel.
 final class TowerStack {
     let key: String
     let root: SKNode
@@ -12,13 +13,14 @@ final class TowerStack {
     var pieces: [SKNode] = []          // storey k
     var roof: SKNode?
     var sprites: [SKSpriteNode] = []
-    /// each piece on its own spring (storey k, the roof last): 0 together, 1 apart, a little past 1 as it bounces
+    /// each piece on its own spring (storey k, the roof last), in gaps: 0 together, 0.4 the loose storey, 1.4 above it
     var pos: [CGFloat] = [], vel: [CGFloat] = []
-    /// the storey under the pointer pops up a little more, on springs of its own
-    var pop: [CGFloat] = [], popVel: [CGFloat] = []
+    /// the storey that comes loose: under the pointer, or the wheel's mark
     var hot: Int?
-    var since = 0.0                    // seconds since the target last changed (the pieces follow one after another)
-    var e: CGFloat { pos.last ?? 0 }
+    var since = 0.0
+    /// how far apart, 0 to 1
+    var e: CGFloat { min(1, (pos.max() ?? 0) / 1.4) }
+    static let loose: CGFloat = 0.4, above: CGFloat = 1.4
     var target: CGFloat = 0
     var gap: CGFloat = 19              // art units between storeys when apart
     var wantFor = 0.0, awayFor = 0.0
@@ -26,7 +28,7 @@ final class TowerStack {
     /// how far storey k (and the roof, k = count) has lifted, in art units
     func offset(_ k: Int) -> CGFloat {
         guard pos.indices.contains(k) else { return 0 }
-        return gap * CGFloat(k + 1) * pos[k] + (pop.indices.contains(k) ? pop[k] * 4 : 0)
+        return gap * pos[k]
     }
     var roofOffset: CGFloat { offset(pieces.count) }
 }
@@ -92,7 +94,7 @@ extension CampusScene {
             }
             st.roof = piece(above: nil, below: cuts[sts.count], z: 0.002 + 0.002 * CGFloat(sts.count))
             let n = sts.count + 1
-            st.pos = Array(repeating: 0, count: n); st.vel = st.pos; st.pop = st.pos; st.popVel = st.pos
+            st.pos = Array(repeating: 0, count: n); st.vel = st.pos
             stacks[key] = st
         }
     }
@@ -214,7 +216,7 @@ extension CampusScene {
     /// The cut under a storey (the gap below the one above it), while its tower stands apart.
     func cutHit(_ s: CampusArt.Storey, _ a: CGPoint) -> Bool {
         guard s.faces.count == 2, let st = stacks[s.building] else { return false }
-        let A = s.faces[0][3], B = s.faces[0][2], C = s.faces[1][2], g = st.gap * st.e
+        let A = s.faces[0][3], B = s.faces[0][2], C = s.faces[1][2], g = max(0, st.offset(s.index + 1) - st.offset(s.index))
         let q = CGPoint(x: a.x, y: a.y + st.offset(s.index))
         return contains([A, B, C, CGPoint(x: C.x, y: C.y - g), CGPoint(x: B.x, y: B.y - g), CGPoint(x: A.x, y: A.y - g)], q)
     }
@@ -229,42 +231,47 @@ extension CampusScene {
             if !wants, st.awayFor >= 0.35, st.target == 1 { st.target = 0; st.since = 0; if wheelMark?.key == key { wheelMark = nil } }
             let was = st.pos
             st.since += dt
-            // the storey under the pointer (or the wheel's mark) pops
+            // the storey that comes loose: the wheel's mark, else the one under the pointer (its faces or its cut)
             var hot: Int?
-            if st.target == 1, case .storey(let id)? = hoverTarget, let s = storeys.first(where: { $0.project == id }), s.storey.building == key { hot = s.storey.index }
+            if st.target == 1 {
+                if let m = wheelMark, m.key == key { hot = m.index }
+                else if let p = pointerInScene {
+                    let a = artPoint(p), mine = storeys.filter { $0.storey.building == key }.map(\.storey)
+                    hot = (mine.first { storeyHit($0, a) } ?? mine.first { cutHit($0, a) })?.index
+                }
+            }
             st.hot = hot
+            let goals: [CGFloat] = st.pos.indices.map { k in
+                guard st.target == 1, let h = hot else { return 0 }
+                return k < h ? 0 : k == h ? TowerStack.loose : TowerStack.above
+            }
             if animationsEnabled && dt > 0 {
-                // a spring per piece, a little under-damped: out they go one after another and bounce once; back
-                // together they land with a thunk (no bounce into each other)
+                // a spring per piece, a little under-damped: it comes loose with one bounce; back together it lands
+                // with a thunk (no bounce into the storey below)
                 let h = CGFloat(min(dt, 1.0 / 30))
                 for k in st.pos.indices {
-                    let delay = 0.035 * Double(st.target == 1 ? k : st.pos.count - 1 - k)
-                    let goal: CGFloat = st.since >= delay ? st.target : (st.target == 1 ? 0 : 1)
+                    let goal = goals[k]
                     st.vel[k] += (240 * (goal - st.pos[k]) - 17 * st.vel[k]) * h
                     st.pos[k] += st.vel[k] * h
-                    if goal == 0, st.pos[k] < 0 { st.pos[k] = 0; st.vel[k] = 0 }
+                    if st.pos[k] < 0 { st.pos[k] = 0; st.vel[k] = 0 }
                     if abs(goal - st.pos[k]) < 0.001, abs(st.vel[k]) < 0.01 { st.pos[k] = goal; st.vel[k] = 0 }
-                    let pg: CGFloat = hot == k ? 1 : 0
-                    st.popVel[k] += (320 * (pg - st.pop[k]) - 18 * st.popVel[k]) * h
-                    st.pop[k] += st.popVel[k] * h
-                    if abs(pg - st.pop[k]) < 0.001, abs(st.popVel[k]) < 0.01 { st.pop[k] = pg; st.popVel[k] = 0 }
                 }
             } else {
-                for k in st.pos.indices { st.pos[k] = st.target; st.vel[k] = 0; st.pop[k] = st.hot == k ? 1 : 0 }
+                for k in st.pos.indices { st.pos[k] = goals[k]; st.vel[k] = 0 }
             }
-            guard st.pos != was || st.e > 0 || st.pop.contains(where: { $0 != 0 }) else { continue }
+            guard st.pos != was || st.e > 0 else { continue }
             // the camera stays where it is: the world never shifts under you (the gap fits the room instead)
             place(st)
         }
     }
 
-    /// The gap between storeys that fits the room above the tower under the top bar (10 to 19 art units): the spread
-    /// grows into the view, the camera never moves.
+    /// The gap that fits the room above the tower under the top bar (12 to 24 art units): the tower grows into the view,
+    /// the camera never moves.
     private func fitGap(_ st: TowerStack) -> CGFloat {
         guard let b = buildings[st.key] else { return 14 }
         let viewTop = cam.position.y + size.height / 2 * cam.yScale - 80 * cam.yScale
         let room = (viewTop - b.frame.maxY) / px
-        return max(10, min(19, room / CGFloat(st.pieces.count + 1)))
+        return max(12, min(24, room / TowerStack.above))
     }
 
     private func place(_ st: TowerStack) {

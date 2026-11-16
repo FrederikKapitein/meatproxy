@@ -284,7 +284,8 @@
     // every sign also on its own (topParts), so the app can paint each one sharp
     const topParts = [], tp = (id, markup) => { topParts.push({id, markup}); top += markup; };
     for (const r of ROOMS) tp("room:" + r.id, sign(...SIGN[r.id], r));
-    tp("needsYou", sign(...P(10.5, 8, 74), {name: "NEEDS YOU"}, true));
+    // the hall's front desk: a quiet sign; yellow stays for what really waits for you (D73)
+    tp("needsYou", sign(...P(10.5, 8, 74), {name: "FRONT DESK"}, false));
     // light pools: lamps, screens, the counter
     let light = "";
     for (const [i, j, c] of lamps) { const [x, y] = P(i, j, 22); light += glow(x, y + 16, 46, c, .5); }
