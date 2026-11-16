@@ -79,7 +79,7 @@ public final class WorldController {
         if sig != campusSignature { campusSignature = sig; Task { await repaintCampus() } }
         else { campus.updateLife(w) }
         if sig != orbitSignature { orbitSignature = sig; Task { await repaintOrbit() } }
-        if let f = floor, let p = w.project(id: f.projectID) { Task { await paintFloor(p, present: false) } }
+        if let f = floor, let p = w.project(id: f.projectID) { Task { await paintFloor(p.withStandingCEO, present: false) } }
         emit()
     }
 
@@ -136,7 +136,7 @@ public final class WorldController {
             if !missing.isEmpty {
                 Task { @MainActor in
                     await self.loadFigures(missing)
-                    if let f = self.floor, f.projectID == p.id, let fresh = self.world.project(id: p.id) { f.apply(art, project: fresh, figures: self.figures, now: self.world.now) }
+                    if let f = self.floor, f.projectID == p.id, let fresh = self.world.project(id: p.id) { f.apply(art, project: fresh.withStandingCEO, figures: self.figures, now: self.world.now) }
                 }
             }
             let scene = floor ?? FloorScene(size: view?.bounds.size ?? CGSize(width: 1200, height: 800))
@@ -258,9 +258,9 @@ public final class WorldController {
         selection = WorldSelection(); selection.provider = p.provider; selection.projectID = p.id; selection.level = .project
         emit()
         if view?.scene === campus {
-            campus.flyIntoFloor(projectID) { [weak self] in Task { await self?.paintFloor(p, present: true) } }
+            campus.flyIntoFloor(projectID) { [weak self] in Task { await self?.paintFloor(p.withStandingCEO, present: true) } }
         } else {
-            Task { await paintFloor(p, present: true) }
+            Task { await paintFloor(p.withStandingCEO, present: true) }
         }
     }
 
@@ -275,6 +275,8 @@ public final class WorldController {
 
     private func selectInFloor(_ session: String?, _ subAgent: String?) {
         guard !inOrbit else { return }
+        // the resting CEO is no session of its own: a click on it shows the factory
+        if let s = session, s.hasPrefix(Project.standingCEOPrefix) { selectInFloor(nil, nil); return }
         selection.sessionID = session; selection.subAgentID = subAgent
         selection.level = subAgent != nil ? .subAgent : session != nil ? .session : .project
         keepDecision()

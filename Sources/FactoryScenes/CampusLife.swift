@@ -376,12 +376,13 @@ extension CampusScene {
         }
         if life.sky == nil {
             let s = SKSpriteNode(texture: Self.daySkyTexture); s.zPosition = -999; cam.addChild(s); life.sky = s
-            let sh = SKSpriteNode(color: SKColor(red: 0.6, green: 0.62, blue: 0.9, alpha: 1), size: CGSize(width: 10, height: 10))
-            sh.blendMode = .multiply; sh.zPosition = 2995; cam.addChild(sh); life.shade = sh
+            // night is a thin blue veil (an ordinary blend, so it never goes darker than its alpha), under the lamps' light
+            let sh = SKSpriteNode(color: SKColor(red: 0.06, green: 0.07, blue: 0.24, alpha: 1), size: CGSize(width: 10, height: 10))
+            sh.zPosition = 2995; cam.addChild(sh); life.shade = sh
         }
         let full = CGSize(width: size.width * 1.02, height: size.height * 1.02)
         life.sky?.size = full; life.sky?.alpha = life.daylight
-        life.shade?.size = full; life.shade?.alpha = (1 - life.daylight) * 0.6
+        life.shade?.size = full; life.shade?.alpha = (1 - life.daylight) * 0.3
         content.childNode(withName: "lamplight")?.alpha = 0.3 + 0.65 * (1 - life.daylight)
         animateLayer(clock)
         // 5E: the lifts

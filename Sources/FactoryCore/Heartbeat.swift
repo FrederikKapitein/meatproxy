@@ -34,6 +34,8 @@ public struct Heartbeat: Codable, Equatable, Sendable {
     public var maxTurns = 60
     /// at most this much a day at API prices (D61, US dollars); above it automatic runs wait until tomorrow. nil: no cap
     public var maxCostPerDay: Double?
+    /// which model and effort the CEO gets for which kind of wake-up (D70)
+    public var models = ModelPolicy()
 
     public init(days: Days = .weekdays, times: [String] = ["07:10"], everyMinutes: Int? = nil, runtime: Runtime = .claude,
                 wakeOnAnswer: Bool = true, wakeOnCI: Bool = true, paused: Bool = false) {
@@ -42,7 +44,7 @@ public struct Heartbeat: Codable, Equatable, Sendable {
     }
 
     // tolerant decoding: a field added later has its default
-    enum CodingKeys: String, CodingKey { case days, times, everyMinutes, runtime, wakeOnAnswer, wakeOnCI, paused, runsPerDay, cooldownMinutes, maxTurns, maxCostPerDay, wakeOnSentry, wakeOnTracker }
+    enum CodingKeys: String, CodingKey { case days, times, everyMinutes, runtime, wakeOnAnswer, wakeOnCI, paused, runsPerDay, cooldownMinutes, maxTurns, maxCostPerDay, wakeOnSentry, wakeOnTracker, models }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self), x = Heartbeat()
         days = try c.decodeIfPresent(Days.self, forKey: .days) ?? x.days
@@ -58,6 +60,7 @@ public struct Heartbeat: Codable, Equatable, Sendable {
         maxCostPerDay = try c.decodeIfPresent(Double.self, forKey: .maxCostPerDay)
         wakeOnSentry = try c.decodeIfPresent(Bool.self, forKey: .wakeOnSentry) ?? x.wakeOnSentry
         wakeOnTracker = try c.decodeIfPresent(Bool.self, forKey: .wakeOnTracker) ?? x.wakeOnTracker
+        models = try c.decodeIfPresent(ModelPolicy.self, forKey: .models) ?? x.models
     }
 
     /// How long after your last answer the CEO wakes, so that a few answers in a row make one run.
@@ -171,6 +174,8 @@ public struct HeartbeatRun: Codable, Equatable, Sendable {
     public var detail: String?
     /// something you should fix even when the run went fine (its allowlist was ignored)
     public var warning: String?
+    /// the model and effort it ran with, when not the runtime's default (D70)
+    public var model: String?
     public init(started: Date, ended: Date? = nil, reason: WakeReason, outcome: Outcome, detail: String? = nil) {
         self.started = started; self.ended = ended; self.reason = reason; self.outcome = outcome; self.detail = detail
     }
@@ -232,4 +237,40 @@ public enum Block: Equatable, Sendable {
         case .providerDown(let name): return "\(name) is down on its status page: the run waits until it is back"
         }
     }
+}
+
+/// Which model and effort a run gets (D70), by why it woke: the routine heartbeat, your own input (an answer, an idea,
+/// Run now), or something that broke (CI, Sentry, Tracker, an alert). nil keeps the runtime's own default.
+public struct ModelPolicy: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable, CaseIterable {
+        case routine, input, incident
+        public var label: String { self == .routine ? "Routine heartbeat" : self == .input ? "Your answers, ideas, Run now" : "CI, Sentry, Tracker, alerts" }
+    }
+    public struct Choice: Codable, Equatable, Sendable {
+        public var model: String?
+        public var effort: String?
+        public init(model: String? = nil, effort: String? = nil) { self.model = model; self.effort = effort }
+    }
+    public var routine = Choice()
+    public var input = Choice()
+    public var incident = Choice()
+    public init(routine: Choice = Choice(), input: Choice = Choice(), incident: Choice = Choice()) {
+        self.routine = routine; self.input = input; self.incident = incident
+    }
+    public subscript(_ k: Kind) -> Choice {
+        get { k == .routine ? routine : k == .input ? input : incident }
+        set { switch k { case .routine: routine = newValue; case .input: input = newValue; case .incident: incident = newValue } }
+    }
+    public static func kind(_ r: WakeReason) -> Kind {
+        switch r {
+        case .schedule, .caughtUp: return .routine
+        case .answered, .idea, .runNow: return .input
+        case .ciFailed, .sentry, .tracker, .alert: return .incident
+        }
+    }
+    public func choice(for r: WakeReason) -> Choice { self[Self.kind(r)] }
+
+    /// What each runtime offers: its model aliases and effort levels (the first, nil, is its own default).
+    public static let models: [Heartbeat.Runtime: [String]] = [.claude: ["haiku", "sonnet", "opus"], .codex: ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra", "gpt-5.3-codex"]]
+    public static let efforts: [Heartbeat.Runtime: [String]] = [.claude: ["low", "medium", "high", "xhigh", "max"], .codex: ["low", "medium", "high"]]
 }
