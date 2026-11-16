@@ -588,6 +588,16 @@ final class AppModel: ObservableObject {
     func server(_ id: String) -> Server? { world.servers.first { $0.id == id } }
 
     /// Adds a server, or replaces the one with the same id; saved at once, then checked.
+    /// The Host aliases in ~/.ssh/config (the demo has made-up ones: nothing real shows in a screenshot).
+    var sshAliases: [String] { fixture ? ["web-02", "db-02", "staging"] : SSHHosts.fromUserConfig() }
+    /// Adds each alias as a server named after it, then checks them all.
+    func importServers(_ aliases: [String]) {
+        for a in aliases where !serverConfigs.contains(where: { $0.host == a }) {
+            save(ServerConfig(id: UUID().uuidString, name: a, host: a, kind: .server))
+        }
+        if !fixture { checkServers() }
+    }
+
     func save(_ config: ServerConfig) {
         if let k = serverConfigs.firstIndex(where: { $0.id == config.id }) { serverConfigs[k] = config } else { serverConfigs.append(config) }
         persist()

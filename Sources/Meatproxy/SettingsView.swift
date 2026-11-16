@@ -128,6 +128,7 @@ private struct EngineRoomSettings: View {
     @EnvironmentObject private var model: AppModel
     /// the server open on its page ("new" for adding one)
     @State private var open: String?
+    @State private var importing = false
 
     var body: some View {
         content.onAppear {
@@ -148,6 +149,7 @@ private struct EngineRoomSettings: View {
     private var list: some View {
         VStack(alignment: .leading, spacing: 18) {
             PageTitle("Server room", "Your servers and sites, checked over SSH every minute, with alerts and a DevOps agent that keeps an eye on them.")
+            WhatWeCheckCard()
             DevOpsCard()
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
@@ -161,8 +163,13 @@ private struct EngineRoomSettings: View {
                             }
                         }.buttonStyle(SettingsButton()).disabled(model.checkingServers)
                     }
+                    if !model.sshAliases.isEmpty {
+                        Button { withAnimation(.easeOut(duration: 0.2)) { importing.toggle() } } label: { Label("From ~/.ssh/config", systemImage: "square.and.arrow.down") }
+                            .buttonStyle(SettingsButton()).help("Add the hosts of your ssh config in one go")
+                    }
                     Button { withAnimation(.easeOut(duration: 0.2)) { open = "new" } } label: { Label("Add server", systemImage: "plus") }.buttonStyle(SettingsButton())
                 }
+                if importing { SSHImportCard { importing = false } }
                 if model.serverConfigs.isEmpty {
                     Text("No servers yet: the Server room says “not connected”.").font(.system(size: 13)).foregroundStyle(Color.muted).padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading).background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
@@ -1168,5 +1175,64 @@ private struct StatusSourcesRows: View {
         guard let s = StatusSource.custom(address), !model.statusSources.contains(where: { $0.id == s.id }) else { return }
         model.updateStatusSources { $0.append(s) }
         address = ""
+    }
+}
+
+
+/// What the Server room checks, how often, and when it alerts: said once, plainly.
+private struct WhatWeCheckCard: View {
+    @State private var open = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button { withAnimation(.easeOut(duration: 0.18)) { open.toggle() } } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).rotationEffect(.degrees(open ? 90 : 0))
+                    Text("What we check").font(.system(size: 13, weight: .semibold))
+                    Spacer(minLength: 0)
+                }.contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            if open {
+                VStack(alignment: .leading, spacing: 5) {
+                    bullet("Every minute, over ssh in batch mode with your own keys and ~/.ssh/config. No passwords; nothing is installed.")
+                    bullet("The built-in check only reads: a warning at a root disk \(ServerProbe.diskWarn)% full, a load of \(String(format: "%.1f", ServerProbe.loadWarn)) per core, or under \(Int(ServerProbe.memoryFreeWarn * 100))% memory free. No answer is down.")
+                    bullet("An alert after two bad checks in a row, so a hiccup stays quiet; another when it is fine again.")
+                    bullet("A check of your own: exit 0 is fine, 1 a warning, anything else down; its first line is the detail.")
+                    bullet("Sites every 5 minutes: no answer, or a certificate that expires within \(SiteCheck.certWarnDays) days, is an alert.")
+                }
+                .font(.system(size: 12)).foregroundStyle(Color.muted)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+    private func bullet(_ t: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) { Text("·"); Text(t).fixedSize(horizontal: false, vertical: true) }
+    }
+}
+
+/// The hosts of your ssh config that are not on the Server room yet, ticked; Add makes each a server (checked at once).
+private struct SSHImportCard: View {
+    @EnvironmentObject private var model: AppModel
+    let done: () -> Void
+    @State private var ticked: Set<String> = []
+    var body: some View {
+        let known = Set(model.serverConfigs.map(\.host))
+        let fresh = model.sshAliases.filter { !known.contains($0) }
+        VStack(alignment: .leading, spacing: 8) {
+            Text(fresh.isEmpty ? "Every host in ~/.ssh/config is on the Server room already." : "Hosts in ~/.ssh/config: tick the ones to watch. Each is checked with your keys straight away.")
+                .font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            ForEach(fresh, id: \.self) { h in
+                Toggle(isOn: Binding(get: { ticked.contains(h) }, set: { on in if on { ticked.insert(h) } else { ticked.remove(h) } })) {
+                    Text(h).font(.system(size: 12.5, design: .monospaced))
+                }.toggleStyle(TactileToggleStyle())
+            }
+            HStack(spacing: 8) {
+                Button { model.importServers(fresh.filter { ticked.contains($0) }); done() } label: { Text("Add \(ticked.count) server\(ticked.count == 1 ? "" : "s")") }
+                    .buttonStyle(SettingsButton()).disabled(ticked.isEmpty)
+                Button("Cancel", action: done).buttonStyle(SettingsButton())
+            }
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
     }
 }
