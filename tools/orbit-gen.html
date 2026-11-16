@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Orbit generator</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<style>body{margin:0;background:#0a0a0a}svg{display:block;width:100%;max-width:1200px;height:auto;margin:0 auto}body.one svg{max-width:none;width:1200px;margin:0}</style></head>
+<body>
+<script src="../Sources/FactoryScenes/Art/src/art/orbit-gen.js"></script>
+<script src="orbit-gen-sheet.js"></script>
+<script>
+/* The Orbit generator in the Starfield style. Without parameters: every sheet, with the hero planets turning.
+   ?sheet=big|world|galaxies|engine|wormholes shows one sheet, still, at 1200 px wide (for the PNG export).
+   ?static=1 turns the pulses and the spin off. Demo ids only. */
+const G = window.OrbitGen, S = window.OrbitSheet, q = new URLSearchParams(location.search), one = q.get("sheet"), live = !q.has("static") && !one;
+const NS = "http://www.w3.org/2000/svg";
+const put = (sheet, id) => { let el = id && document.getElementById(id); if (!el) { el = document.createElementNS(NS, "svg"); if (id) el.id = id; document.body.appendChild(el); } el.setAttribute("viewBox", `0 0 ${sheet.w} ${sheet.h}`); if (one) { el.setAttribute("width", sheet.w); el.setAttribute("height", sheet.h); } el.innerHTML = sheet.svg; return el; };
+(document.fonts ? document.fonts.load("500 10px 'JetBrains Mono'").then(() => document.fonts.ready) : Promise.resolve()).then(() => {
+  if (one) { document.body.className = "one"; const sh = S[one](G, {hero: true}); put(sh, "sheet"); document.title = "ready " + sh.h; return; }
+  for (const name of ["wormholes", "engine", "galaxies"]) put(S[name](G, {animate: live}), name);
+  put(S.hero(G, {animate: live}), "hero");
+  put(S.big(G, {animate: live, hero: false}), "big");
+  put(S.world(G, {animate: live}), "world");
+  // the hero planets turn slowly, as planets do in the app
+  if (live) { let spin = 0, last = 0; const tick = t => { if (t - last > 140) { last = t; spin += .03; put(S.hero(G, {spin}), "hero"); } requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
+  document.title = "Orbit generator";
+});
+</script></body></html>

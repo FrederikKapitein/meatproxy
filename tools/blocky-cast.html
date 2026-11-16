@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Blocky cast</title>
+<style>body{margin:0;background:#2a2350}svg{display:block;width:100%;height:auto}</style></head>
+<body><svg id="s"></svg>
+<script src="../Sources/FactoryScenes/Art/src/art/blocky-cast.js"></script>
+<script>
+/* The blocky cast. ?hero=Name shows one person large in four views and a few poses. Demo names only. */
+const B = window.BlockyCast, q = new URLSearchParams(location.search), hero = q.get("hero");
+const names = Object.keys(B.CAST), svg = document.getElementById("s");
+if (q.get("team")) {
+  // the team: per role a few people; named ones first
+  const TEAM = [["dev", ["Rue", "Teo", 1, 2, 3]], ["designer", ["Uma", 1, 2]], ["tester", [1, 2, 3]], ["devops", ["Pax", 1]], ["pm", ["Ines"]], ["researcher", [1]], ["ceo", [1]], ["sales", [1]], ["marketing", [1]]];
+  let out = "", y = 0, x = 0;
+  const cells = TEAM.flatMap(([role, who]) => who.map(w => ({role, look: typeof w === "string" ? w : B.person(role, w)})));
+  const per = Number(q.get("per") || 9), sc = Number(q.get("scale") || 1.5), cw = 100 * sc, rh = 175 * sc;
+  svg.setAttribute("viewBox", `0 0 ${per * cw} ${Math.ceil(cells.length / per) * rh + 20}`);
+  out = `<rect width="3000" height="3000" fill="#2a2350"/>` + cells.map((c, k) => `<g transform="translate(${cw / 2 + (k % per) * cw},${rh - 25 * sc + Math.floor(k / per) * rh}) scale(${sc})">${B.figure(c.look, {pose: "idle", mood: "calm", view: k % 2 ? "SE" : "SW"})}</g><text x="${cw / 2 + (k % per) * cw}" y="${rh - 4 + Math.floor(k / per) * rh}" text-anchor="middle" fill="#ffd9a0" font-family="sans-serif" font-size="${10 * sc}">${B.ROLES[c.role].label}</text>`).join("");
+  svg.innerHTML = out; throw 0;
+}
+if (hero) {
+  const cells = [["idle", "calm", "SW"], ["idle", "calm", "SE"], ["idle", "calm", "NW"], ["idle", "calm", "NE"], ["walkA", "calm", "SW"], ["wave", "happy", "SW"], ["ask", "wait", "SE"], ["stuck", "stuck", "SW"], ["type", "focus", "SW"], ["mug", "tired", "SE"]];
+  svg.setAttribute("viewBox", `0 0 ${cells.length / 2 * 230} 600`);
+  svg.innerHTML = `<rect width="2000" height="600" fill="#2a2350"/>` + cells.map(([pose, mood, view], k) => `<g transform="translate(${115 + (k % 5) * 230},${k < 5 ? 270 : 560}) scale(1.6)">${B.figure(hero, {pose, mood, view})}</g>`).join("");
+} else {
+  const COLS = [["idle", "calm", "SW"], ["idle", "calm", "SE"], ["idle", "calm", "NW"], ["walkA", "calm", "SW"], ["walkB", "calm", "SW"], ["type", "focus", "SW"], ["wave", "happy", "SE"], ["ask", "wait", "SW"], ["stuck", "stuck", "SW"], ["mug", "tired", "SE"], ["cheer", "happy", "SW"]];
+  svg.setAttribute("viewBox", `0 0 ${COLS.length * 110 + 20} ${names.length * 170 + 40}`);
+  svg.innerHTML = `<rect width="3000" height="3000" fill="#2a2350"/>` + names.map((n, r) => COLS.map(([pose, mood, view], c) => `<g transform="translate(${65 + c * 110},${170 + r * 170})">${B.figure(n, {pose, mood, view})}</g>`).join("")).join("");
+}
+</script></body></html>

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Blocky floor</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&display=swap">
+<style>body{margin:0;background:#1a1838}svg{display:block;width:100%;height:auto}</style></head>
+<body><svg id="s"></svg>
+<script src="../Sources/FactoryScenes/Art/src/art/blocky-cast.js"></script>
+<script src="../Sources/FactoryScenes/Art/src/art/blocky-world.js"></script>
+<script>
+/* The atrium floor in blocky, with demo people. ?zoom=x,y,w crops the view. */
+const B = window.BlockyCast;
+const team = {Mo: B.person("ceo", 1), Kit: B.person("tester", 2), Lev: B.person("researcher", 1), Sam: B.person("dev", 3)};
+const sc = BlockyWorld.atrium(document.getElementById("s"), {team});
+sc.person("Teo", {pos: [17.62, 3.43], pose: "type", dir: "down", state: "work", seat: 6});
+sc.person("Sam", {pos: [15.42, 1.33], pose: "type", dir: "down", state: "work", seat: 6});
+sc.person("Uma", {pos: [10.4, 9.95], pose: "stand", dir: "down", state: "wait", emote: "?"});
+sc.person("Pax", {pos: [20.4, 7.7], pose: "stand", dir: "down", state: "stuck", emote: "!"});
+sc.person("Ines", {pos: [1.6, 12.6], pose: "mug", dir: "right", state: "done"});
+sc.person("Mo", {pos: [11, 1.2], pose: "stand", dir: "up", state: "work"});
+sc.person("Kit", {pos: [20.2, 14.6], pose: "stand", dir: "right", state: "work"});
+sc.person("Lev", {pos: [2.2, 3.9], pose: "stand", dir: "down", state: "work"});
+sc.person("Rue", {pos: [6, 2.8], pose: "wave", dir: "down", state: "work", emote: "!"});
+sc.tokens([{name: "Teo", a: -8, state: "work"}, {name: "Uma", a: -132, state: "wait"}, {name: "Pax", a: -36, state: "stuck"}, {name: "Ines", a: 166, state: "done"}, {name: "Rue", a: -112, state: "work"}]);
+const z = new URLSearchParams(location.search).get("zoom");
+if (z) { const [x, y, w] = z.split(",").map(Number); const vb = document.getElementById("s").viewBox.baseVal; document.getElementById("s").setAttribute("viewBox", `${x} ${y} ${w} ${w * vb.height / vb.width}`); }
+</script></body></html>

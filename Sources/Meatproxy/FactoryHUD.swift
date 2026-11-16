@@ -1,0 +1,734 @@
+import SwiftUI
+import AppKit
+import FactoryCore
+import FactoryCollector
+
+// A Dark Software Factory in the HUD: its overview at the Project level (briefing first, then the open questions,
+// autonomy and the workstreams) and a question as a decision card you answer with yes or no (D11, D25).
+
+/// Switches a project on or off as a Dark Software Factory (D44), at the top of its inspector, with the pin that keeps
+/// its floor on the campus without recent sessions (D46).
+struct FactorySwitch: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    var body: some View {
+        let on = model.isFactory(project), pinned = model.isPinned(project)
+        HStack(spacing: 8) {
+            if !on {
+            Button { model.setPinned(project.root, on: !pinned) } label: {
+                Image(systemName: pinned ? "pin.fill" : "pin").font(.system(size: 12, weight: .semibold)).frame(width: 30, height: 36)
+            }
+            .buttonStyle(TactileButtonStyle(kind: .neutral))
+            .help(on ? "A factory always stays on the campus" : pinned ? "On campus: this floor stays. Click to let it go when quiet." : "Keep this floor on the campus without recent sessions")
+            .accessibilityLabel(pinned ? "Kept on campus" : "Keep on campus")
+            }
+            switchCard(on)
+        }
+    }
+
+    private func switchCard(_ on: Bool) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Dark Software Factory").font(.system(size: 12.5, weight: .bold))
+                if !on { Text("Off: a project like any other").font(.system(size: 11)).foregroundStyle(Color.muted) }
+            }
+            Spacer(minLength: 0)
+            Toggle("Dark Software Factory", isOn: Binding(get: { on }, set: { model.setFactory(project.root, on: $0) }))
+                .labelsHidden().toggleStyle(TactileToggleStyle())
+        }
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background((on ? Color.raised : Color.surface), in: RoundedRectangle(cornerRadius: 10))
+        .help("Switch this project on as a Dark Software Factory. Nothing in the project changes; the app reads factory/ and only writes your answers.")
+    }
+}
+
+/// The CEO's heartbeat on a factory's overview (D47): its rhythm, the last run and how it ended, what wakes it next,
+/// Run now and the log.
+struct HeartbeatCard: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    let state: HeartbeatState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "waveform.path.ecg").font(.system(size: 12, weight: .bold))
+                    .symbolEffect(.pulse, options: .repeating, isActive: state.running)
+                Text("CEO heartbeat").font(.system(size: 12.5, weight: .bold)).lineLimit(1).fixedSize()
+                Spacer(minLength: 0)
+                if model.heartbeatLog(project) != nil {
+                    // follow the run in the terminal (D57); while it runs you can also take it over
+                    Button { model.watchRun(root: project.root, name: project.name) } label: {
+                        Image(systemName: state.running ? "eye" : "doc.text").font(.system(size: 11, weight: .semibold)).frame(width: 26, height: 24)
+                    }.buttonStyle(TactileButtonStyle(kind: .neutral)).help(state.running ? "Watch the run in the terminal" : "The last run's log, in the terminal")
+                }
+                if state.running, let ceo = project.sessions.first(where: { $0.heartbeatRun == true }) {
+                    Button { model.takeOver(ceo) } label: {
+                        Label("Take over", systemImage: "terminal").font(.system(size: 11.5, weight: .semibold)).lineLimit(1).fixedSize()
+                    }
+                    .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 9)))
+                    .help("Stop this run and continue it yourself in the terminal")
+                }
+                Button { model.runNow(project) } label: {
+                    Label(state.running ? "Running" : "Run now", systemImage: state.running ? "hourglass" : "play.fill")
+                        .font(.system(size: 11.5, weight: .semibold)).lineLimit(1).fixedSize()
+                }
+                .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 9)))
+                .disabled(state.running).help("Wake the CEO now, also when the heartbeat is paused")
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                line("Beat", state.config.summary + " · " + state.config.runtime.label + " · \(state.runsToday)/\(state.config.runsPerDay) today", tone: nil)
+                if let last = state.last { line("Last", lastText(last), tone: last.outcome) }
+                else { line("Last", "No run yet", tone: nil) }
+                if let p = state.pending, !state.running {
+                    HStack(spacing: 0) {
+                        Text("Next  ").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted)
+                        Text(p.reason.label + ", ").font(.system(size: 11.5))
+                        Text(p.at, style: .relative).font(.system(size: 11.5).monospacedDigit())
+                        Text(" from now").font(.system(size: 11.5))
+                    }
+                } else if let n = state.next {
+                    line("Next", "Heartbeat " + Self.when(n), tone: nil)
+                } else {
+                    line("Next", "Only Run now: the heartbeat is paused", tone: nil)
+                }
+            }
+            if let w = state.last?.warning, state.last?.outcome != .running {
+                Label(w, systemImage: "exclamationmark.triangle.fill").font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(Color.warn).fixedSize(horizontal: false, vertical: true)
+            }
+            if let b = state.blocked { blocked(b) }
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// A guard holds the heartbeat (D48): said in words, amber; a hold that waits for you has Resume.
+    private func blocked(_ b: Block) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: b.waitsForYou ? "hand.raised.fill" : "pause.circle.fill")
+                .font(.system(size: 12, weight: .bold)).foregroundStyle(b.waitsForYou ? Color.warn : Color.muted)
+            Text(b.text).font(.system(size: 11.5, weight: b.waitsForYou ? .semibold : .regular)).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            if b.waitsForYou {
+                Button { model.resume(project) } label: { Text("Resume").font(.system(size: 11.5, weight: .semibold)).lineLimit(1).fixedSize() }
+                    .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 9)))
+                    .help("Lift the hold and wake the CEO now")
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(Color.surface, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(b.waitsForYou ? Color.warn.opacity(0.7) : Color.divider))
+    }
+
+    private func lastText(_ r: HeartbeatRun) -> String {
+        switch r.outcome {
+        case .running: "\(r.reason.label), running since \(Self.clock(r.started))"
+        case .ok: "\(r.reason.label), \(r.started.ago), done"
+        case .failed: "\(r.reason.label), \(r.started.ago), failed (\(r.detail ?? "error"))"
+        case .timedOut: "\(r.reason.label), \(r.started.ago), \(r.detail ?? "timed out")"
+        case .takenOver: "\(r.reason.label), \(r.started.ago), taken over by you"
+        }
+    }
+
+    private func line(_ label: String, _ text: String, tone: HeartbeatRun.Outcome?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text(label + "  ").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted)
+            if tone == .failed || tone == .timedOut {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(Color.warn).padding(.trailing, 4)
+            }
+            Text(text).font(.system(size: 11.5)).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    static func clock(_ d: Date) -> String { let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d) }
+    /// "today 13:00", "tomorrow 07:10", "Mon 07:10"
+    static func when(_ d: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(d) { return "today " + clock(d) }
+        if cal.isDateInTomorrow(d) { return "tomorrow " + clock(d) }
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US"); f.dateFormat = "EEE HH:mm"
+        return f.string(from: d)
+    }
+}
+
+/// The factory at the top of its project's inspector.
+struct FactoryOverview: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    let factory: Factory
+    private var tab: Tab { model.factoryTabs[project.id] ?? .overview }
+
+    /// What you act on stays on top (a pause, the open questions); the rest is behind four tabs, so the panel never
+    /// becomes one long stack (D44).
+    enum Tab: String, Hashable { case overview, work, ceo }
+
+    var body: some View {
+        if factory.paused {
+            Label("Paused: STOP is on line 1 of autonomy.yml. It starts and ships nothing.", systemImage: "pause.circle.fill")
+                .font(.system(size: 12.5, weight: .bold)).foregroundStyle(Color.stuck).fixedSize(horizontal: false, vertical: true)
+                .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.stuck.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.stuck.opacity(0.45)))
+        }
+        let open = factory.openDecisions
+        if !open.isEmpty {
+            Heading(text: "NEEDS YOU · \(open.count)")
+            ForEach(open) { d in
+                Button { model.controller.select(decision: d.id, in: project.id) } label: {
+                    HStack(alignment: .top, spacing: 8) {
+                        Text("?").font(.system(size: 11, weight: .bold).monospacedDigit()).foregroundStyle(Color.onSignal)
+                            .padding(.horizontal, 6).padding(.vertical, 2).background(Color.signal, in: RoundedRectangle(cornerRadius: 4))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(d.title).font(.system(size: 13, weight: .bold)).multilineTextAlignment(.leading).lineLimit(3)
+                            Text("\(d.kind) · asked \(d.asked?.ago ?? "")").font(.system(size: 11.5)).foregroundStyle(Color.muted)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(9).background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.signal)).contentShape(Rectangle())
+                }.buttonStyle(CardPressStyle())
+            }
+        }
+        LiftedSegments(items: tabs, selected: tab, fontSize: 12, padding: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)) { model.factoryTabs[project.id] = $0 }
+            .padding(.top, 4)
+        switch tab {
+        case .overview: briefing; ideas
+        case .work: work
+        case .ceo: ceo
+        }
+        if !factory.problems.isEmpty {
+            Text("Could not read \(factory.problems.joined(separator: ", "))").font(.system(size: 11.5)).foregroundStyle(Color.stuck)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var tabs: [LiftedSegments<Tab>.Item] {
+        let hb = model.heartbeat(project)
+        let newIdeas = factory.ideas.filter { $0.status == .new }.count
+        let ceoFlag = hb?.running == true ? " ·" : (hb?.blocked?.waitsForYou == true || hb?.last?.warning != nil || hb?.last?.outcome == .failed) ? " !" : ""
+        return [
+            .init(id: .overview, title: newIdeas > 0 ? "Overview · \(newIdeas)" : "Overview", help: "The CEO's briefing and your ideas"),
+            .init(id: .work, title: "Work · \(factory.activeWorkstreams.count + project.sessions.count)", help: "Workstreams and sessions"),
+            .init(id: .ceo, title: "CEO" + ceoFlag, help: hb?.running == true ? "The CEO is running" : "Heartbeat, autonomy and contract"),
+        ]
+    }
+
+    @ViewBuilder private var briefing: some View {
+        if factory.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("No CEO yet").font(.system(size: 13.5, weight: .bold))
+                Text("The factory's CEO keeps its queue in factory/: briefings, workstreams, decisions and autonomy.yml. They show up here as soon as it writes them; the app never creates them.")
+                    .font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+        } else if let b = factory.briefing { BriefingCard(briefing: b) }
+        else { Text("No briefing yet: the CEO writes one every run.").font(.system(size: 12.5)).foregroundStyle(Color.muted) }
+    }
+
+    @ViewBuilder private var work: some View {
+        let streams = factory.activeWorkstreams
+        if !streams.isEmpty {
+            Heading(text: "WORKSTREAMS · \(streams.count)")
+            ForEach(streams) { w in
+                Button { model.controller.select(workstream: w.id, in: project.id) } label: { WorkstreamRow(workstream: w).contentShape(Rectangle()) }.buttonStyle(CardPressStyle())
+            }
+        }
+        let dropped = factory.workstreams.count - streams.count
+        if dropped > 0 { Text("\(dropped) dropped").font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted) }
+        Heading(text: "SESSIONS · \(project.sessions.count)")
+        if project.sessions.isEmpty { Text("No session in the last 8 hours.").font(.system(size: 12)).foregroundStyle(Color.muted) }
+        else { StateBar(sessions: project.sessions, now: model.world.now) }
+        ForEach(project.sessions) { session in
+            Button { model.controller.select(session: session.id) } label: { SessionCard(session: session, expanded: false) }.buttonStyle(CardPressStyle())
+        }
+    }
+
+    @ViewBuilder private var ideas: some View {
+        if factory.takesIdeas { IdeaBox(project: project, ideas: factory.ideas) }
+        else {
+            Text("Ideas need factory contract version \(FactoryContract.ideas): its CEO declares it in factory/contract.yml (docs/contracts/factory.md).")
+                .font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    @ViewBuilder private var ceo: some View {
+        if let hb = model.heartbeat(project) { HeartbeatCard(project: project, state: hb) }
+        if let a = factory.autonomy { AutonomyLine(autonomy: a) }
+        if factory.takesMandate {
+            Button { model.settingsPage = "project:\(project.root)"; model.settingsOpen = true } label: {
+                HStack(spacing: 8) {
+                    Text("MANDATE").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+                    Text(model.mandate(project.root).summary).font(.system(size: 12, weight: .semibold))
+                    Spacer(minLength: 0)
+                    Text("Edit").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted)
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.muted)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 8).background(Color.raised, in: RoundedRectangle(cornerRadius: 10)).contentShape(Rectangle())
+            }.buttonStyle(CardPressStyle()).help("What the CEO may do on its own, its role and your preferences")
+        }
+        HStack(spacing: 6) {
+            Text("CONTRACT").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+            Text("v\(factory.contractVersion)\(factory.contract == nil ? " (no contract.yml)" : "")").font(.system(size: 12, design: .monospaced))
+            if factory.newerContract {
+                Text("newer than this Meatproxy (v\(FactoryContract.current))").font(.system(size: 11.5)).foregroundStyle(Color.warn)
+            }
+        }
+        Text(project.root.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.system(size: 11.5, design: .monospaced))
+            .foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle)
+    }
+}
+
+private struct Heading: View {
+    let text: String
+    var body: some View {
+        Text(text).font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted).padding(.top, 4)
+    }
+}
+
+/// The CEO's latest briefing: a few lines, and what was delivered.
+private struct BriefingCard: View {
+    let briefing: Briefing
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("CEO BRIEFING").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+                Spacer()
+                Text(Self.day(briefing.name)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted)
+            }
+            ForEach(Array(briefing.briefing.enumerated()), id: \.offset) { _, line in
+                Text(Self.plain(line)).font(.system(size: 12.5)).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
+            }
+            if !briefing.delivered.isEmpty && !(briefing.delivered.count == 1 && briefing.delivered[0].lowercased().hasPrefix("nothing")) {
+                ForEach(Array(briefing.delivered.enumerated()), id: \.offset) { _, line in
+                    Label { Text(Self.plain(line)).fixedSize(horizontal: false, vertical: true) } icon: { Image(systemName: "shippingbox.fill").foregroundStyle(Color.done) }
+                        .font(.system(size: 12)).foregroundStyle(Color.inkText)
+                }
+            }
+        }
+        .padding(10).background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.divider))
+    }
+
+    /// "2026-11-16" → "Mon 16 Nov", "2026-11-16-2" → "Mon 16 Nov · 2nd run"
+    static func day(_ name: String) -> String {
+        let p = DateFormatter(); p.dateFormat = "yyyy-MM-dd"; p.locale = Locale(identifier: "en_US_POSIX")
+        let f = DateFormatter(); f.dateFormat = "EEE d MMM"; f.locale = Locale(identifier: "en_GB")
+        let base = p.date(from: String(name.prefix(10))).map(f.string) ?? name
+        return name.count > 11 ? "\(base) · run \(name.dropFirst(11))" : base
+    }
+
+    /// Markdown emphasis and links read as plain words.
+    static func plain(_ s: String) -> String {
+        s.replacingOccurrences(of: #"\[([^\]]+)\]\([^)]+\)"#, with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: #"[*_`]+"#, with: "", options: .regularExpression)
+    }
+}
+
+/// How dark the floor is: the level, each gate ask or notify with its streak, and STOP.
+private struct AutonomyLine: View {
+    let autonomy: Autonomy
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("AUTONOMY").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+                Text(autonomy.level.rawValue.uppercased()).font(.system(size: 11, weight: .bold)).tracking(0.6)
+                    .foregroundStyle(Color.inkText)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Color.raised, in: RoundedRectangle(cornerRadius: 6))
+                if autonomy.paused { Text("PAUSED").font(.system(size: 11, weight: .bold)).tracking(0.6).foregroundStyle(Color.stuck) }
+            }
+            HStack(spacing: 6) {
+                ForEach(autonomy.gates, id: \.name) { g in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(g.name).font(.system(size: 11.5, weight: .bold))
+                        Text(g.notify ? "notify" : "ask · \(min(g.streak, Autonomy.promoteAfter))/\(Autonomy.promoteAfter)")
+                            .font(.system(size: 10.5, design: .monospaced)).foregroundStyle(g.notify ? Color.inkText : Color.muted)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading)
+                    .background((g.notify ? Color.raised : Color.surface), in: RoundedRectangle(cornerRadius: 6))
+                    .help(g.notify ? "\(g.name): the factory does it and tells you" : "\(g.name): the factory asks you first; \(g.streak) yes in a row")
+                }
+            }
+        }
+    }
+}
+
+/// One workstream in full: its track, the questions about it, its PR, branch and release, and the log with the steps back.
+struct WorkstreamCard: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    let workstream: Workstream
+    var body: some View {
+        let w = workstream
+        WorkstreamRow(workstream: w)
+        HStack(spacing: 6) {
+            Chip(text: w.type, strong: true)
+            if let s = w.source { Chip(text: "from \(s)") }
+            if let r = w.release { Chip(text: "release \(r)") }
+            Spacer(minLength: 0)
+        }
+        if let pr = w.pr, let url = URL(string: pr) {
+            Button { NSWorkspace.shared.open(url) } label: {
+                Label(FactoryText.links(pr).first?.title ?? pr, systemImage: "arrow.up.right").font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Color.inkText).lineLimit(1)
+            }.buttonStyle(.plain).help(pr)
+        }
+        if let b = w.branch { Text(b).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Color.muted).lineLimit(1) }
+        let questions = (project.factory?.decisions ?? []).filter { $0.workstream == w.id || w.decisions.contains($0.id) }
+        if !questions.isEmpty {
+            Part(title: "QUESTIONS") {
+                ForEach(questions) { d in
+                    Button { model.controller.select(decision: d.id, in: project.id) } label: {
+                        HStack(spacing: 6) {
+                            Text(d.status == .open ? "?" : d.status.rawValue).font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                                .foregroundStyle(d.status == .open ? Color.onSignal : d.status == .yes ? Color.done : Color.muted)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(d.status == .open ? Color.signal : Color.raised, in: RoundedRectangle(cornerRadius: 4))
+                            Text(d.title).font(.system(size: 12)).foregroundStyle(Color.inkText).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(CardPressStyle())
+                }
+            }
+        }
+        if !w.log.isEmpty {
+            Part(title: "LOG") {
+                ForEach(Array(w.log.reversed().prefix(8).enumerated()), id: \.offset) { _, e in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(String(e.date.suffix(5))).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Color.muted)
+                        Text(e.isBack ? "↩ \(e.from?.rawValue ?? "") → \(e.phase?.rawValue ?? "")" : e.phase?.rawValue ?? "")
+                            .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(e.isBack ? Color.inkText : Color.muted)
+                        Text(e.text).font(.system(size: 11.5)).foregroundStyle(Color.inkText).lineLimit(2)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A workstream: its id and title, and the PLAN … DONE track with where it is, how far it got, and a ↩ when it went back.
+private struct WorkstreamRow: View {
+    let workstream: Workstream
+    var body: some View {
+        let w = workstream
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text(w.id).font(.system(size: 11, weight: .bold).monospacedDigit()).foregroundStyle(Color.muted)
+                Text(w.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                Spacer(minLength: 0)
+                if w.wentBack { Text("↩").font(.system(size: 12, weight: .bold)).foregroundStyle(Color.inkText).help(w.backSteps.last?.text ?? "") }
+            }
+            HStack(spacing: 3) {
+                ForEach(Array(WorkPhase.allCases.dropLast().enumerated()), id: \.offset) { k, phase in
+                    let here = w.phase == phase, past = k < (w.phase.step ?? 0), reachedOnly = !here && !past && k <= w.reached
+                    Text(phase.label).font(.system(size: 9.5, weight: here ? .bold : .semibold)).tracking(0.5)
+                        .foregroundStyle(here ? Color.ink : past ? Color.inkText : reachedOnly ? Color.muted : Color.muted.opacity(0.45))
+                        .frame(maxWidth: .infinity).padding(.vertical, 3)
+                        .background(here ? (w.phase == .done ? Color.done : Color.signal) : (past ? Color.divider : Color.raised), in: RoundedRectangle(cornerRadius: 4))
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(reachedOnly ? Color.border : .clear, style: StrokeStyle(lineWidth: 1, dash: [2, 2])))
+                }
+            }
+            if let back = w.backSteps.last, w.wentBack {
+                Text("↩ \(back.from?.rawValue ?? "") → \(back.phase?.rawValue ?? ""): \(back.text)").font(.system(size: 11)).foregroundStyle(Color.muted).lineLimit(2)
+            }
+        }
+        .padding(9).background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+// MARK: the decision card
+
+/// One question: what it asks, why, the evidence, what happens on yes and on no, and your answer with an optional note.
+/// Yes or No asks once more ("Send yes"), then writes the file; a question that is no longer open shows its answer.
+struct DecisionCard: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    let decision: FactoryDecision
+    @State private var note = ""
+    @State private var pending: Bool?
+    @State private var sending = false
+    @State private var failure: String?
+    @FocusState private var noteFocused: Bool
+    @State private var sendPulse = 0
+
+    var body: some View {
+        let d = decision
+        HStack(spacing: 6) {
+            Chip(text: d.kind, strong: true)
+            if let g = d.gate, g != d.kind { Chip(text: "gate \(g)") }
+            if let w = d.workstream { Chip(text: w) }
+            Spacer(minLength: 0)
+            if let a = d.asked { Text("asked \(a.ago)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted) }
+        }
+        if let w = d.workstream, let ws = project.factory?.workstreams.first(where: { $0.id == w }) {
+            Text("\(ws.title) · \(ws.phase.label)").font(.system(size: 12)).foregroundStyle(Color.muted).lineLimit(1)
+        }
+        if !d.why.isEmpty { Part(title: "WHY") { Prose(text: d.why) } }
+        if !d.evidence.isEmpty { Part(title: "EVIDENCE") { Evidence(text: d.evidence, root: project.factory?.root ?? project.root) } }
+        if !d.onYes.isEmpty || !d.onNo.isEmpty {
+            HStack(alignment: .top, spacing: 8) {
+                if !d.onYes.isEmpty { Part(title: "ON YES") { Prose(text: d.onYes, size: 12) }.frame(maxWidth: .infinity, alignment: .leading) }
+                if !d.onNo.isEmpty { Part(title: "ON NO") { Prose(text: d.onNo, size: 12) }.frame(maxWidth: .infinity, alignment: .leading) }
+            }
+        }
+        if d.status == .open { answerForm } else { answered(d) }
+    }
+
+    @ViewBuilder private var answerForm: some View {
+        Text(project.id == World.opsID ? "Note for the DevOps agent" : "Note for the CEO").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.inkText)
+        TextField("", text: $note, prompt: Text("Optional. The CEO reads it before proposing anything similar.").foregroundStyle(Color.muted), axis: .vertical)
+            .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(2...5).focused($noteFocused)
+            .padding(.horizontal, 10).padding(.vertical, 9)
+            .lifted(focused: noteFocused)
+            .padding(.bottom, 2)
+            .onChange(of: noteFocused) { _, on in model.typing = on }
+            .onDisappear { model.typing = false }
+        if let pending {
+            // the confirm step: the send is the one primary action, and its words stay literal in meme mode too
+            HStack(spacing: 10) {
+                Button { send(pending) } label: {
+                    HStack(spacing: 7) {
+                        if pending { BrandMark(face: .onSignal, ledge: false).frame(width: 16, height: 16) }
+                        Text(sending ? "Sending…" : pending ? "Send yes" : "Send no")
+                    }
+                    .font(.system(size: 13.5, weight: .bold)).frame(maxWidth: .infinity).padding(.vertical, 10)
+                }.buttonStyle(TactileButtonStyle(kind: pending ? .primary : .neutral, pulse: sendPulse)).disabled(sending)
+                .background { Button("") { sendPulse += 1; send(pending) }.keyboardShortcut(.return, modifiers: .command).opacity(0).disabled(sending) }
+                Button { self.pending = nil } label: {
+                    Text("Cancel").font(.system(size: 13.5, weight: .semibold)).padding(.horizontal, 16).padding(.vertical, 10)
+                }.buttonStyle(TactileButtonStyle(kind: .neutral)).disabled(sending)
+            }
+            Text(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Writes \(pending ? "yes" : "no") into \(fileName)." : "Writes \(pending ? "yes" : "no") and your note into \(fileName).")
+                .font(.system(size: 11)).foregroundStyle(Color.muted).lineLimit(2)
+        } else {
+            HStack(spacing: 10) {
+                Button { pending = true; failure = nil } label: {
+                    HStack(spacing: 7) {
+                        BrandMark(face: .onSignal, ledge: false).frame(width: 16, height: 16)
+                        Text(model.memeMode ? "LGTM" : "Yes")
+                    }
+                    .font(.system(size: 14, weight: .bold)).frame(maxWidth: .infinity).padding(.vertical, 10)
+                }.buttonStyle(TactileButtonStyle(kind: .primary))
+                Button { pending = false; failure = nil } label: {
+                    Text(model.memeMode ? "Not today" : "No").font(.system(size: 14, weight: .bold)).frame(maxWidth: .infinity).padding(.vertical, 10)
+                }.buttonStyle(TactileButtonStyle(kind: .neutral))
+            }
+        }
+        if let failure { Text(failure).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.stuck).fixedSize(horizontal: false, vertical: true) }
+    }
+
+    @ViewBuilder private func answered(_ d: FactoryDecision) -> some View {
+        let color: Color = d.status == .yes ? .done : d.status == .no ? .inkText : .muted
+        HStack(alignment: .top, spacing: 12) {
+        if d.status == .yes || d.status == .no { AnswerStamp(yes: d.status == .yes) }
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(d.status.rawValue.capitalized)\(d.answered.map { " · \($0.ago)" } ?? "")").font(.system(size: 14, weight: .bold)).foregroundStyle(color)
+            if !d.answer.isEmpty { Text(d.answer).font(.system(size: 12.5)).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true) }
+            if d.status == .yes || d.status == .no {
+                Text("The CEO acts on it at its next run.").font(.system(size: 11.5)).foregroundStyle(Color.muted)
+            }
+        }
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var fileName: String { (decision.file as NSString).lastPathComponent }
+
+    private func send(_ yes: Bool) {
+        sending = true
+        Task {
+            let error = await model.answer(decision, in: project, yes: yes, note: note)
+            sending = false
+            if let error { failure = error; pending = nil } else { pending = nil; note = ""; noteFocused = false }
+        }
+    }
+}
+
+private struct Chip: View {
+    let text: String; var strong = false
+    var body: some View {
+        Text(text).font(.system(size: 11, weight: strong ? .semibold : .medium)).lineLimit(1).fixedSize()
+            .foregroundStyle(strong ? Color.inkText : Color.muted).padding(.horizontal, 7).padding(.vertical, 2)
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke((strong ? Color.border : Color.divider)))
+    }
+}
+
+private struct Part<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+            content
+        }
+    }
+}
+
+private struct Prose: View {
+    let text: String; var size: CGFloat = 13
+    var body: some View {
+        Text(BriefingCard.plain(text)).font(.system(size: size)).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The evidence: its links open in the browser, a path into the factory folder opens in Finder, other lines are text.
+private struct Evidence: View {
+    let text: String; let root: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                let links = FactoryText.links(line)
+                if !links.isEmpty {
+                    ForEach(links, id: \.url) { l in
+                        Button { if let u = URL(string: l.url) { NSWorkspace.shared.open(u) } } label: {
+                            Label(l.title, systemImage: "arrow.up.right").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color.inkText).lineLimit(1)
+                        }.buttonStyle(.plain).help(l.url)
+                    }
+                } else if let path = Self.path(in: line) {
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: root + "/" + path)]) } label: {
+                        Label(BriefingCard.plain(line), systemImage: "folder").font(.system(size: 12)).foregroundStyle(Color.inkText).lineLimit(2)
+                    }.buttonStyle(.plain).help(root + "/" + path)
+                } else {
+                    Text(BriefingCard.plain(line)).font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+    private var lines: [String] {
+        text.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: #"^[-*+]\s+"#, with: "", options: .regularExpression) }
+            .filter { !$0.isEmpty }
+    }
+    /// "Screenshots: factory/workstreams/W-002-x/" → "factory/workstreams/W-002-x/"
+    static func path(in line: String) -> String? {
+        guard let r = line.range(of: #"factory/[^\s`)]+"#, options: .regularExpression) else { return nil }
+        let p = String(line[r])
+        return p.contains("..") ? nil : p
+    }
+}
+
+/// Send the CEO an idea (a feature, a wish, a worry): it lands in factory/ideas/ and wakes the CEO a few minutes later.
+/// Below it, your recent ideas and what the CEO did with them.
+struct IdeaBox: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    let ideas: [FactoryIdea]
+    @State private var text = ""
+    @State private var sending = false
+    @State private var error: String?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("IDEAS FOR THE CEO").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+            TextField("", text: $text, prompt: Text("A feature, a wish, a worry. The CEO turns it into a question for you.").foregroundStyle(Color.muted), axis: .vertical)
+                .lineLimit(2...6).font(.system(size: 12.5)).textFieldStyle(.plain).focused($focused)
+                .padding(8).background(Color.surface, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(focused ? Color.signal : Color.border))
+            HStack {
+                if let error { Text(error).font(.system(size: 11.5)).foregroundStyle(Color.warn).lineLimit(2) }
+                Spacer(minLength: 0)
+                Button { send() } label: {
+                    HStack(spacing: 6) {
+                        Label(sending ? "Sending" : "Send idea", systemImage: "paperplane.fill").font(.system(size: 12, weight: .semibold)).lineLimit(1).fixedSize()
+                        KeyCap("⌘↩")
+                    }
+                }
+                .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)))
+                .disabled(sending || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .keyboardShortcut(.return, modifiers: .command).help("Send to the CEO (⌘↩)")
+            }
+            ForEach(ideas.suffix(4).reversed()) { idea in
+                HStack(alignment: .top, spacing: 8) {
+                    Text(idea.id).font(.system(size: 10.5, weight: .semibold, design: .monospaced)).foregroundStyle(Color.muted)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(idea.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(2)
+                        Text(statusLine(idea)).font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(2)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func statusLine(_ i: FactoryIdea) -> String {
+        let when = i.sent.map { " · sent \($0.ago)" } ?? ""
+        switch i.status {
+        case .new: return "Waiting for the CEO" + when
+        case .taken: return "Taken" + ((i.workstream ?? i.decision).map { " as \($0)" } ?? "") + when
+        case .declined: return "Declined" + (i.reply.isEmpty ? "" : ": " + i.reply.replacingOccurrences(of: "\n", with: " ")) + when
+        }
+    }
+
+    private func send() {
+        let t = text
+        sending = true; error = nil
+        Task {
+            let e = await model.sendIdea(project, text: t)
+            sending = false
+            if let e { error = e } else { text = "" }
+        }
+    }
+}
+
+/// The Engine room's DevOps agent (D49): its rhythm and last run, Run now and the log, its open alerts and questions,
+/// and what its last journal said.
+struct OpsCard: View {
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        let ops = model.world.ops, alerts = EngineRoom.openAlerts()
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "wrench.and.screwdriver.fill").font(.system(size: 12, weight: .bold))
+                Text("DevOps agent").font(.system(size: 12.5, weight: .bold)).lineLimit(1).fixedSize()
+                Spacer(minLength: 0)
+                if model.devopsState?.last != nil {
+                    Button { model.watchRun(root: EngineRoom.folder.path, name: "DevOps") } label: {
+                        Image(systemName: model.devopsState?.running == true ? "eye" : "doc.text").font(.system(size: 11, weight: .semibold)).frame(width: 26, height: 24)
+                    }.buttonStyle(TactileButtonStyle(kind: .neutral)).help("The DevOps agent's run log, in the terminal")
+                }
+                Button { model.runDevOpsNow() } label: {
+                    Label(model.devopsState?.running == true ? "Running" : "Run now", systemImage: model.devopsState?.running == true ? "hourglass" : "play.fill")
+                        .font(.system(size: 11.5, weight: .semibold)).lineLimit(1).fixedSize()
+                }
+                .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 9)))
+                .disabled(model.devopsState?.running == true)
+            }
+            if let st = model.devopsState {
+                Text("\(st.config.summary) · \(st.config.runtime.label)\(st.last.map { " · last run \($0.started.ago), \($0.outcome.rawValue)" } ?? "")")
+                    .font(.system(size: 11.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                if let b = st.blocked { Text(b.text).font(.system(size: 11.5)).foregroundStyle(b.waitsForYou ? Color.warn : Color.muted) }
+            }
+            if !alerts.isEmpty {
+                ForEach(alerts.prefix(3), id: \.id) { a in
+                    Label("\(a.id) \(a.title)", systemImage: "exclamationmark.triangle.fill").font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(Color.warn).lineLimit(1)
+                }
+            }
+            if let open = ops?.factory?.openDecisions, !open.isEmpty {
+                ForEach(open) { d in
+                    Button { model.controller.select(decision: d.id, in: World.opsID) } label: {
+                        HStack(alignment: .top, spacing: 6) {
+                            Text("?").font(.system(size: 10.5, weight: .bold)).foregroundStyle(Color.onSignal).padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Color.signal, in: RoundedRectangle(cornerRadius: 4))
+                            Text(d.title).font(.system(size: 12, weight: .semibold)).multilineTextAlignment(.leading).lineLimit(2)
+                            Spacer(minLength: 0)
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
+            }
+            if let b = ops?.factory?.briefing, !b.briefing.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(b.briefing.prefix(3), id: \.self) { Text("· " + $0).font(.system(size: 11.5)).lineLimit(2) }
+                }
+            }
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
