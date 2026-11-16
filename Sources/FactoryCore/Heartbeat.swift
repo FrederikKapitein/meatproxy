@@ -22,6 +22,9 @@ public struct Heartbeat: Codable, Equatable, Sendable {
     public var wakeOnAnswer = true
     /// a new failed CI run on the default branch wakes the CEO
     public var wakeOnCI = true
+    /// a new or returning Sentry error, and a Tracker story that changed, wake the CEO (contract v4, D61)
+    public var wakeOnSentry = true
+    public var wakeOnTracker = true
     /// the heartbeat is off: nothing wakes the CEO but "Run now"
     public var paused = false
     /// guards against a factory burning your plan (D48): at most this many automatic runs a day, at least this long
@@ -39,7 +42,7 @@ public struct Heartbeat: Codable, Equatable, Sendable {
     }
 
     // tolerant decoding: a field added later has its default
-    enum CodingKeys: String, CodingKey { case days, times, everyMinutes, runtime, wakeOnAnswer, wakeOnCI, paused, runsPerDay, cooldownMinutes, maxTurns, maxCostPerDay }
+    enum CodingKeys: String, CodingKey { case days, times, everyMinutes, runtime, wakeOnAnswer, wakeOnCI, paused, runsPerDay, cooldownMinutes, maxTurns, maxCostPerDay, wakeOnSentry, wakeOnTracker }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self), x = Heartbeat()
         days = try c.decodeIfPresent(Days.self, forKey: .days) ?? x.days
@@ -53,6 +56,8 @@ public struct Heartbeat: Codable, Equatable, Sendable {
         cooldownMinutes = try c.decodeIfPresent(Int.self, forKey: .cooldownMinutes) ?? x.cooldownMinutes
         maxTurns = try c.decodeIfPresent(Int.self, forKey: .maxTurns) ?? x.maxTurns
         maxCostPerDay = try c.decodeIfPresent(Double.self, forKey: .maxCostPerDay)
+        wakeOnSentry = try c.decodeIfPresent(Bool.self, forKey: .wakeOnSentry) ?? x.wakeOnSentry
+        wakeOnTracker = try c.decodeIfPresent(Bool.self, forKey: .wakeOnTracker) ?? x.wakeOnTracker
     }
 
     /// How long after your last answer the CEO wakes, so that a few answers in a row make one run.
@@ -120,6 +125,10 @@ public enum WakeReason: Codable, Equatable, Sendable {
     case ciFailed(repo: String, run: String)
     case idea([String])
     case alert([String])
+    /// new or returning Sentry errors ("APP-12: TypeError in checkout"), D61
+    case sentry([String])
+    /// Tracker stories that changed ("NTF-3 rejected"), D61
+    case tracker([String])
 
     public var label: String {
         switch self {
@@ -130,6 +139,8 @@ public enum WakeReason: Codable, Equatable, Sendable {
         case .ciFailed(let repo, _): "CI failed in \(repo)"
         case .idea(let ids): "You sent " + ids.joined(separator: ", ")
         case .alert(let ids): "Alert " + ids.joined(separator: ", ")
+        case .sentry(let ids): "Sentry: " + ids.joined(separator: ", ")
+        case .tracker(let ids): "Tracker: " + ids.joined(separator: ", ")
         }
     }
 
@@ -142,7 +153,9 @@ public enum WakeReason: Codable, Equatable, Sendable {
         case .runNow: "Marcel asked for a run now from Meatproxy."
         case .ciFailed(let repo, let run): "You were woken because a CI run failed on the default branch of \(repo) (run \(run)). Look at it first."
         case .alert(let ids): "You were woken by \(ids.joined(separator: ", ")) in alerts/. Look at those first."
-        case .idea(let ids): "You were woken because Marcel sent \(ids.joined(separator: ", ")) from Meatproxy (factory/ideas/). Handle new ideas first, as the playbook says: take each into a plan decision or decline it with a reason."
+        case .sentry(let ids): "You were woken by new or returning errors in Sentry: \(ids.joined(separator: "; ")). Look at them first with your own Sentry access; what you may do about them is the bugs item of factory/mandate.yml."
+        case .tracker(let ids): "You were woken because stories changed in Tracker: \(ids.joined(separator: "; ")). Read them with your own Tracker access first."
+        case .idea(let ids): "You were woken because Marcel sent \(ids.joined(separator: ", ")) from Meatproxy (factory/ideas/). Your ideas are always handled: turn each into a workstream (or decline it with a reason), as the factory contract says."
         }
     }
 }
