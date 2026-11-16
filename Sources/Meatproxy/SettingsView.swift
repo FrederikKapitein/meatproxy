@@ -616,7 +616,7 @@ private struct HeartbeatCards: View {
     private static let rhythms: [(Int, String)] = [(0, "At times"), (60, "Hourly"), (120, "Every 2 h"), (240, "Every 4 h")]
     /// the API-price caps a day (D61); spelled out, so the CI compiler need not infer them
     private static let capItems: [LiftedSegments<Int>.Item] = [
-        .init(id: 0, title: "No cap"), .init(id: 5, title: "$5"), .init(id: 20, title: "$20"), .init(id: 50, title: "$50"),
+        .init(id: 0, title: "No cap"), .init(id: 5, title: "$5"), .init(id: 10, title: "$10"), .init(id: 20, title: "$20"), .init(id: 50, title: "$50"),
     ]
 
     var body: some View {
@@ -681,6 +681,52 @@ private struct HeartbeatCards: View {
             Text("A run is one wake of the CEO: its heartbeat, your answers or ideas, a failed CI run. One run can handle several stories or bugs. Run now is yours and does not count. The API price is what this floor's sessions would have cost at list prices today, also under a subscription.")
                 .font(.system(size: 11.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 14).padding(.bottom, 12)
         }
+        ModelCard(hb: hb, update: update)
+    }
+}
+
+/// Which model and effort a run gets, by why it woke (D70). Default keeps the runtime's own choice.
+private struct ModelCard: View {
+    let hb: Heartbeat
+    let update: (@escaping (inout Heartbeat) -> Void) -> Void
+
+    private static let titles: [String: String] = [
+        "haiku": "Haiku", "sonnet": "Sonnet", "opus": "Opus",
+        "gpt-6-luna": "Luna", "gpt-6.1-sol": "Sol", "gpt-6-astra": "Astra", "gpt-5.3-codex": "5.3 Codex",
+        "low": "Low", "medium": "Med", "high": "High", "xhigh": "XHigh", "max": "Max",
+    ]
+    private func items(_ ids: [String]) -> [LiftedSegments<String>.Item] {
+        [LiftedSegments<String>.Item(id: "", title: "Default")] + ids.map { LiftedSegments<String>.Item(id: $0, title: Self.titles[$0] ?? $0) }
+    }
+
+    var body: some View {
+        SettingsCard("Models") {
+            ForEach(ModelPolicy.Kind.allCases, id: \.self) { k in row(k) }.id("models")
+            Text("Default leaves the choice to \(hb.runtime.label). A run's log says what it ran with. The routine heartbeat is the run that happens most: a smaller model there saves the most.")
+                .font(.system(size: 11.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 14).padding(.bottom, 12)
+        }
+    }
+
+    private func row(_ k: ModelPolicy.Kind) -> some View {
+        let c = hb.models[k]
+        let models = items(ModelPolicy.models[hb.runtime] ?? [])
+        let efforts = items(ModelPolicy.efforts[hb.runtime] ?? [])
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(k.label).font(.system(size: 13.5, weight: .semibold))
+            HStack(spacing: 8) {
+                LiftedSegments(items: models, selected: c.model ?? "", fontSize: 10.5, padding: EdgeInsets(top: 3, leading: 7, bottom: 3, trailing: 7)) { m in
+                    update { $0.models[k].model = m.isEmpty ? nil : m }
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+                LiftedSegments(items: efforts, selected: c.effort ?? "", fontSize: 10.5, padding: EdgeInsets(top: 3, leading: 7, bottom: 3, trailing: 7)) { e in
+                    update { $0.models[k].effort = e.isEmpty ? nil : e }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
     }
 }
 

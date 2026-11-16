@@ -201,6 +201,20 @@ extension Project {
     }
 
     public func role(of s: Session) -> CastRole { s.id == ceoID ? .ceo : s.workRole }
+
+    /// The id of a factory's resting CEO, before its first heartbeat run.
+    public static let standingCEOPrefix = "ceo-standing:"
+    /// A factory always shows its CEO on its floor: before the first heartbeat run, a resting stand-in. It is the same
+    /// person as the runs (the CEO is seeded by the project), so the first run takes over that figure.
+    public var withStandingCEO: Project {
+        guard factory != nil, !isChat, !sessions.contains(where: { $0.heartbeatRun == true }) else { return self }
+        var s = Session(id: Self.standingCEOPrefix + root, provider: provider, cwd: root, title: "CEO, waiting for the next heartbeat",
+                        lastAt: .distantPast, turnOpen: false, projectRoot: root)
+        s.heartbeatRun = true
+        var p = self
+        p.sessions.append(s)
+        return p
+    }
     /// The CEO is the same person every run (seeded by the project, not the run); everyone else by their session.
     public func cast(of s: Session) -> CastKey { CastKey(role: role(of: s), seed: s.personaSeed) }
 }

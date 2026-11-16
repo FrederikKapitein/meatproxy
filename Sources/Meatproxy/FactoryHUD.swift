@@ -122,6 +122,9 @@ struct HeartbeatCard: View {
     }
 
     private func lastText(_ r: HeartbeatRun) -> String {
+        outcomeText(r) + (r.model.map { " · \($0)" } ?? "")
+    }
+    private func outcomeText(_ r: HeartbeatRun) -> String {
         switch r.outcome {
         case .running: "\(r.reason.label), running since \(Self.clock(r.started))"
         case .ok: "\(r.reason.label), \(r.started.ago), done"

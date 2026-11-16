@@ -22,6 +22,9 @@ public final class HeartbeatRunner: @unchecked Sendable {
         public var settings: URL?
         /// the run needs the network from inside the runtime's sandbox (the DevOps agent's ops tool)
         public var network = false
+        /// the model and effort for this run (D70); nil: the runtime's default
+        public var model: String? = nil
+        public var effort: String? = nil
     }
     public typealias Resolve = @Sendable (Request) -> Launch?
 
@@ -61,11 +64,15 @@ public final class HeartbeatRunner: @unchecked Sendable {
 
     /// The command line for a run, without the program (testable where claude or codex is not installed).
     public static func arguments(_ r: Request) -> [String] {
-        r.runtime == .claude
+        let safe = { (s: String?) -> String? in s.flatMap { $0.allSatisfy { $0.isLetter || $0.isNumber || "-._".contains($0) } && !$0.isEmpty ? $0 : nil } }
+        let model = safe(r.model), effort = safe(r.effort)
+        return r.runtime == .claude
             ? ["-p", r.prompt, "--permission-mode", "acceptEdits", "--output-format", "text", "--max-turns", String(r.maxTurns)]
                 + (r.settings.map { ["--settings", $0.path] } ?? [])
+                + (model.map { ["--model", $0] } ?? []) + (effort.map { ["--effort", $0] } ?? [])
             // a factory's folder or the Server room's workspace need not be a git repo of its own
-            : ["exec", "-s", "workspace-write", "--skip-git-repo-check"] + (r.network ? ["-c", "sandbox_workspace_write.network_access=true"] : []) + [r.prompt]
+            : ["exec", "-s", "workspace-write", "--skip-git-repo-check"] + (r.network ? ["-c", "sandbox_workspace_write.network_access=true"] : [])
+                + (model.map { ["-m", $0] } ?? []) + (effort.map { ["-c", "model_reasoning_effort=\"\($0)\""] } ?? []) + [r.prompt]
     }
 
     /// The CEO's prompt: the same playbook the factory's files describe, and why it woke.
@@ -284,8 +291,12 @@ public final class HeartbeatRunner: @unchecked Sendable {
         if heartbeat.runtime == .claude, allowlist == nil {
             run.warning = "No allowlist: without .claude/settings.json in the project the CEO can only read and edit files"
         }
+        let pick = heartbeat.models.choice(for: reason)
+        let used = [pick.model, pick.effort].compactMap { $0 }.joined(separator: " · ")
+        run.model = used.isEmpty ? nil : used
         guard let launch = resolve(Request(runtime: heartbeat.runtime, prompt: Self.prompt(root: root, name: name, reason: reason),
-                                           maxTurns: heartbeat.maxTurns, settings: allowlist, network: EngineRoom.isFolder(root))) else {
+                                           maxTurns: heartbeat.maxTurns, settings: allowlist, network: EngineRoom.isFolder(root),
+                                           model: pick.model, effort: pick.effort)) else {
             run.ended = now; run.outcome = .failed; run.detail = "\(heartbeat.runtime.label) is not installed"
             state.runs = Array((state.runs + [run]).suffix(20)); writeState(root, state)
             releaseLock(root); lock.unlock()
