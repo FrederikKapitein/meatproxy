@@ -40,8 +40,6 @@ import Testing
         #expect(CampusSignals.broken(left, now: now))
         let fixed = project([session("c", open: false, acts: [(.push, true), (.push, false)])])
         #expect(!CampusSignals.broken(fixed, now: now))
-        #expect(CampusSignals.weather(ProviderBuilding(provider: .claude, projects: [busy, left]), now: now) == .rain)
-        #expect(CampusSignals.weather(ProviderBuilding(provider: .claude, projects: [busy, fixed]), now: now) == .clear)
     }
 
     @Test func withGitHubTheWeatherIsCIAndADeliveryIsAMergedPR() {
@@ -57,13 +55,19 @@ import Testing
         #expect(CampusSignals.deliveries(q, after: ago(60)).isEmpty)
     }
 
-    @Test func theServerRoomsWeather() {
-        let ok = Server(id: "web-01", name: "web-01", kind: .server, state: .ok)
-        var warn = ok; warn.state = .warn
-        var down = ok; down.state = .down
-        #expect(CampusSignals.weather(servers: ServerSummary([ok])) == .clear)
-        #expect(CampusSignals.weather(servers: ServerSummary([ok, warn])) == .cloudy)
-        #expect(CampusSignals.weather(servers: ServerSummary([warn, down])) == .rain)
+    /// The red alarm light on a broken storey says why, in words, and how it clears.
+    @Test func theAlarmSaysWhyAProjectIsBroken() {
+        var ci = project([session("j", open: false, acts: [(.test, false)])])
+        ci.github = GitHubStatus(failing: ["build", "lint"], checkedAt: now)
+        #expect(CampusSignals.alarm(ci, now: now) == "CI on main is red: build, lint")
+        #expect(CampusSignals.alarm(project([session("k", open: false, acts: [(.edit, false), (.test, true)])]), now: now)
+                == "A session ended with a failed test. Clears when a test passes, or after 12 hours.")
+        #expect(CampusSignals.alarm(project([session("l", open: false, acts: [(.push, true)])]), now: now)?.hasPrefix("A session ended with a failed push") == true)
+        #expect(CampusSignals.alarm(project([session("m", open: false, acts: [(.deploy, true)])]), now: now)?.hasPrefix("A session ended with a failed deploy") == true)
+        // nothing broken, or still being worked on: no alarm
+        #expect(CampusSignals.alarm(project([session("n", open: true, acts: [(.test, true)])]), now: now) == nil)
+        var green = project([session("o", open: false, acts: [(.push, true)])]); green.github = GitHubStatus(checkedAt: now)
+        #expect(CampusSignals.alarm(green, now: now) == nil)
     }
 
     @Test func onlyAFactoryDeliversAndOnlyWhatWentThrough() {
@@ -72,16 +76,6 @@ import Testing
         let d = CampusSignals.deliveries(project([s], factory: true), after: ago(60))
         #expect(d.count == 2 && d == d.sorted())
         #expect(CampusSignals.deliveries(project([s], factory: true), after: ago(1.5)).count == 1)
-    }
-
-    @Test func aNewProjectIsBuiltUntilItsFirstSessionIsDone() {
-        #expect(CampusSignals.underConstruction(project([session("n", open: true, acts: [(.edit, false)], started: 30)]), now: now))
-        // an older project, or one with a second session, is not new
-        #expect(!CampusSignals.underConstruction(project([session("o", open: true, acts: [(.edit, false)], started: 26 * 60)]), now: now))
-        #expect(!CampusSignals.underConstruction(project([session("p", open: true, acts: [(.edit, false)], started: 30),
-                                                         session("q", open: false, acts: [], started: 20)]), now: now))
-        // the first session done: the ribbon is cut
-        #expect(!CampusSignals.underConstruction(project([session("r", open: false, acts: [(.edit, false)], started: 30)]), now: now))
     }
 
     @Test func helpersAtWorkTakeTheLift() {

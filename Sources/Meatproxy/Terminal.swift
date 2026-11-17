@@ -118,7 +118,7 @@ struct TerminalPanel: View {
             .padding(8)
         }
         .frame(height: center.height)
-        .background(Color.ink.opacity(0.97), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.ink, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.divider))
         .shadow(color: .black.opacity(0.4), radius: 18, y: 6)
     }

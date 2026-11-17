@@ -53,8 +53,19 @@ factory/
 | `mandate.yml` (v3) | reads and follows it; never writes it | writes it whenever you change your mandate |
 
 Meatproxy's writes are atomic (a temporary file renamed over the original), never touch a
-decision that is no longer `open`, and never overwrite an idea file. Meatproxy creates no
-other files in a factory: switching a project on as a factory writes nothing.
+decision that is no longer `open`, and never overwrite an idea file. Switching a project on as
+a factory writes nothing.
+
+### Setting a factory up
+
+A factory without `contract.yml`, `CHARTER.md` and `CEO.md` is not set up: its heartbeat does
+not start the CEO, not even on Run now, because the CEO would have no playbook. Meatproxy then
+offers starter files: `contract.yml` (the current version), `CHARTER.md`, `README.md`,
+`CEO.md`, `autonomy.yml` (every gate `ask`), `mandate.yml` (Assistant) and, unticked, the
+project's `.claude/settings.json` allowlist (read, edit, the project's tests and local git;
+never a push or a merge). You see each file's text first. Meatproxy writes only the files you
+tick, only where no file is yet, and never replaces one; it also makes the empty `decisions/`,
+`workstreams/`, `ideas/` and `briefings/` folders. After that the CEO owns the files as above.
 
 ## `contract.yml`
 

@@ -31,7 +31,7 @@ extension AppModel {
         var c: [AppCommand] = [
             AppCommand(id: "go.campus", title: "Campus", detail: "The whole island", icon: "map", group: .go, keys: "⌘1") { [weak self] in self?.controller.showOrbit(false); self?.controller.focusBuilding(nil) },
             AppCommand(id: "go.next", title: "Next that needs you", detail: "Answers, questions, stuck sessions", icon: "exclamationmark.bubble", group: .go, keys: "N") { [weak self] in self?.controller.nextWaiting() },
-            AppCommand(id: "go.up", title: "Up a level", detail: "Floor → building → campus", icon: "arrow.up", group: .go, keys: "Esc") { [weak self] in self?.controller.up() },
+            AppCommand(id: "go.up", title: "Up a level", detail: "Floor → building → campus", icon: "arrow.up", group: .go, keys: "esc") { [weak self] in self?.controller.up() },
             AppCommand(id: "go.engine", title: "Server room", detail: "Servers, services, the DevOps agent", icon: "server.rack", group: .go) { [weak self] in self?.controller.focusBuilding("engine") },
             AppCommand(id: "go.zoomin", title: "Zoom in", icon: "plus.magnifyingglass", group: .go, keys: "+") { [weak self] in self?.controller.zoom(0.8) },
             AppCommand(id: "go.zoomout", title: "Zoom out", icon: "minus.magnifyingglass", group: .go, keys: "−") { [weak self] in self?.controller.zoom(1.25) },
@@ -40,7 +40,6 @@ extension AppModel {
             AppCommand(id: "show.status", title: statusLayer ? "Hide the Status layer" : "Show the Status layer", detail: "Status pages and CI on the campus", icon: "square.3.layers.3d", group: .show, keys: "⌘L") { [weak self] in guard let self else { return }; self.setStatusLayer(!self.statusLayer) },
             AppCommand(id: "show.terminal", title: "Terminal", icon: "terminal", group: .show, keys: "⌘J") { [weak self] in self?.terminals.toggle() },
             AppCommand(id: "show.settings", title: "Settings", icon: "gearshape", group: .show, keys: "⌘,") { [weak self] in self?.settingsOpen = true },
-            AppCommand(id: "do.idea", title: "An idea for Meatproxy", detail: "To Meatproxy's own factory", icon: "lightbulb", group: .act, keys: "⌘I") { [weak self] in self?.ideaOpen = true },
             AppCommand(id: "do.pause", title: projectSettings.pauseAll ? "Resume all factories" : "Pause all factories", detail: "The kill switch: nothing starts, running CEOs stop", icon: projectSettings.pauseAll ? "play.fill" : "pause.fill", group: .act) { [weak self] in guard let self else { return }; self.setPauseAll(!self.projectSettings.pauseAll) },
         ]
         if projectSettings.devops.enabled {
@@ -97,7 +96,6 @@ extension AppModel {
             items.append(AppCommand(id: "c.floor", title: "Open the floor", icon: "door.left.hand.open", group: .go) { [weak self] in self?.controller.enterFloor(id) })
             if p.factory != nil {
                 items.append(AppCommand(id: "c.run", title: "Run now", detail: "Wake its CEO", icon: "play.circle", group: .act) { [weak self] in self?.runNow(p) })
-                if projectSettings.ownFactory == p.root { items.append(AppCommand(id: "c.idea", title: "An idea for Meatproxy", icon: "lightbulb", group: .act, keys: "⌘I") { [weak self] in self?.ideaOpen = true }) }
             }
             if !p.isChat {
                 if p.factory == nil {
@@ -135,6 +133,18 @@ extension AppModel {
 
     static func copy(_ s: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string) }
 
+    /// What the campus shows, for the `?` field guide (D74, D78): its kind (what you have seen is kept), a title and
+    /// what it means. Hover any of them on the campus for what it means right now.
+    static let legend: [(kind: String, title: String, text: String)] = [
+        ("alarm", "Red alarm light on a floor", "That project is broken: CI on main is red, or a session ended with a failed test, push or deploy (clears after 12 hours)"),
+        ("drone", "Drone to the fountain", "A pull request was merged (without GitHub: a factory pushed or deployed)"),
+        ("lift", "Glass lift", "A chat started a helper (a sub-agent)"),
+        ("packets", "Packets on the road", "A deploy is running"),
+        ("smoke", "Smoke", "A factory works in that tower; more while its CEO runs"),
+        ("dark", "A dark floor", "A factory's mandate: lights on is Assistant, dimmed Hybrid, lights out Dark"),
+        ("night", "Night", "The sky follows your Mac's clock. Nothing is wrong"),
+    ]
+
     /// What the mouse and trackpad do, for the `?` sheet.
     static let gestures: [(String, String)] = [
         ("Click", "Open what is under the pointer: a building, a floor, someone, a server"),
@@ -163,7 +173,7 @@ struct CommandPalette: View {
                 TextField("", text: $query, prompt: Text("Search projects, sessions, questions, servers, commands").foregroundStyle(Color.muted))
                     .textFieldStyle(.plain).font(.system(size: 15)).focused($focused)
                     .onSubmit { run(results) }
-                KeyCap("Esc")
+                CloseKey { model.paletteOpen = false }
             }
             .padding(.horizontal, 14).padding(.vertical, 12)
             Rectangle().fill(Color.divider).frame(height: 1)
@@ -213,7 +223,7 @@ struct CommandSheet: View {
             HStack {
                 Text("Commands and keys").font(.system(size: 18, weight: .bold))
                 Spacer()
-                KeyCap("Esc")
+                CloseKey { model.commandsOpen = false }
             }
             HStack(alignment: .top, spacing: 22) {
                 ForEach(groups, id: \.self) { g in
@@ -226,14 +236,9 @@ struct CommandSheet: View {
                     .frame(width: 250, alignment: .topLeading)
                 }
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("MOUSE AND TRACKPAD").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-                ForEach(AppModel.gestures, id: \.0) { g in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(g.0).font(.system(size: 12.5, weight: .semibold)).frame(width: 190, alignment: .leading)
-                        Text(g.1).font(.system(size: 12.5)).foregroundStyle(Color.muted)
-                    }
-                }
+            HStack(alignment: .top, spacing: 22) {
+                LegendColumn(title: "MOUSE AND TRACKPAD", rows: AppModel.gestures)
+                FieldGuideColumn()
             }
         }
         .padding(20)
@@ -279,7 +284,7 @@ private struct CommandRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(command.title).font(.system(size: compact ? 12.5 : 13, weight: .semibold)).lineLimit(1)
                 if !command.detail.isEmpty && !compact {
-                    Text(command.detail).font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(1)
+                    Text(command.detail).font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(showGroup ? 1 : 2).fixedSize(horizontal: false, vertical: !showGroup)
                 }
             }
             Spacer(minLength: 6)
@@ -291,5 +296,55 @@ private struct CommandRow: View {
         .overlay(alignment: .leading) { if picked { Rectangle().fill(Color.signal).frame(width: 2).padding(.vertical, 6) } }
         .contentShape(Rectangle())
         .onHover { hover = $0 }
+    }
+}
+
+private struct LegendColumn: View {
+    let title: String
+    let rows: [(String, String)]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+            ForEach(rows, id: \.0) { r in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(r.0).font(.system(size: 12.5, weight: .semibold)).frame(width: 160, alignment: .leading)
+                    Text(r.1).font(.system(size: 12.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
+/// The field guide (D78): everything that moves on the campus and what it means. What you have not seen yet is greyed,
+/// like a collection to fill; hover one on the campus for what it means right now.
+private struct FieldGuideColumn: View {
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        let seen = AppModel.legend.filter { model.seenEffects.contains($0.kind) }.count
+        VStack(alignment: .leading, spacing: 6) {
+            Text("FIELD GUIDE · \(seen) OF \(AppModel.legend.count) SEEN · HOVER ONE ON THE CAMPUS").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+            ForEach(AppModel.legend, id: \.kind) { r in
+                let on = model.seenEffects.contains(r.kind)
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: on ? "checkmark.seal.fill" : "seal").font(.system(size: 11)).foregroundStyle(on ? Color.signal : Color.muted)
+                    Text(r.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(on ? Color.inkText : Color.muted).frame(width: 150, alignment: .leading)
+                    Text(on ? r.text : r.text + " · not seen yet").font(.system(size: 12.5)).foregroundStyle(Color.muted.opacity(on ? 1 : 0.75))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
+/// The one close control (D74): "esc ×", as on the inspector and in Settings.
+struct CloseKey: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) { KeyCap("esc"); Image(systemName: "xmark").font(.system(size: 11, weight: .bold)) }.padding(.horizontal, 6).frame(height: 26)
+        }
+        .buttonStyle(TactileButtonStyle(kind: .neutral)).help("Close (Esc)")
     }
 }

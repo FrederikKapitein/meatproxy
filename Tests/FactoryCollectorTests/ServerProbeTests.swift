@@ -253,3 +253,26 @@ extension EngineRoomTests {
         #expect(FactoryText.decision(example, file: "decisions/D-0001-x.md")?.status == .open)
     }
 }
+
+/// Adding servers in one go: the Host aliases in ~/.ssh/config, without wildcards or negations.
+@Suite struct SSHHostsTests {
+    @Test func aliasesFromAnSSHConfig() {
+        let text = """
+        # my servers
+        Host web-01 web-02
+          HostName 203.0.113.10
+          User deploy
+        Host *.example.com
+          User me
+        Host  api-01   # the api
+        Host !bastion db-0?
+        Match host foo
+        host lowercase-alias
+        Include ~/.ssh/other
+        Host *
+          ServerAliveInterval 30
+        """
+        #expect(SSHHosts.aliases(text) == ["web-01", "web-02", "api-01", "lowercase-alias"])
+        #expect(SSHHosts.aliases("") == [])
+    }
+}

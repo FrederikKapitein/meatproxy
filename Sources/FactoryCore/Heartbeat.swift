@@ -152,13 +152,13 @@ public enum WakeReason: Codable, Equatable, Sendable {
         switch self {
         case .schedule: "You were woken by your regular heartbeat."
         case .caughtUp: "You were woken because a heartbeat was missed while Meatproxy was closed; this run catches up."
-        case .answered(let ids): "You were woken because Marcel answered \(ids.joined(separator: ", ")) in Meatproxy. Act on the answers first (playbook step 2)."
-        case .runNow: "Marcel asked for a run now from Meatproxy."
+        case .answered(let ids): "You were woken because the user answered \(ids.joined(separator: ", ")) in Meatproxy. Act on the answers first (playbook step 2)."
+        case .runNow: "The user asked for a run now from Meatproxy."
         case .ciFailed(let repo, let run): "You were woken because a CI run failed on the default branch of \(repo) (run \(run)). Look at it first."
         case .alert(let ids): "You were woken by \(ids.joined(separator: ", ")) in alerts/. Look at those first."
         case .sentry(let ids): "You were woken by new or returning errors in Sentry: \(ids.joined(separator: "; ")). Look at them first with your own Sentry access; what you may do about them is the bugs item of factory/mandate.yml."
         case .tracker(let ids): "You were woken because stories changed in Tracker: \(ids.joined(separator: "; ")). Read them with your own Tracker access first."
-        case .idea(let ids): "You were woken because Marcel sent \(ids.joined(separator: ", ")) from Meatproxy (factory/ideas/). Your ideas are always handled: turn each into a workstream (or decline it with a reason), as the factory contract says."
+        case .idea(let ids): "You were woken because the user sent \(ids.joined(separator: ", ")) from Meatproxy (factory/ideas/). Your ideas are always handled: turn each into a workstream (or decline it with a reason), as the factory contract says."
         }
     }
 }
@@ -222,6 +222,8 @@ public enum Block: Equatable, Sendable {
     case takenOver
     /// the runtime's provider is down on its status page (D69): no run burns on an outage
     case providerDown(String)
+    /// the factory has no starter files yet (D76): its CEO would have no playbook to follow
+    case notSetUp
 
     public var waitsForYou: Bool { if case .held = self { return true }; return false }
     public var text: String {
@@ -235,6 +237,7 @@ public enum Block: Equatable, Sendable {
         case .coolingDown(let until): return "Cooling down until \(f.string(from: until))"
         case .takenOver: return "In your hands: you took over in the terminal"
         case .providerDown(let name): return "\(name) is down on its status page: the run waits until it is back"
+        case .notSetUp: return "Not set up yet: create its starter files first"
         }
     }
 }

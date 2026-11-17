@@ -11,7 +11,7 @@ enum Snapshot {
     static func run(_ args: [String]) -> Int32 {
         guard let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count else { return 2 }
         let out = URL(fileURLWithPath: args[i + 1])
-        let world = args.contains("--fixture") ? Fixture.world() : Collector().world(settings: ProjectSettingsStore().load())
+        let world = (args.contains("--fixture") || args.contains("--first-run")) ? Fixture.world() : Collector().world(settings: ProjectSettingsStore().load())
         _ = NSApplication.shared
         let size = CGSize(width: 1440, height: 900)
         let view = SKView(frame: NSRect(origin: .zero, size: size))

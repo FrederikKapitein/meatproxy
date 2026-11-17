@@ -2,7 +2,7 @@ import SwiftUI
 
 struct MeatproxyApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @StateObject private var model = AppModel(fixture: CommandLine.arguments.contains("--fixture"))
+    @StateObject private var model = AppModel(fixture: AppModel.demo, firstRun: AppModel.firstRunDemo)
 
     init() { Brand.registerFonts() }     // the wordmark's Inter, before the first view draws
 

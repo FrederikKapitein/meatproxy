@@ -345,3 +345,23 @@ public final class ServerMonitor: @unchecked Sendable {
         }
     }
 }
+
+/// The Host aliases in an ssh config, for adding servers in one go: in file order, once each, without patterns
+/// (`*`, `?`) or negations, and without `Match` blocks. `Include` is not followed.
+public enum SSHHosts {
+    public static func aliases(_ text: String) -> [String] {
+        var out: [String] = []
+        for raw in text.components(separatedBy: .newlines) {
+            let line = (raw.components(separatedBy: "#").first ?? "").trimmingCharacters(in: .whitespaces)
+            let words = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            guard words.count > 1, words[0].lowercased() == "host" else { continue }
+            for w in words.dropFirst() where !w.contains("*") && !w.contains("?") && !w.hasPrefix("!") && !out.contains(w) { out.append(w) }
+        }
+        return out
+    }
+    /// ~/.ssh/config's aliases, or none when there is no such file.
+    public static func fromUserConfig() -> [String] {
+        let u = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh/config")
+        return aliases((try? String(contentsOf: u, encoding: .utf8)) ?? "")
+    }
+}

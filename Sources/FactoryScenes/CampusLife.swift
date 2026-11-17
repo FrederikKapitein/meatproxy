@@ -24,22 +24,27 @@ struct CampusLife {
     var streamAcc = 0.0
     /// a deploy's packets run on the ground, under everything that stands
     let ground = SKNode()
-    /// what has been seen, so only what is new plays: deliveries, helpers, projects being built, the weather
+    /// the alarm lights on broken storeys (D75): their rotating beams and lenses, turned every frame
+    var alarms: [AlarmLight] = []
+    var alarmAngle = 0.0
+    /// what has been seen, so only what is new plays: deliveries and helpers
     var primed = false
     var delivered: [String: Date] = [:]
     var helpers: Set<String> = []
-    var building: Set<String> = []
-    var weather: [String: CampusSignals.Weather] = [:]
     /// the Status layer (D69): on or off, what it drew, and its lamps for the blink
     var layerOn = false
     var layerSig = ""
+    /// what each effect means, for the hover (D74): the node, a title and one line
+    var hotspots: [(node: SKNode, title: String, line: String)] = []
     var layerNodes: [SKNode] = []
     var layerLamps: [(node: SKNode, glow: SKNode, state: ServiceStatus.State)] = []
 
     struct Lift { var z: CGFloat = 0, target: CGFloat = 0, hold = 0.0, queue: [Int] = [] }
+    /// A rotating alarm light: where its lens sits (art units), its two beams, the lens faces that flare, a glow.
+    struct AlarmLight { var lens: CGPoint; var beams: [SKShapeNode]; var faces: [SKShapeNode]; var glow: SKSpriteNode; var phase: Double }
 
     /// The campus was drawn anew: what hung on it is gone, the moments in the air and the rides stay.
-    mutating func reset() { nodes = []; sig = ""; shafts = [:]; cars = [:]; ground.removeAllChildren(); layerNodes = []; layerLamps = [] }
+    mutating func reset() { nodes = []; sig = ""; shafts = [:]; cars = [:]; alarms = []; ground.removeAllChildren(); layerNodes = []; layerLamps = []; hotspots = [] }
 }
 
 extension CampusScene {
@@ -66,30 +71,32 @@ extension CampusScene {
         guard art != nil else { return }
         let now = world.now, hour = life.hourOverride ?? CampusSignals.hour(now)
         life.sleeping = Set(world.projects.filter { p in p.factory?.mandate.map { CampusSignals.quiet($0.quietHours, hour: hour) } ?? false }.map(\.id))
-        // what lasts: the weather, new projects, deploys
-        var weather: [String: CampusSignals.Weather] = ["engine": CampusSignals.weather(servers: world.serverSummary)]
-        for b in world.buildings { weather[b.provider.rawValue] = CampusSignals.weather(b, now: now) }
-        var building = Set(world.projects.filter { CampusSignals.underConstruction($0, now: now) }.map(\.id))
+        // what lasts: a red alarm light on each broken storey, deploys
+        var alarms: [String: String] = [:]
+        for p in world.projects { if let why = CampusSignals.alarm(p, now: now) { alarms[p.id] = why } }
         var deploying = Set(world.buildings.filter { $0.projects.contains { CampusSignals.deploying($0, now: now) } }.map(\.provider.rawValue))
         if life.demo {
-            weather["chatgpt"] = .rain
-            if let s = storeys.first(where: { $0.storey.building == "claude" && $0.storey.kind == "project" && $0.storey.index > 0 }) { building.insert(s.project) }
+            if let s = storeys.first(where: { $0.storey.building == "chatgpt" && $0.storey.kind == "project" }) {
+                alarms[s.project] = "A session ended with a failed test. Clears when a test passes, or after 12 hours."
+            }
             deploying.insert("claude")
         }
-        let sig = weather.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.rawValue)" }.joined(separator: ",")
-            + "|" + building.sorted().joined(separator: ",") + "|" + deploying.sorted().joined(separator: ",")
+        if let f = world.projects.first(where: { ($0.factory?.mandate?.level ?? .assistant) != .assistant }), let m = f.factory?.mandate {
+            onEffect?("dark", "\(f.name)'s floor is dimmed", "Its mandate is \(m.level.rawValue.capitalized): lights on is Assistant, dimmed Hybrid, lights out Dark.")
+        }
+        let sig = alarms.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+            + "|" + deploying.sorted().joined(separator: ",")
         if sig != life.sig || life.nodes.isEmpty {
             life.sig = sig
-            drawLife(weather: weather, building: building, deploying: deploying)
+            drawLife(alarms: alarms, deploying: deploying)
         }
-        // moments: a delivery, a ribbon, a lift ride, the sun after rain
+        // moments: a delivery, a lift ride
         if life.primed {
-            for (key, w) in weather where w == .clear && (life.weather[key] ?? .clear) != .clear { sunAfterRain(key) }
-            for id in life.building.subtracting(building) where world.project(id: id) != nil { cutRibbon(id) }
             for p in world.projects {
                 guard let s = storeys.first(where: { $0.project == p.id }) else { continue }
                 if let last = CampusSignals.deliveries(p, after: life.delivered[p.id] ?? now).last {
-                    life.delivered[p.id] = last; deliver(from: s.storey)
+                    life.delivered[p.id] = last
+                    deliver(from: s.storey, words: p.github != nil ? "\(p.name) merged a pull request" : "\(p.name)'s factory pushed or deployed")
                 }
                 let fresh = CampusSignals.helpers(p).subtracting(life.helpers)
                 if !fresh.isEmpty { ride(s.storey.building, to: s.storey.index) }
@@ -100,8 +107,6 @@ extension CampusScene {
         let layerSig = world.services.map { "\($0.id)=\($0.shown(now: now).rawValue)" }.joined() + world.projects.map { "\($0.id)=\($0.github?.ciFailing.description ?? "-")" }.joined()
         if layerSig != life.layerSig || life.layerNodes.isEmpty { life.layerSig = layerSig; drawStatusLayer(world) }
         life.helpers = Set(world.projects.flatMap { CampusSignals.helpers($0) })
-        life.building = building
-        life.weather = weather
         life.primed = true
     }
 
@@ -116,130 +121,138 @@ extension CampusScene {
 
     // MARK: what lasts
 
-    private func drawLife(weather: [String: CampusSignals.Weather], building: Set<String>, deploying: Set<String>) {
+    private func drawLife(alarms: [String: String], deploying: Set<String>) {
         for n in life.nodes { n.removeFromParent() }
         life.nodes = []; life.ground.removeAllChildren()
-        // 5B: a cloud over a building, rain from it while something is broken
-        for (key, w) in weather where w != .clear {
-            guard let host = key == "engine" ? overlays["engine"] : layer(key, storey: nil), let at = cloudPoint(key) else { continue }
-            let c = cloud(rain: w == .rain); c.position = scenePoint(at); c.zPosition = 0.9
-            host.addChild(c); life.nodes.append(c)
-        }
-        // 5D: scaffolding round a new project's storey and a crane on its tower's roof
-        var cranes: Set<String> = []
-        for (st, id) in storeys where building.contains(id) {
-            guard let host = layer(st.building, storey: st.index) else { continue }
-            let sc = scaffold(st); host.addChild(sc); life.nodes.append(sc)
-            cranes.insert(st.building)
-        }
-        for key in cranes {
-            guard let host = layer(key, storey: nil), let c = crane(key) else { continue }
-            host.addChild(c); life.nodes.append(c)
+        // keep what the Status layer and the moments in the air explain; the rest is drawn anew below
+        let keep = Set(life.layerNodes.map(ObjectIdentifier.init))
+        life.hotspots.removeAll { h in h.node.parent == nil || (!keep.contains(ObjectIdentifier(h.node)) && h.node.name != "moment") }
+        let w = shownWorld
+        // 5B: a rotating red alarm light on the front corner of a broken storey, on a bracket out of the wall
+        life.alarms = []
+        for (k, (st, id)) in storeys.enumerated() {
+            guard let why = alarms[id], let host = layer(st.building, storey: st.index), let mount = Self.frontCorner(st) else { continue }
+            let (fixture, beams, light) = alarmLight(at: mount, phase: Double(k) * 1.3)
+            host.addChild(beams); host.addChild(fixture); life.nodes.append(contentsOf: [beams, fixture])
+            life.alarms.append(light)
+            explain(fixture, ("Alarm · \(w.project(id: id)?.name ?? "a project")", why))
+            onEffect?("alarm", "Red alarm light on \(w.project(id: id)?.name ?? "a floor")", why)
         }
         // 5E: a glass lift on each tower, its car parked below
         for (key, st) in stacks {
             guard let ov = overlays[key], let shaft = liftShaft(key) else { continue }
             shaft.alpha = 1 - min(1, st.e * 3)
             ov.addChild(shaft); life.nodes.append(shaft); life.shafts[key] = shaft
+            explain(shaft, ("Glass lift", "Takes someone up when a session starts a sub-agent"))
             life.cars[key] = shaft.childNode(withName: "car")
         }
         // 5F: a deploy's packets on the road from its tower to the Server room
         life.streams = deploying.compactMap { Self.streamRoutes[$0] }.map { $0.map { project($0.x, $0.y) } }
         life.streaming = !life.streams.isEmpty
+        if life.streaming { onEffect?("packets", "Packets on the road to the Server room", "A deploy is running.") }
     }
 
-    /// Where a building's cloud hangs, in art units: over a tower's antenna, over the Server room's sign.
-    private func cloudPoint(_ key: String) -> CGPoint? {
-        if key == "engine" { return Self.artP(22.5, 5.5, 62) }
-        guard let t = art?.towers.first(where: { $0.building == key }) else { return nil }
-        return CGPoint(x: t.antenna.x + 6, y: t.antenna.y - 16)
+    /// Remembers what an effect means, for the hover (D74).
+    func explain(_ node: SKNode, _ words: (String, String)) { life.hotspots.append((node, words.0, words.1)) }
+    private func isMoment(_ n: SKNode) -> Bool { n.name == "moment" }
+
+    /// The explanation under a scene point, if an effect is there.
+    func hotspot(at p: CGPoint) -> (String, String)? {
+        life.hotspots.removeAll { $0.node.parent == nil }
+        for h in life.hotspots.reversed() {
+            guard let parent = h.node.parent, h.node.alpha > 0.05, !h.node.isHidden else { continue }
+            let q = convert(p, to: parent)
+            if h.node.calculateAccumulatedFrame().insetBy(dx: -3 * px, dy: -3 * px).contains(q) { return (h.title, h.line) }
+        }
+        return nil
     }
 
-    /// A blocky cloud: three slabs, grey and low with rain under it, light without.
-    private func cloud(rain: Bool) -> SKNode {
-        let n = SKNode()
-        let col = rain ? SKColor(red: 0.6, green: 0.62, blue: 0.72, alpha: 1) : SKColor(red: 0.86, green: 0.87, blue: 0.93, alpha: 1)
-        let top = rain ? SKColor(red: 0.72, green: 0.74, blue: 0.83, alpha: 1) : SKColor(white: 0.97, alpha: 1)
-        for (x, y, w, h) in [(-18.0, 0.0, 36.0, 9.0), (-11.0, 7.0, 16.0, 8.0), (1.0, 6.0, 12.0, 7.0)] {
-            let r = SKShapeNode(rect: CGRect(x: x * px, y: y * px, width: w * px, height: h * px), cornerRadius: 2 * px)
-            r.fillColor = col; r.strokeColor = Self.ink; r.lineWidth = 0.9 * px
-            let hi = SKShapeNode(rect: CGRect(x: (x + 1.5) * px, y: (y + h - 2.6) * px, width: (w - 3) * px, height: 1.4 * px))
-            hi.fillColor = top; hi.strokeColor = .clear
-            r.addChild(hi); n.addChild(r)
-        }
-        if rain {
-            let e = SKEmitterNode()
-            e.particleTexture = Self.dropTexture
-            e.particleBirthRate = 26; e.particleLifetime = 0.55
-            e.emissionAngle = -.pi / 2 - 0.12; e.emissionAngleRange = 0.04
-            e.particleSpeed = 70 * px; e.particleSpeedRange = 8 * px
-            e.particleSize = CGSize(width: 1 * px, height: 5 * px)
-            e.particleColor = SKColor(red: 0.62, green: 0.78, blue: 1, alpha: 1); e.particleColorBlendFactor = 1; e.particleAlpha = 0.75
-            e.particlePositionRange = CGVector(dx: 30 * px, dy: 0)
-            e.position = CGPoint(x: 0, y: -1 * px); e.zPosition = -0.1
-            e.advanceSimulationTime(1)
-            n.addChild(e)
-        }
+    /// Where a storey's two front faces meet, a little above its middle (art units): the alarm light's bracket.
+    static func frontCorner(_ st: CampusArt.Storey) -> CGPoint? {
+        guard st.faces.count == 2 else { return nil }
+        let shared = st.faces[0].filter { p in st.faces[1].contains { hypot(p.x - $0.x, p.y - $0.y) < 0.6 } }
+        guard shared.count >= 2, let top = shared.min(by: { $0.y < $1.y }), let bottom = shared.max(by: { $0.y < $1.y }) else { return nil }
+        return CGPoint(x: top.x, y: bottom.y + (top.y - bottom.y) * 0.58)
+    }
+
+    /// A point `di`, `dj` tiles and `dz` model units from `o`, in art units (the campus's own projection).
+    private static func iso(_ o: CGPoint, _ di: CGFloat, _ dj: CGFloat, _ dz: CGFloat) -> CGPoint {
+        CGPoint(x: o.x + (di - dj) * 16, y: o.y + (di + dj) * 8 - dz * 1.08)
+    }
+
+    /// An iso box round `o` (half a side `h` tiles, from `z0` to `z1` model units): its two visible sides and its top.
+    private func isoBox(_ o: CGPoint, h: CGFloat, z0: CGFloat, z1: CGFloat, top: SKColor, left: SKColor, right: SKColor) -> [SKShapeNode] {
+        let P = Self.iso
+        let l = shape([P(o, -h, h, z0), P(o, h, h, z0), P(o, h, h, z1), P(o, -h, h, z1)], fill: left, stroke: Self.ink, width: 0.5 * px)
+        let r = shape([P(o, h, h, z0), P(o, h, -h, z0), P(o, h, -h, z1), P(o, h, h, z1)], fill: right, stroke: Self.ink, width: 0.5 * px)
+        let t = shape([P(o, -h, -h, z1), P(o, h, -h, z1), P(o, h, h, z1), P(o, -h, h, z1)], fill: top, stroke: Self.ink, width: 0.5 * px)
+        return [l, r, t]
+    }
+
+    static let alarmRed = SKColor(red: 0.95, green: 0.18, blue: 0.15, alpha: 1)
+
+    /// A rotating alarm light on a bracket out of the storey's corner: a steel bracket, a dark base, a red lens and a
+    /// cap, with two beams that sweep round it over the ground plane (turned in `tickLife`); the lens flares when a
+    /// beam points at you. With reduced motion it is a steady red light.
+    private func alarmLight(at corner: CGPoint, phase: Double) -> (SKNode, SKNode, CampusLife.AlarmLight) {
+        let P = Self.iso
+        let steel = SKColor(red: 0.32, green: 0.34, blue: 0.4, alpha: 1), dark = SKColor(red: 0.13, green: 0.13, blue: 0.16, alpha: 1)
+        let out = P(corner, 0.2, 0.2, 0)                     // the light stands a little out from the wall, towards you
+        let fixture = SKNode(); fixture.zPosition = 1.35
+        // the bracket: a flat arm from the wall to under the base
+        for n in isoBox(P(corner, 0.1, 0.1, 0), h: 0.1, z0: -1.2, z1: 0, top: steel, left: steel.withBrightness(0.8), right: steel.withBrightness(0.62)) { fixture.addChild(n) }
+        for n in isoBox(out, h: 0.1, z0: 0, z1: 1.6, top: dark, left: dark, right: dark.withBrightness(0.8)) { fixture.addChild(n) }
+        let red = Self.alarmRed
+        let lens = isoBox(out, h: 0.075, z0: 1.6, z1: 6.2, top: red.withBrightness(1.05), left: red.withBrightness(0.82), right: red.withBrightness(0.62))
+        for n in lens { fixture.addChild(n) }
+        for n in isoBox(out, h: 0.095, z0: 6.2, z1: 7.2, top: dark.withBrightness(1.4), left: dark, right: dark.withBrightness(0.8)) { fixture.addChild(n) }
+        // a highlight on the lens's left face
+        fixture.addChild(shape([P(out, -0.05, 0.075, 3.4), P(out, -0.02, 0.075, 3.4), P(out, -0.02, 0.075, 5.6), P(out, -0.05, 0.075, 5.6)],
+                               fill: SKColor(white: 1, alpha: 0.55)))
+        let center = P(out, 0, 0, 3.9)
+        let g = glow(center, size: CGSize(width: 34, height: 34), color: red); g.zPosition = 0.05; fixture.addChild(g)
+        // the beams: drawn under the fixture, added to on screen, pointed every frame
+        let beamsNode = SKNode(); beamsNode.zPosition = 1.3
+        var beams: [SKShapeNode] = []
         if animationsEnabled {
-            n.run(.repeatForever(.sequence([.moveBy(x: 5 * px, y: 0, duration: 4), .moveBy(x: -5 * px, y: 0, duration: 4)])))
-        }
-        return n
-    }
-
-    private func line(_ pts: [CGPoint], _ color: SKColor, _ width: CGFloat) -> SKShapeNode {
-        let p = CGMutablePath(); p.addLines(between: pts.map(scenePoint))
-        let n = SKShapeNode(path: p); n.strokeColor = color; n.lineWidth = width * px; n.lineCap = .square
-        return n
-    }
-
-    /// Scaffolding on a storey's two faces: poles and planks, the wood of the plot's scaffold.
-    private func scaffold(_ s: CampusArt.Storey) -> SKNode {
-        let n = SKNode(), wood = SKColor(red: 0.79, green: 0.64, blue: 0.42, alpha: 1)
-        func lerp(_ a: CGPoint, _ b: CGPoint, _ t: CGFloat) -> CGPoint { CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t) }
-        for f in s.faces where f.count == 4 {
-            // f: bottom-left, bottom-right, top-right, top-left
-            for t in stride(from: 0.0, through: 1.0, by: 1.0 / 3) { n.addChild(line([lerp(f[0], f[1], t), lerp(f[3], f[2], t)], wood, 1.3)) }
-            for h in [0.3, 0.68] {
-                let a = lerp(f[0], f[3], h), b = lerp(f[1], f[2], h)
-                n.addChild(line([a, b], Self.ink, 2.6)); n.addChild(line([a, b], wood, 1.6))
+            for _ in 0..<2 {
+                let b = SKShapeNode(); b.fillColor = red.withAlphaComponent(0.32); b.strokeColor = .clear; b.blendMode = .add
+                beamsNode.addChild(b); beams.append(b)
             }
         }
-        n.zPosition = 0.3
-        return n
+        let light = CampusLife.AlarmLight(lens: center, beams: beams, faces: Array(lens.prefix(2)), glow: g, phase: phase)
+        pointAlarm(light, angle: phase)
+        return (fixture, beamsNode, light)
     }
 
-    /// A tower crane on the roof: a lattice mast and a jib that swings slowly (a turn, seen from the side), its hook
-    /// hanging over the storey being built.
-    private func crane(_ key: String) -> SKNode? {
-        guard let top = art?.storeys.filter({ $0.building == key }).max(by: { $0.index < $1.index }), top.faces.count == 2 else { return nil }
-        let a3 = top.faces[0][3], b2 = top.faces[1][2]
-        let foot = CGPoint(x: (a3.x + b2.x) / 2 + 12, y: (a3.y + b2.y) / 2 - 4)
-        let n = SKNode(); n.position = scenePoint(foot); n.zPosition = 0.8
-        let white = SKColor(red: 0.91, green: 0.93, blue: 0.95, alpha: 1), red = SKColor(red: 0.88, green: 0.28, blue: 0.23, alpha: 1)
-        let mastH: CGFloat = 52
-        let mast = SKShapeNode(rect: CGRect(x: -2 * px, y: 0, width: 4 * px, height: mastH * px))
-        mast.fillColor = white; mast.strokeColor = Self.ink; mast.lineWidth = 0.8 * px
-        for k in stride(from: 4.0, to: Double(mastH), by: 8) {
-            let p = CGMutablePath(); p.move(to: CGPoint(x: -2 * px, y: k * px)); p.addLine(to: CGPoint(x: 2 * px, y: (k + 4) * px))
-            let x = SKShapeNode(path: p); x.strokeColor = Self.ink.withAlphaComponent(0.6); x.lineWidth = 0.5 * px; mast.addChild(x)
+    /// Turns an alarm light's beams to `angle` (radians, in the ground plane) and flares its lens towards you.
+    private func pointAlarm(_ a: CampusLife.AlarmLight, angle: Double) {
+        let P = Self.iso, reach: CGFloat = 1.9, spread = 0.22
+        for (k, b) in a.beams.enumerated() {
+            let t = angle + Double(k) * .pi
+            let p1 = P(a.lens, reach * CGFloat(cos(t - spread)), reach * CGFloat(sin(t - spread)), 0)
+            let p2 = P(a.lens, reach * CGFloat(cos(t + spread)), reach * CGFloat(sin(t + spread)), 0)
+            let path = CGMutablePath(); path.addLines(between: [a.lens, p1, p2].map(scenePoint)); path.closeSubpath()
+            b.path = path
+            // a beam into the wall is hidden by it: it fades out as it turns away from the street
+            let out = cos(t - .pi / 4), fade = min(1, max(0, (out - 0.15) / 0.45))
+            b.alpha = CGFloat(fade)
         }
-        n.addChild(mast)
-        let jib = SKNode(); jib.position = CGPoint(x: 0, y: mastH * px)
-        let arm = SKShapeNode(rect: CGRect(x: -40 * px, y: 0, width: 56 * px, height: 3.4 * px))
-        arm.fillColor = white; arm.strokeColor = Self.ink; arm.lineWidth = 0.8 * px
-        let tip = SKShapeNode(rect: CGRect(x: -40 * px, y: 0, width: 6 * px, height: 3.4 * px)); tip.fillColor = red; tip.strokeColor = .clear
-        let weight = SKShapeNode(rect: CGRect(x: 9 * px, y: -4 * px, width: 7 * px, height: 4 * px)); weight.fillColor = SKColor(white: 0.45, alpha: 1); weight.strokeColor = Self.ink; weight.lineWidth = 0.6 * px
-        let cab = SKShapeNode(rect: CGRect(x: -3 * px, y: -5 * px, width: 6 * px, height: 5 * px)); cab.fillColor = red; cab.strokeColor = Self.ink; cab.lineWidth = 0.6 * px
-        let hookLine = SKShapeNode(rect: CGRect(x: -33.3 * px, y: -24 * px, width: 0.6 * px, height: 24 * px)); hookLine.fillColor = Self.ink; hookLine.strokeColor = .clear
-        let block = SKShapeNode(rect: CGRect(x: -35.5 * px, y: -28 * px, width: 5 * px, height: 4 * px)); block.fillColor = SKColor(red: 0.79, green: 0.64, blue: 0.42, alpha: 1); block.strokeColor = Self.ink; block.lineWidth = 0.6 * px
-        for c in [hookLine, block, arm, tip, weight, cab] { jib.addChild(c) }
-        n.addChild(jib)
-        if animationsEnabled {
-            // a slow swing: the jib turns towards you and away (its length on screen changes), and the load sways
-            let swing = SKAction.customAction(withDuration: 14) { node, t in node.xScale = cos(t / 14 * 2 * .pi) * 0.85 + 0.15 }
-            jib.run(.repeatForever(swing))
+        // towards you is +i +j (down the screen): a beam there lights the lens and the glow
+        var toYou: Double = 1
+        if !a.beams.isEmpty {
+            let first: Double = cos(angle - .pi / 4)
+            let second: Double = cos(angle + .pi - .pi / 4)
+            toYou = max(0, max(first, second))
         }
-        return n
+        let f = CGFloat(0.55 + 0.45 * toYou)
+        let lit: CGFloat = 0.7 + 0.5 * f
+        for (k, n) in a.faces.enumerated() {
+            let base: CGFloat = k == 0 ? 0.82 : 0.62
+            n.fillColor = Self.alarmRed.withBrightness(base * lit)
+        }
+        a.glow.alpha = 0.35 + 0.65 * f
+        a.glow.setScale(0.8 + 0.5 * f)
     }
 
     /// A glass lift up the left end of a tower's front, from the plinth to the roof, with its car (named "car").
@@ -276,7 +289,7 @@ extension CampusScene {
     // MARK: moments
 
     /// 5C: a drone takes a factory's delivery from its storey to the plaza; the fountain splashes once.
-    func deliver(from s: CampusArt.Storey) {
+    func deliver(from s: CampusArt.Storey, words: String = "A pull request was merged") {
         guard let art, animationsEnabled, s.faces.count == 2 else { return }
         let f = s.faces[0]
         let off = stacks[s.building]?.offset(s.index) ?? 0
@@ -297,6 +310,9 @@ extension CampusScene {
         let tape = SKShapeNode(rect: CGRect(x: -0.6 * px, y: -6 * px, width: 1.2 * px, height: 5 * px)); tape.fillColor = SKColor(red: 0.6, green: 0.9, blue: 1, alpha: 1); tape.strokeColor = .clear
         parcel.addChild(tape); drone.addChild(parcel)
         effects.addChild(drone)
+        drone.name = "moment"
+        explain(drone, ("Delivery", words))
+        onEffect?("drone", "A drone flies to the fountain", words)
         let path = CGMutablePath(); path.move(to: start)
         path.addQuadCurve(to: end, control: CGPoint(x: (start.x + end.x) / 2, y: max(start.y, end.y) + 90 * px))
         let fly = SKAction.follow(path, asOffset: false, orientToPath: false, duration: 3.2); fly.timingMode = .easeInEaseOut
@@ -326,40 +342,9 @@ extension CampusScene {
         g.run(.sequence([.fadeAlpha(to: 0.6, duration: 0.15), .fadeOut(withDuration: 0.9), .removeFromParent()]))
     }
 
-    /// 5D: a new project's first session is done: the red ribbon across its storey snaps and falls away.
-    func cutRibbon(_ id: String) {
-        guard animationsEnabled, let s = storeys.first(where: { $0.project == id })?.storey, s.faces.count == 2 else { return }
-        let f = s.faces[0], off = stacks[s.building]?.offset(s.index) ?? 0
-        func mid(_ a: CGPoint, _ b: CGPoint) -> CGPoint { CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - off) }
-        let l = mid(f[0], f[3]), r = mid(f[1], f[2]), c = CGPoint(x: (l.x + r.x) / 2, y: (l.y + r.y) / 2)
-        let red = SKColor(red: 0.88, green: 0.28, blue: 0.23, alpha: 1)
-        for (a, b, dx) in [(l, c, -1.0), (c, r, 1.0)] {
-            let half = line([a, b], red, 3); half.zPosition = 6
-            effects.addChild(half)
-            half.run(.sequence([.wait(forDuration: 0.3), .group([.moveBy(x: dx * 8 * px, y: -14 * px, duration: 0.8), .fadeOut(withDuration: 0.8)]), .removeFromParent()]))
-        }
-        let e = SKEmitterNode()
-        e.particleTexture = Self.dropTexture; e.numParticlesToEmit = 30; e.particleBirthRate = 120
-        e.particleLifetime = 1.4; e.emissionAngle = .pi / 2; e.emissionAngleRange = 1.4
-        e.particleSpeed = 40 * px; e.particleSpeedRange = 15 * px; e.yAcceleration = -50 * px
-        e.particleSize = CGSize(width: 1.5 * px, height: 2.5 * px); e.particleRotationSpeed = 6
-        e.particleColorSequence = SKKeyframeSequence(keyframeValues: [Self.wait, Self.cyan, red, Self.okGreen], times: [0, 0.33, 0.66, 1])
-        e.particleColorBlendFactor = 1
-        e.position = scenePoint(c); e.zPosition = 7
-        effects.addChild(e)
-        e.run(.sequence([.wait(forDuration: 2.5), .removeFromParent()]))
-    }
-
-    /// 5B: the weather cleared: a short sun where the cloud was.
-    private func sunAfterRain(_ key: String) {
-        guard animationsEnabled, let at = cloudPoint(key) else { return }
-        let g = glow(at, size: CGSize(width: 60, height: 60), color: SKColor(red: 1, green: 0.85, blue: 0.4, alpha: 1)); g.alpha = 0; g.zPosition = 3
-        effects.addChild(g)
-        g.run(.sequence([.group([.fadeAlpha(to: 0.8, duration: 0.6), .scale(to: 1.3, duration: 1.6)]), .fadeOut(withDuration: 1.2), .removeFromParent()]))
-    }
-
     /// 5E: the lift takes someone to a storey, waits, and comes back down; rides close together share a trip.
     func ride(_ key: String, to k: Int) {
+        onEffect?("lift", "The glass lift goes up", "A chat started a helper (a sub-agent); the lift takes it to its floor.")
         var l = life.lifts[key] ?? CampusLife.Lift()
         if !l.queue.contains(k), l.target != CGFloat(k) * 30 + 2, l.queue.count < 3 { l.queue.append(k) }
         life.lifts[key] = l
@@ -373,6 +358,7 @@ extension CampusScene {
         if life.clockAcc >= 5 {
             life.clockAcc = 0
             life.daylight = CGFloat(CampusSignals.daylight(hour: life.hourOverride ?? CampusSignals.hour(Date())))
+            if life.daylight < 0.4 { onEffect?("night", "Night on the campus", "The sky follows your Mac's clock: windows and lamps glow. Nothing is wrong.") }
         }
         if life.sky == nil {
             let s = SKSpriteNode(texture: Self.daySkyTexture); s.zPosition = -999; cam.addChild(s); life.sky = s
@@ -385,6 +371,11 @@ extension CampusScene {
         life.shade?.size = full; life.shade?.alpha = (1 - life.daylight) * 0.3
         content.childNode(withName: "lamplight")?.alpha = 0.3 + 0.65 * (1 - life.daylight)
         animateLayer(clock)
+        // 5B: the alarm lights turn (about a turn every two seconds)
+        if animationsEnabled, !life.alarms.isEmpty {
+            life.alarmAngle += dt * 3.1
+            for a in life.alarms { pointAlarm(a, angle: life.alarmAngle + a.phase) }
+        }
         // 5E: the lifts
         for (key, var l) in life.lifts {
             if l.hold > 0 { l.hold -= dt; if l.hold <= 0 { l.target = 0 } }
@@ -412,5 +403,14 @@ extension CampusScene {
             life.ground.addChild(packet)
             packet.run(.sequence([.follow(path, asOffset: false, orientToPath: false, duration: Double(length) / 70), .fadeOut(withDuration: 0.2), .removeFromParent()]))
         }
+    }
+}
+
+extension SKColor {
+    /// The same colour, its RGB scaled by `f` (shading the faces of a box).
+    func withBrightness(_ f: CGFloat) -> SKColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        (usingColorSpace(.deviceRGB) ?? self).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return SKColor(red: min(1, r * f), green: min(1, g * f), blue: min(1, b * f), alpha: a)
     }
 }

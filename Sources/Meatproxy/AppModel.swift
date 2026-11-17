@@ -14,8 +14,6 @@ final class AppModel: ObservableObject {
     @Published var lastRead: Date?
     /// The settings page, inside the window over the world.
     @Published var settingsOpen = false
-    /// the ⌘I panel: an idea for Meatproxy itself (D68)
-    @Published var ideaOpen = false
     /// D72: ⌘K search, the ? sheet of commands, and the open right-click menu
     @Published var paletteOpen = false
     /// window shots: what the search starts with
@@ -23,9 +21,9 @@ final class AppModel: ObservableObject {
     @Published var commandsOpen = false
     @Published var contextMenuState: ContextMenuState?
     /// a panel of the HUD is open over the world: plain keys (N, Esc) belong to it, not to the world
-    var overlayOpen: Bool { paletteOpen || commandsOpen || ideaOpen || contextMenuState != nil }
+    var overlayOpen: Bool { paletteOpen || commandsOpen || contextMenuState != nil }
     /// the Status layer on the campus (D69), remembered between launches
-    @Published var statusLayer = !ProcessInfo.processInfo.arguments.contains("--fixture") && UserDefaults.standard.bool(forKey: "statusLayer")
+    @Published var statusLayer = !AppModel.demo && UserDefaults.standard.bool(forKey: "statusLayer")
     /// the status pages you watch (D69)
     @Published var statusSources: [StatusSource] = StatusSourcesStore.load()
     /// Open the settings at the form to add a server (and, for window shots, test this host there at once).
@@ -40,6 +38,8 @@ final class AppModel: ObservableObject {
     /// the tab open in each factory's inspector (kept here: the inspector draws its content twice, scrolling or not)
     @Published var factoryTabs: [String: FactoryOverview.Tab] = [:]
     var debugTestHost: String?
+    /// window shots: the starter file whose text the setup card shows
+    @Published var debugViewFile: String?
     /// A text field in the HUD has focus (a note for the CEO): the one-key shortcuts (N, Esc) stay out of its way.
     @Published var typing = false
     /// the terminal (D57) and whether its panel is open: the HUD's N and esc stay with the terminal then
@@ -102,22 +102,29 @@ final class AppModel: ObservableObject {
     /// How often the servers are checked.
     static let serverInterval: TimeInterval = 60
 
-    init(fixture: Bool) {
+    /// --fixture shows made-up data; --first-run is the same without anything set up yet (no factory, servers or
+    /// tokens), the campus a newcomer sees, for walkthroughs. Neither saves anything.
+    static let demo = CommandLine.arguments.contains("--fixture") || CommandLine.arguments.contains("--first-run")
+    static let firstRunDemo = CommandLine.arguments.contains("--first-run")
+    let firstRun: Bool
+
+    init(fixture: Bool, firstRun: Bool = false) {
         self.fixture = fixture
+        self.firstRun = fixture && firstRun
         if !fixture { AppSupport.migrateLegacyFolder() }
         memeMode = !fixture && UserDefaults.standard.bool(forKey: "memeMode")
         collector = fixture ? nil : Collector()
         store = fixture ? nil : ServerSettingsStore()
         probeRunner = fixture ? Self.demoRunner : ServerProbe.run
-        let configs = fixture ? Fixture.servers.map { ServerConfig(id: $0.id, name: $0.name, host: "deploy@\($0.name).example.com", kind: $0.kind) } : (store?.load() ?? [])
+        let configs = self.firstRun ? [] : fixture ? Fixture.servers.map { ServerConfig(id: $0.id, name: $0.name, host: "deploy@\($0.name).example.com", kind: $0.kind) } : (store?.load() ?? [])
         serverConfigs = configs
         settingsStamp = store?.modified
         projectStore = fixture ? nil : ProjectSettingsStore()
-        projectSettings = fixture ? ProjectSettings(projects: [.init(root: Fixture.factoryRoot, pinned: true, factory: true)])
+        projectSettings = self.firstRun ? ProjectSettings() : fixture ? ProjectSettings(projects: [.init(root: Fixture.factoryRoot, pinned: true, factory: true)])
             : (projectStore?.load() ?? ProjectSettings())
         projectStamp = projectStore?.modified
         heartbeats = HeartbeatCenter(runner: fixture ? Self.demoHeartbeat : HeartbeatRunner())
-        if fixture { fixtureFactory = Self.writeFixtureFactory() }
+        if fixture && !self.firstRun { fixtureFactory = Self.writeFixtureFactory() }
         monitor = ServerMonitor(configs: configs, run: fixture ? Self.demoRunner : ServerProbe.run)
         controller.onChange = { [weak self] s in self?.selection = s }
         controller.onStatus = { [weak self] s in self?.status = s }
@@ -125,11 +132,20 @@ final class AppModel: ObservableObject {
         // a notification opens its server (a site's alert opens the server that serves it)
         alerts.onOpen = { [weak self] key in
             guard let self else { return }
+            // a factory's notification (a failed run, a source that stopped) opens its floor at the CEO tab
+            for prefix in ["ceo:", "source:"] where key.hasPrefix(prefix) {
+                let root = String(key.dropFirst(prefix.count)).components(separatedBy: ":").first ?? ""
+                if let p = self.world.projects.first(where: { $0.root == root }) {
+                    self.settingsOpen = false; self.factoryTabs[p.id] = .ceo; self.controller.enterFloor(p.id)
+                }
+                return
+            }
             let id = self.serverConfigs.first(where: { $0.id == key || $0.siteURLs.contains(key) })?.id
             if let id { self.settingsOpen = false; self.controller.select(server: id) }
         }
         alerts.onRunDevOps = { [weak self] in self?.runDevOpsNow() }
         controller.onHoverTitle = { [weak self] t in if self?.hoverTitle != t { self?.hoverTitle = t } }
+        controller.onEffect = { [weak self] kind, title, line in MainActor.assumeIsolated { self?.effectAppeared(kind, title, line) } }
         controller.onContext = { [weak self] t, p in
             MainActor.assumeIsolated { guard let self else { return }; self.contextMenuState = self.contextMenu(for: t, at: p) }
         }
@@ -137,6 +153,12 @@ final class AppModel: ObservableObject {
         // a factory waits while its provider is down on its status page (D69)
         heartbeats.providerDown = { [weak self] runtime in
             MainActor.assumeIsolated { self?.collector?.status.down(runtime.rawValue) }
+        }
+        // a factory without its starter files does not run (D76); the demo's are in memory
+        heartbeats.isSetUp = { [weak self] root in
+            if root == EngineRoom.folder.path { return true }
+            if fixture { return MainActor.assumeIsolated { root == Fixture.factoryRoot || self?.demoSetUp.contains(root) == true } }
+            return FactoryScaffold.isSetUp(root)
         }
         heartbeats.costToday = { [weak self] root in
             MainActor.assumeIsolated { self?.world.projects.filter { $0.root == root }.compactMap { $0.cost?.today }.reduce(0, +) ?? 0 }
@@ -147,7 +169,7 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.refresh() }
         }
         // the heartbeat: every few seconds, see who should wake; every five minutes, look at CI
-        if fixture { demoHistory() }
+        if fixture && !firstRun { demoHistory() }
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.beat() }
         }
@@ -190,6 +212,7 @@ final class AppModel: ObservableObject {
         guard let collector else {
             // the made-up servers, as the settings have them (one added in a demo shows as healthy)
             var w = Fixture.world()
+            if firstRun { firstRunWorld(&w); return }
             // the demo shows the DevOps agent at the black hole without reading any real workspace
             w.opsState = .working
             // and one made-up question of the DevOps agent's, answered like any other (nothing is written in the demo)
@@ -261,6 +284,11 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// How each factory's Sentry and Tracker did at their last check (root → health).
+    @Published var sourceHealth: [String: FactoryHealth] = [:]
+    /// Your Tracker's MCP address (https); empty switches Tracker off.
+    func setTrackerURL(_ text: String) { changeProjects { $0.trackerURL = text.trimmingCharacters(in: .whitespacesAndNewlines) } }
+
     /// Asks each factory's Sentry and Tracker project what is new (D61), off the main queue, and wakes its CEO.
     private func checkSources() {
         guard !sourcesChecking else { return }
@@ -270,12 +298,23 @@ final class AppModel: ObservableObject {
             return (e.root, f.sources, e.heartbeat, (f.mandate?.mode(.bugs) ?? .ask) != .off)
         }
         guard !factories.isEmpty, !projectSettings.pauseAll else { return }
+        let trackerURL = WakeSources.trackerURL(projectSettings.trackerURL)
         sourcesChecking = true
         let sources = wakeSources
         DispatchQueue.global(qos: .utility).async {
-            let wakes = sources.check(factories, tokens: (Secrets.get(.sentry), Secrets.get(.tracker)))
+            let wakes = sources.check(factories, tokens: (Secrets.get(.sentry), Secrets.get(.tracker)), trackerURL: trackerURL)
+            let health = sources.health
             DispatchQueue.main.async {
                 self.sourcesChecking = false
+                self.sourceHealth = health
+                // a source that just stopped working: say so once, naming the factory
+                for (root, h) in health {
+                    let name = self.world.projects.first { $0.root == root }?.name ?? (root as NSString).lastPathComponent
+                    for (label, s) in [("Sentry", h.sentry), ("Tracker", h.tracker)] where s?.isNewFailure == true {
+                        self.alerts.post(title: "\(name): \(label) stopped working", body: (s?.line ?? "") + ". The CEO is not woken by \(label) until it works again.",
+                                         key: "source:\(root):\(label)", kind: .warn)
+                    }
+                }
                 for (root, reason) in wakes { self.heartbeats.wake(root, reason) }
             }
         }
@@ -289,6 +328,20 @@ final class AppModel: ObservableObject {
             collector.costs.update()
             DispatchQueue.main.async { self.costing = false }
         }
+    }
+
+    /// Tries a saved token (the Test button): one read of what the factories name. Off the main queue.
+    func testToken(_ key: Secrets.Key) async -> (ok: Bool, line: String) {
+        if fixture { return (true, "Demo data: nothing is sent") }
+        let sources = world.projects.compactMap { $0.factory }.filter(\.takesSources).map(\.sources)
+        let ws = wakeSources, trackerURL = WakeSources.trackerURL(projectSettings.trackerURL)
+        return await Task.detached(priority: .userInitiated) {
+            guard let token = Secrets.get(key) else { return (false, "No token saved") }
+            switch key {
+            case .sentry: return ws.testSentry(token: token, projects: sources)
+            case .tracker: return ws.testTracker(token: token, slugs: sources.compactMap(\.tracker), url: trackerURL)
+            }
+        }.value
     }
 
     /// The status pages (D69), every five minutes, off the main queue.
@@ -326,7 +379,6 @@ final class AppModel: ObservableObject {
 
     private func apply(_ w: World) {
         world = w
-        ensureOwnMandate()
         lastRead = w.now
         controller.show(w)
         Task { await controller.ensurePortraits(w.projects.flatMap { p in p.sessions.map { p.cast(of: $0) } }); objectWillChange.send() }
@@ -380,6 +432,20 @@ final class AppModel: ObservableObject {
     }
 
     /// The demo's history: two made-up hours round each server's numbers (nothing real, safe to show).
+    /// The first-run demo: the made-up sessions as a newcomer's own, with nothing switched on yet.
+    private func firstRunWorld(_ w: inout World) {
+        for b in w.buildings.indices { for p in w.buildings[b].projects.indices {
+            w.buildings[b].projects[p].factory = factoryRoots.contains(w.buildings[b].projects[p].root) ? Factory(root: w.buildings[b].projects[p].root) : nil
+            let seed = Double(w.buildings[b].projects[p].name.unicodeScalars.reduce(0) { $0 + Int($1.value) } % 97)
+            w.buildings[b].projects[p].cost = ProjectCost(today: seed / 9, week: seed * 0.8, month: seed * 3.1)
+        } }
+        if !projectSettings.showChats { for b in w.buildings.indices { w.buildings[b].projects.removeAll(where: \.isChat) } }
+        WorldBuilder.pin(projectSettings.pinnedRoots, to: &w)
+        WorldBuilder.hide(projectSettings.hidden, in: &w)
+        w.servers = serverConfigs.map { Server(id: $0.id, name: $0.name, kind: $0.kind, state: .ok, detail: "load 0.31 · disk 48% · memory 36%", checkedAt: w.now) }
+        apply(w)
+    }
+
     private func demoHistory(now: Date = Date()) {
         for (k, s) in Fixture.servers.enumerated() {
             guard let m = s.metrics else { continue }
@@ -523,6 +589,16 @@ final class AppModel: ObservableObject {
     func server(_ id: String) -> Server? { world.servers.first { $0.id == id } }
 
     /// Adds a server, or replaces the one with the same id; saved at once, then checked.
+    /// The Host aliases in ~/.ssh/config (the demo has made-up ones: nothing real shows in a screenshot).
+    var sshAliases: [String] { fixture ? ["web-02", "db-02", "staging"] : SSHHosts.fromUserConfig() }
+    /// Adds each alias as a server named after it, then checks them all.
+    func importServers(_ aliases: [String]) {
+        for a in aliases where !serverConfigs.contains(where: { $0.host == a }) {
+            save(ServerConfig(id: UUID().uuidString, name: a, host: a, kind: .server))
+        }
+        if !fixture { checkServers() }
+    }
+
     func save(_ config: ServerConfig) {
         if let k = serverConfigs.firstIndex(where: { $0.id == config.id }) { serverConfigs[k] = config } else { serverConfigs.append(config) }
         persist()
@@ -566,17 +642,6 @@ final class AppModel: ObservableObject {
             if on { s.update(root) { $0.pinned = false }; s.hidden.append(root) }
         }
     }
-    /// Meatproxy's own factory (D68): ⌘I sends ideas for the app there. It never runs Dark unless you allow it.
-    func setOwnFactory(_ root: String, on: Bool) {
-        changeProjects { s in
-            if on { s.ownFactory = root; if !s.darkOff.contains(root) { s.darkOff.append(root) } }
-            else if s.ownFactory == root { s.ownFactory = nil }
-        }
-        guard on else { return }
-        // Meatproxy's own factory starts as an assistant: it asks before everything (D68)
-        if world.projects.first(where: { $0.root == root })?.factory?.mandate == nil { setMandate(root) { $0.set(level: .assistant) } }
-        else { capMandate(root) }
-    }
     /// Allows a factory's CEO to run Dark, or caps it at Hybrid (D68).
     func setDarkAllowed(_ root: String, on: Bool) {
         changeProjects { s in s.darkOff.removeAll { $0 == root }; if !on { s.darkOff.append(root) } }
@@ -585,23 +650,6 @@ final class AppModel: ObservableObject {
     /// A mandate that is Dark where Dark is off steps down to Hybrid.
     private func capMandate(_ root: String) {
         if mandate(root).level == .dark { setMandate(root) { $0.set(level: .hybrid) } }
-    }
-    /// Meatproxy's own factory starts as an assistant (D68): when it has no mandate yet, Meatproxy writes one, as the
-    /// switch in Settings does. Once.
-    private var ownMandateChecked = false
-    private func ensureOwnMandate() {
-        guard !ownMandateChecked, !fixture, let r = projectSettings.ownFactory,
-              let f = world.projects.first(where: { $0.root == r })?.factory else { return }
-        ownMandateChecked = true
-        if f.mandate == nil && f.takesMandate { setMandate(r) { $0.set(level: .assistant) } }
-    }
-
-    /// Meatproxy's own factory, when you chose one and it is on the campus.
-    var ownFactoryProject: Project? {
-        // the demo has no settings of yours: its made-up factory stands in
-        if fixture && projectSettings.ownFactory == nil { return world.projects.first { $0.factory != nil } }
-        guard let r = projectSettings.ownFactory else { return nil }
-        return world.projects.first { $0.root == r && $0.factory != nil }
     }
     func updateHeartbeat(_ root: String, _ change: @escaping (inout Heartbeat) -> Void) { changeProjects { $0.update(root) { change(&$0.heartbeat) } } }
 
@@ -704,6 +752,139 @@ final class AppModel: ObservableObject {
     }
 
     /// Wakes a factory's CEO now.
+    // MARK: setting a factory up (D76)
+
+    /// the factory you just set up: its panel offers the first beat
+    @Published var justSetUp: String?
+    /// factories set up in the demo (nothing is written there)
+    private var demoSetUp: Set<String> = []
+    func isSetUp(_ root: String) -> Bool {
+        fixture ? (root == Fixture.factoryRoot || demoSetUp.contains(root)) : FactoryScaffold.isSetUp(root)
+    }
+    func setupPlan(_ project: Project) -> [StarterFile] {
+        var plan = FactoryScaffold.plan(root: project.root, name: project.name)
+        if fixture { for k in plan.indices { plan[k].exists = false } }
+        return plan
+    }
+    /// Creates the starter files you ticked that are missing; never overwrites. The demo only pretends.
+    func setUp(_ project: Project, files: [StarterFile]) -> Bool {
+        if fixture { demoSetUp.insert(project.root); objectWillChange.send(); return true }
+        do {
+            let written = try FactoryScaffold.create(files, root: project.root)
+            status = "Set up \(project.name): wrote \(written.count) file\(written.count == 1 ? "" : "s") in its folder"
+            refresh(); return true
+        } catch {
+            status = "Could not set up \(project.name): \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// What a factory's CEO can run without asking. The demo's factory has the standard allowlist.
+    func allowlist(_ root: String) -> Allowlist {
+        if fixture { return demoAllowlist.contains(root) || root == Fixture.factoryRoot ? Allowlist(json: FactoryScaffold.allowlist(tests: ["swift test", "swift build"])) : Allowlist(json: nil) }
+        return Allowlist(root: root)
+    }
+    private var demoAllowlist: Set<String> = []
+    func standardAllowlist(_ root: String) -> String {
+        FactoryScaffold.plan(root: root, name: "").first { $0.path == ".claude/settings.json" }?.text ?? ""
+    }
+    /// Writes the standard allowlist when the project has none; never replaces one.
+    func addAllowlist(_ project: Project) {
+        if fixture { demoAllowlist.insert(project.root); objectWillChange.send(); return }
+        let file = FactoryScaffold.plan(root: project.root, name: project.name).filter { $0.path == ".claude/settings.json" }
+        do { let w = try FactoryScaffold.create(file, root: project.root); status = w.isEmpty ? "\(project.name) already has an allowlist" : "Wrote .claude/settings.json in \(project.name)"; objectWillChange.send() }
+        catch { status = "Could not write the allowlist: \(error.localizedDescription)" }
+    }
+
+    /// A factory's one line on a building's floor list: not set up, its CEO running, held or blocked (amber), the last
+    /// run failed (amber), or when it beats next.
+    func factoryLine(_ p: Project) -> (text: String, warn: Bool)? {
+        guard p.factory != nil else { return nil }
+        if !isSetUp(p.root) { return ("Factory · not set up yet", true) }
+        guard let hb = heartbeat(p) else { return nil }
+        if hb.running { return ("CEO at work", false) }
+        if let b = hb.blocked { return (b.text, b.waitsForYou || b == .notSetUp) }
+        if let last = hb.last, last.outcome == .failed || last.outcome == .timedOut { return ("Last CEO run failed", true) }
+        if let n = hb.next { return ("Next beat " + HeartbeatCard.when(n), false) }
+        return ("Heartbeat paused: Run now only", false)
+    }
+
+    // MARK: a question in words (D77)
+
+    /// What brought the question up now: your yeses in a row (a promote), your idea, or where its work came from.
+    func trigger(for d: FactoryDecision, in p: Project) -> String? {
+        let f = p.factory
+        if d.kind == "promote", let gates = f?.autonomy?.gates,
+           let g = gates.first(where: { $0.name.lowercased() == d.gate?.lowercased() && $0.streak > 0 })
+                ?? gates.first(where: { d.title.lowercased().contains($0.name.lowercased()) && $0.streak > 0 })
+                ?? gates.max(by: { $0.streak < $1.streak }), g.streak > 0 {
+            return "You said yes \(g.streak) times in a row to \(g.name.lowercased()): it asks to stop asking"
+        }
+        if let w = d.workstream {
+            if let idea = f?.ideas.first(where: { $0.workstream == w || $0.decision == d.id }) { return "From your idea: \(idea.title)" }
+            if let src = f?.workstreams.first(where: { $0.id == w })?.source, !src.isEmpty { return "Its work came from \(src)" }
+        }
+        if let idea = f?.ideas.first(where: { $0.decision == d.id }) { return "From your idea: \(idea.title)" }
+        return p.id == World.opsID ? "Found by the DevOps agent on its round" : nil
+    }
+
+    /// When the CEO picks an answer up: a few minutes after it, or at its next beat.
+    func pickUp(_ p: Project) -> String {
+        let wakes = p.id == World.opsID ? projectSettings.devops.heartbeat.wakeOnAnswer : projectSettings.entry(p.root)?.heartbeat.wakeOnAnswer ?? false
+        if wakes { return "about \(Int(Heartbeat.answerWindow / 60)) minutes after you answer" }
+        if let n = heartbeat(p)?.next { return "at its next beat, " + HeartbeatCard.when(n) }
+        return "at its next run"
+    }
+
+    /// What happens on your answer, from the question's own On yes / On no, and when.
+    func consequence(of d: FactoryDecision, yes: Bool, in p: Project) -> String {
+        let who = p.id == World.opsID ? "The DevOps agent" : "The CEO"
+        let plan = (yes ? d.onYes : d.onNo).components(separatedBy: .newlines).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-*• ").union(.whitespaces)) }
+            .first { !$0.isEmpty }
+        let what = plan.map { ": " + $0.prefix(1).lowercased() + $0.dropFirst() } ?? (yes ? " goes ahead" : " drops it, or asks again with another way")
+        return "\(who) acts on it \(pickUp(p))\(what)"
+    }
+
+    /// After you answered: whether the CEO has taken it up yet, and where its work stands.
+    func receipt(for d: FactoryDecision, in p: Project) -> String {
+        guard let at = d.answered else { return "The CEO acts on it at its next run." }
+        let phase = d.workstream.flatMap { w in p.factory?.workstreams.first { $0.id == w } }.map { " \($0.id) is now in \($0.phase.label.lowercased())." } ?? ""
+        if let run = heartbeat(p)?.last, run.started > at {
+            return "Taken up in the run of \(HeartbeatCard.when(run.started)).\(phase)"
+        }
+        return "Waiting for the CEO: it acts on it \(pickUp(p))."
+    }
+
+    // MARK: the field guide and the walk (D78)
+
+    /// The campus effects you have seen (kept between launches, except in a demo).
+    @Published var seenEffects: Set<String> = Set(AppModel.demo ? [] : UserDefaults.standard.stringArray(forKey: "seenEffects") ?? [])
+    /// The first time an effect shows: what it is, for a few seconds at the top of the campus.
+    @Published var fieldNote: (title: String, line: String)?
+    private var fieldNoteToken = 0
+    func effectAppeared(_ kind: String, _ title: String, _ line: String) {
+        guard !seenEffects.contains(kind) else { return }
+        seenEffects.insert(kind)
+        if !fixture { UserDefaults.standard.set(Array(seenEffects), forKey: "seenEffects") }
+        fieldNote = (title, line)
+        fieldNoteToken += 1
+        let token = fieldNoteToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 9) { [weak self] in if self?.fieldNoteToken == token { self?.fieldNote = nil } }
+    }
+
+    /// The guided first walk: nil when not walking; 0 offers it, 1…4 its steps, 5 done. Offered once, at the first launch.
+    @Published var walkStep: Int? = {
+        if AppModel.firstRunDemo { return 0 }
+        if AppModel.demo { return nil }
+        return UserDefaults.standard.bool(forKey: "walkDone") ? nil : 0
+    }()
+    /// times N (or the yellow key) took you to the next that waits, for the walk's third step
+    @Published var nextPressed = 0
+    func endWalk() {
+        walkStep = nil
+        if !fixture { UserDefaults.standard.set(true, forKey: "walkDone") }
+    }
+
     func runNow(_ project: Project) { runNow(root: project.root) }
     func runNow(root: String) {
         heartbeats.wake(root, .runNow)
@@ -714,7 +895,18 @@ final class AppModel: ObservableObject {
     func beat() {
         if projectSettings.devops.enabled, heartbeats.state(EngineRoom.folder.path, heartbeat: projectSettings.devops.heartbeat).next != nil { prepareEngineRoomIfStale() }
         let names = Dictionary(world.projects.map { ($0.root, $0.name) }, uniquingKeysWith: { a, _ in a })
-        heartbeats.tick(projectSettings, names: names) { [weak self] _, _ in Task { @MainActor in self?.refresh() } }
+        heartbeats.tick(projectSettings, names: names) { [weak self] root, run in
+            Task { @MainActor in
+                guard let self else { return }
+                self.refresh()
+                // a CEO run that failed says so, naming the factory; the notification opens its CEO tab
+                if run.outcome == .failed || run.outcome == .timedOut, root != EngineRoom.folder.path {
+                    let name = names[root] ?? (root as NSString).lastPathComponent
+                    self.alerts.post(title: "\(name): the CEO run \(run.outcome == .timedOut ? "timed out" : "failed")",
+                                     body: (run.detail ?? "See the log") + ". Its CEO tab has the log.", key: "ceo:\(root)", kind: .warn)
+                }
+            }
+        }
         objectWillChange.send()
     }
 

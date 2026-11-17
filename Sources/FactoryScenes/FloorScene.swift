@@ -63,7 +63,13 @@ public final class FloorScene: WorldScene {
             if let g = place(art.ground, z: -500) { content.addChild(g) }
             for o in art.objects { content.addChild(place(o.texture, o.rect, z: o.key * 10)) }
             if let l = place(art.light, z: 3000, blend: .screen) { l.alpha = 0.9; content.addChild(l) }
-            for sg in art.signs { if let n = place(sg.image, z: 3500) { content.addChild(n) } }
+            roomSigns = []
+            for sg in art.signs {
+                guard let n = place(sg.image, z: 3500) else { continue }
+                // scale round the sign's middle, so it stays where it hangs
+                n.position = CGPoint(x: n.position.x + n.size.width / 2, y: n.position.y - n.size.height / 2); n.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+                content.addChild(n); roomSigns.append(n)
+            }
             setHome(art.view.insetBy(dx: 10, dy: 10), fill: 1.02)
         }
         if walkMap == nil { walkMap = Self.walkMap(art.solids) }
@@ -147,7 +153,7 @@ public final class FloorScene: WorldScene {
         // darkness under the lights (the light layer is at 3000, screen-blended, so lamps and screens still glow)
         let dark = factory.autonomy?.level.darkness ?? 0
         if dark > 0 {
-            let shade = SKSpriteNode(color: SKColor(red: 0.02, green: 0.02, blue: 0.08, alpha: 1), size: CGSize(width: art.view.width * px * 1.6, height: art.view.height * px * 1.6))
+            let shade = SKSpriteNode(color: SKColor(red: 0.02, green: 0.02, blue: 0.08, alpha: 1), size: CGSize(width: 40000, height: 40000))
             shade.position = scenePoint(CGPoint(x: art.view.midX, y: art.view.midY)); shade.alpha = dark * 0.7; shade.zPosition = 2990
             shade.name = "factory:dark"
             layer.addChild(shade)
@@ -201,15 +207,15 @@ public final class FloorScene: WorldScene {
     static func card(_ w: Workstream?, more: Int = 0, px: CGFloat) -> SKNode {
         let text: String
         if let w {
-            let title = w.title.count > 18 ? String(w.title.prefix(17)) + "…" : w.title
+            let title = w.title.count > 22 ? String(w.title.prefix(21)) + "…" : w.title
             text = "\(w.id)  \(title)"
         } else { text = "+\(more) more" }
         let label = SKLabelNode(text: text)
-        label.fontName = "Menlo-Bold"; label.fontSize = 5.2 * px; label.fontColor = SKColor(red: 0.12, green: 0.1, blue: 0.2, alpha: 1)
+        label.fontName = "Menlo-Bold"; label.fontSize = 6.8 * px; label.fontColor = SKColor(red: 0.12, green: 0.1, blue: 0.2, alpha: 1)
         label.horizontalAlignmentMode = .left; label.verticalAlignmentMode = .center
         let back = w?.wentBack == true
-        let height: CGFloat = 10, width = label.frame.width / px + 5 + (back ? 9 : 0)
-        let n = SKShapeNode(rect: CGRect(x: 0, y: -height * px, width: width * px, height: height * px), cornerRadius: 1.2 * px)
+        let height: CGFloat = 12.5, width = label.frame.width / px + 6 + (back ? 9 : 0)
+        let n = SKShapeNode(rect: CGRect(x: 0, y: -height * px, width: width * px, height: height * px), cornerRadius: 0)
         n.fillColor = w == nil ? SKColor(red: 0.85, green: 0.82, blue: 0.74, alpha: 0.92) : SKColor(red: 0.97, green: 0.93, blue: 0.83, alpha: 1)
         n.strokeColor = SKColor(red: 0.16, green: 0.13, blue: 0.24, alpha: 1); n.lineWidth = 0.8 * px
         label.position = CGPoint(x: 2.5 * px, y: -height * px / 2)
@@ -421,8 +427,13 @@ public final class FloorScene: WorldScene {
         }
     }
 
+    /// the room signs: they keep about their size on screen as you zoom in, so close up they don't fill the view
+    private var roomSigns: [SKSpriteNode] = []
+
     public override func update(_ currentTime: TimeInterval) {
         let dt = lastTime == 0 ? 0 : min(0.1, currentTime - lastTime); lastTime = currentTime
+        let k = max(0.45, min(1, cam.xScale / max(homeScale, 0.0001)))
+        for n in roomSigns where abs(n.xScale - k) > 0.005 { n.setScale(k) }
         guard animationsEnabled else { return }
         clock += dt
         for p in people.values {
@@ -479,10 +490,12 @@ public final class FloorScene: WorldScene {
     private func updateMarker() {
         marker?.removeFromParent(); marker = nil
         selectRing?.removeFromParent(); selectRing = nil
+        for q in people.values { q.ring?.isHidden = false }
         guard let id = selectedSubAgent ?? selectedSession, let p = people[id] else { return }
         if hoverTarget == .person(id) { clearHover() }
-        let big = p.ring != nil, w: CGFloat = (big ? 34 : 24) * p.scale, h: CGFloat = (big ? 17 : 12) * p.scale
-        let ring = Blocky.ring(w * px, h * px, color: Self.cyan, lineWidth: 1.3 * px); ring.zPosition = 2999.95
+        // over a waiting or stuck ring the selection takes its exact size and place: one ring, not two
+        let big = p.ring != nil, w: CGFloat = (big ? 28 : 24) * p.scale, h: CGFloat = (big ? 14 : 12) * p.scale
+        let ring = Blocky.ring(w * px, h * px, color: Self.cyan, lineWidth: (big ? 1.6 : 1.3) * px); ring.zPosition = 3000.05
         content.addChild(ring); selectRing = ring
         let path = CGMutablePath(); path.addLines(between: [CGPoint(x: 0, y: 0), CGPoint(x: 4, y: 5), CGPoint(x: 0, y: 10), CGPoint(x: -4, y: 5)].map { CGPoint(x: $0.x * px, y: $0.y * px) }); path.closeSubpath()
         let m = SKShapeNode(path: path); m.fillColor = SKColor(red: 0.31, green: 0.88, blue: 0.96, alpha: 1); m.strokeColor = SKColor(red: 0.14, green: 0.1, blue: 0.17, alpha: 1); m.lineWidth = px
@@ -501,7 +514,8 @@ public final class FloorScene: WorldScene {
     private func placeMarker(_ m: SKShapeNode, _ p: Person) {
         let foot = project(p.pos.x, p.pos.y), seat = p.moving ? 0 : p.spot.seat
         selectRing?.position = scenePoint(Self.ringPoint(foot, seat: seat, scale: p.scale))
-        selectRing?.zPosition = seat > 0 ? p.node.zPosition - 0.13 : 2999.95
+        selectRing?.zPosition = seat > 0 ? p.node.zPosition - 0.13 : 3000.05
+        p.ring?.isHidden = selectRing != nil
         let at = CGPoint(x: foot.x, y: foot.y - (35 + seat) * 1.08 * p.scale - (p.tag != nil ? 14 : 2) - (p.emote != nil ? 20 : 0) - 12)
         // a room sign hangs there: no mark over the head (the ring at the feet already says who is selected; beside the
         // tag it read as loose, belonging to nobody)

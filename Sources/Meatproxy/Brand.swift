@@ -377,18 +377,20 @@ private struct TactileSwitch: View {
         // a real button: focusable, Space toggles it, disabled when the switch is; its label is spoken, not drawn
         // (the row around it shows the words)
         Button { configuration.isOn.toggle() } label: {
+            // switched on but fixed (disabled): a neutral track, so it reads as locked rather than as a faded yes
+            let lit = on && enabled
             ZStack(alignment: on ? .trailing : .leading) {
-                Capsule().fill(on ? Color.signal : Color.raised)
-                    .overlay(Capsule().strokeBorder(on ? Color.onSignal : Color.border, lineWidth: 1))
-                    .background(Capsule().fill(on ? Color.ledge : Color.neutralLedge).offset(y: 2))
-                Circle().fill(on ? Color.onSignal : Color.inkText).frame(width: 14, height: 14).padding(3)
+                Capsule().fill(lit ? Color.signal : on ? Color.divider : Color.raised)
+                    .overlay(Capsule().strokeBorder(lit ? Color.onSignal : Color.border, lineWidth: 1))
+                    .background(Capsule().fill(lit ? Color.ledge : Color.neutralLedge).offset(y: 2))
+                Circle().fill(lit ? Color.onSignal : Color.inkText).frame(width: 14, height: 14).padding(3)
             }
             .frame(width: 38, height: 20)
             .shadow(color: .black.opacity(0.08), radius: 2.5, y: 3)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .opacity(enabled ? 1 : 0.45)
+        .opacity(enabled ? 1 : on ? 0.8 : 0.45)
         .animation(reduceMotion ? nil : Motion.slide, value: on)
         // to assistive tech it is the system switch, with its label and on/off value
         .accessibilityRepresentation { Toggle(isOn: configuration.$isOn) { configuration.label } }

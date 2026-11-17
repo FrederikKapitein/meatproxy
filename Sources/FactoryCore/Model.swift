@@ -301,11 +301,14 @@ public struct World: Sendable, Hashable {
             .sorted { $0.session.lastAt < $1.session.lastAt }
     }
 
-    /// Everything that waits for you, oldest first (D25): sessions, and the open questions of every factory.
+    /// Everything that waits for you (D25, D77): the factories' questions, then the Server room's, then chats that wait;
+    /// oldest first in each group. N walks the same order.
     public var needsYou: [NeedsYou] {
         let sessions = waitingSessions.map { NeedsYou.session($0.project, $0.session) }
         let questions = (projects + [ops].compactMap { $0 }).flatMap { p in (p.factory?.openDecisions ?? []).map { NeedsYou.decision(p, $0) } }
-        return (sessions + questions).enumerated().sorted { ($0.element.since, $0.offset) < ($1.element.since, $1.offset) }.map(\.element)
+        return (questions + sessions).enumerated().sorted {
+            ($0.element.group.rawValue, $0.element.since, $0.offset) < ($1.element.group.rawValue, $1.element.since, $1.offset)
+        }.map(\.element)
     }
 
     /// A factory question by its project and id.
@@ -333,6 +336,18 @@ public enum NeedsYou: Sendable, Identifiable {
         switch self {
         case .session(_, let s): s.title
         case .decision(_, let d): d.title
+        }
+    }
+    /// The groups of Needs you, in their order.
+    public enum Group: Int, Sendable, Comparable {
+        case factories, serverRoom, chats
+        public static func < (a: Group, b: Group) -> Bool { a.rawValue < b.rawValue }
+        public var label: String { self == .factories ? "Factories" : self == .serverRoom ? "Server room" : "Chats" }
+    }
+    public var group: Group {
+        switch self {
+        case .decision(let p, _): p.id == World.opsID ? .serverRoom : .factories
+        case .session: .chats
         }
     }
     /// how long it has waited: a session since its last action, a question since it was asked

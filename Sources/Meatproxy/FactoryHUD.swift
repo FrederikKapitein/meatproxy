@@ -29,16 +29,16 @@ struct FactorySwitch: View {
     private func switchCard(_ on: Bool) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
-                Text("Dark Software Factory").font(.system(size: 12.5, weight: .bold))
-                if !on { Text("Off: a project like any other").font(.system(size: 11)).foregroundStyle(Color.muted) }
+                Text("Factory").font(.system(size: 12.5, weight: .bold))
+                if !on { Text("Off: a project like any other. On: an AI CEO runs it").font(.system(size: 11)).foregroundStyle(Color.muted) }
             }
             Spacer(minLength: 0)
-            Toggle("Dark Software Factory", isOn: Binding(get: { on }, set: { model.setFactory(project.root, on: $0) }))
+            Toggle("Factory", isOn: Binding(get: { on }, set: { model.setFactory(project.root, on: $0) }))
                 .labelsHidden().toggleStyle(TactileToggleStyle())
         }
         .padding(.horizontal, 10).padding(.vertical, 7)
         .background((on ? Color.raised : Color.surface), in: RoundedRectangle(cornerRadius: 10))
-        .help("Switch this project on as a Dark Software Factory. Nothing in the project changes; the app reads factory/ and only writes your answers.")
+        .help("Switch this project on as a factory: an AI CEO works on it on a schedule. Nothing is written until you set it up and approve each file.")
     }
 }
 
@@ -93,14 +93,37 @@ struct HeartbeatCard: View {
                     line("Next", "Only Run now: the heartbeat is paused", tone: nil)
                 }
             }
-            if let w = state.last?.warning, state.last?.outcome != .running {
+            // a warning that is fixed meanwhile (the allowlist is there now) is not shown again
+            if let w = state.last?.warning, state.last?.outcome != .running, !(w.hasPrefix("No allowlist") && model.allowlist(project.root).exists) {
                 Label(w, systemImage: "exclamationmark.triangle.fill").font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(Color.warn).fixedSize(horizontal: false, vertical: true)
+            }
+            // what to do about the last run, in one button; or that nothing needs doing
+            if let last = state.last, last.outcome != .running {
+                if last.outcome == .failed, last.detail?.contains("was closed") == true, !model.projectSettings.heartbeatWhenClosed {
+                    fix("Meatproxy was closed, so the run stopped. With Heartbeat when closed it carries on.", "Turn it on") { model.setHeartbeatWhenClosed(true) }
+                } else if case .caughtUp = last.reason, last.outcome == .ok {
+                    Label("A beat missed while Meatproxy was closed, caught up. Normal: nothing to do.", systemImage: "checkmark.circle")
+                        .font(.system(size: 11.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                }
             }
             if let b = state.blocked { blocked(b) }
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// A problem with its fix: one line and one button.
+    private func fix(_ text: String, _ button: String, _ action: @escaping () -> Void) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text(text).font(.system(size: 11.5)).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button(action: action) { Text(button).font(.system(size: 11.5, weight: .semibold)).lineLimit(1).fixedSize() }
+                .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 9)))
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(Color.surface, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.warn.opacity(0.6)))
     }
 
     /// A guard holds the heartbeat (D48): said in words, amber; a hold that waits for you has Resume.
@@ -167,6 +190,12 @@ struct FactoryOverview: View {
     enum Tab: String, Hashable { case overview, work, ceo }
 
     var body: some View {
+        if !model.isSetUp(project.root) { SetUpFactoryCard(project: project) }
+        else { overview }
+    }
+
+    @ViewBuilder private var overview: some View {
+        if model.justSetUp == project.root { FirstBeatCard(project: project) }
         if factory.paused {
             Label("Paused: STOP is on line 1 of autonomy.yml. It starts and ships nothing.", systemImage: "pause.circle.fill")
                 .font(.system(size: 12.5, weight: .bold)).foregroundStyle(Color.stuck).fixedSize(horizontal: false, vertical: true)
@@ -209,7 +238,7 @@ struct FactoryOverview: View {
     private var tabs: [LiftedSegments<Tab>.Item] {
         let hb = model.heartbeat(project)
         let newIdeas = factory.ideas.filter { $0.status == .new }.count
-        let ceoFlag = hb?.running == true ? " ·" : (hb?.blocked?.waitsForYou == true || hb?.last?.warning != nil || hb?.last?.outcome == .failed) ? " !" : ""
+        let ceoFlag = hb?.running == true ? " ●" : (hb?.blocked?.waitsForYou == true || hb?.last?.warning != nil || hb?.last?.outcome == .failed) ? " ▲" : ""
         return [
             .init(id: .overview, title: newIdeas > 0 ? "Overview · \(newIdeas)" : "Overview", help: "The CEO's briefing and your ideas"),
             .init(id: .work, title: "Work · \(factory.activeWorkstreams.count + project.sessions.count)", help: "Workstreams and sessions"),
@@ -220,8 +249,8 @@ struct FactoryOverview: View {
     @ViewBuilder private var briefing: some View {
         if factory.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                Text("No CEO yet").font(.system(size: 13.5, weight: .bold))
-                Text("The factory's CEO keeps its queue in factory/: briefings, workstreams, decisions and autonomy.yml. They show up here as soon as it writes them; the app never creates them.")
+                Text("No briefing yet").font(.system(size: 13.5, weight: .bold))
+                Text("The CEO writes one at the end of every run: what it did, what needs you, what it delivered. Run now starts the first one.")
                     .font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
             }
             .padding(10).frame(maxWidth: .infinity, alignment: .leading)
@@ -239,7 +268,7 @@ struct FactoryOverview: View {
             }
         }
         let dropped = factory.workstreams.count - streams.count
-        if dropped > 0 { Text("\(dropped) dropped").font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted) }
+        if dropped > 0 { Text("\(dropped) dropped").font(.system(size: 11.5)).foregroundStyle(Color.muted) }
         Heading(text: "SESSIONS · \(project.sessions.count)")
         if project.sessions.isEmpty { Text("No session in the last 8 hours.").font(.system(size: 12)).foregroundStyle(Color.muted) }
         else { StateBar(sessions: project.sessions, now: model.world.now) }
@@ -259,6 +288,18 @@ struct FactoryOverview: View {
 
     @ViewBuilder private var ceo: some View {
         if let hb = model.heartbeat(project) { HeartbeatCard(project: project, state: hb) }
+        PermissionsCard(project: project)
+        if factory.takesSources, factory.sources.hasSentry || factory.sources.tracker != nil, let e = model.projectSettings.entry(project.root) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("WAKE-UP SOURCES").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted).padding(.horizontal, 14)
+                if factory.sources.hasSentry, e.heartbeat.wakeOnSentry {
+                    SourceHealthLine(health: model.sourceHealth[project.root]?.sentry, missing: nil, label: "Sentry")
+                }
+                if factory.sources.tracker != nil, e.heartbeat.wakeOnTracker {
+                    SourceHealthLine(health: model.sourceHealth[project.root]?.tracker, missing: nil, label: "Tracker")
+                }
+            }.padding(.horizontal, -14)
+        }
         if factory.takesMandate {
             AutonomyCard(mandate: model.mandate(project.root), autonomy: factory.autonomy) {
                 model.settingsPage = "project:\(project.root)"; model.settingsOpen = true
@@ -266,7 +307,7 @@ struct FactoryOverview: View {
         } else if let a = factory.autonomy { AutonomyLine(autonomy: a) }
         HStack(spacing: 6) {
             Text("CONTRACT").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-            Text("v\(factory.contractVersion)\(factory.contract == nil ? " (no contract.yml)" : "")").font(.system(size: 12, design: .monospaced))
+            Text("Version \(factory.contractVersion)\(factory.contract == nil ? " (no contract.yml)" : "")").font(.system(size: 12))
             if factory.newerContract {
                 Text("newer than this Meatproxy (v\(FactoryContract.current))").font(.system(size: 11.5)).foregroundStyle(Color.warn)
             }
@@ -291,7 +332,7 @@ private struct BriefingCard: View {
             HStack {
                 Text("CEO BRIEFING").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
                 Spacer()
-                Text(Self.day(briefing.name)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted)
+                Text(Self.day(briefing.name)).font(.system(size: 11.5)).foregroundStyle(Color.muted)
             }
             ForEach(Array(briefing.briefing.enumerated()), id: \.offset) { _, line in
                 Text(Self.plain(line)).font(.system(size: 12.5)).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
@@ -367,6 +408,7 @@ struct AutonomyCard: View {
                         }
                     }
                     Text(mandate.level.rawValue.capitalized).font(.system(size: 16, weight: .bold))
+                    Text(mandate.level.sentence).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
                     Text(mandate.summary.components(separatedBy: " · ").filter { $0 != mandate.level.rawValue.capitalized }.joined(separator: " · "))
                         .font(.system(size: 11.5)).foregroundStyle(Color.muted)
                 }
@@ -384,9 +426,9 @@ struct AutonomyCard: View {
             ForEach(looseGates, id: \.name) { g in
                 Divider().overlay(Color.divider)
                 HStack(spacing: 8) {
-                    Text("\(g.name) (the CEO's own gate)").font(.system(size: 12)).foregroundStyle(Color.muted)
+                    Text("\(g.name.prefix(1).uppercased() + g.name.dropFirst()) · its own gate").font(.system(size: 12)).foregroundStyle(Color.muted)
                     Spacer(minLength: 0)
-                    Text(g.notify ? "notify" : "ask").font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted)
+                    Text(g.notify ? "Tell me" : "Ask").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted)
                 }.padding(.vertical, 6)
                 .help("A gate in the CEO's autonomy.yml with no mandate item: it does not change what the mandate allows")
             }
@@ -565,10 +607,14 @@ struct DecisionCard: View {
             if let g = d.gate, g != d.kind { Chip(text: "gate \(g)") }
             if let w = d.workstream { Chip(text: w) }
             Spacer(minLength: 0)
-            if let a = d.asked { Text("asked \(a.ago)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.muted) }
+            if let a = d.asked { Text("asked \(a.ago)").font(.system(size: 11.5)).foregroundStyle(Color.muted) }
         }
         if let w = d.workstream, let ws = project.factory?.workstreams.first(where: { $0.id == w }) {
             Text("\(ws.title) · \(ws.phase.label)").font(.system(size: 12)).foregroundStyle(Color.muted).lineLimit(1)
+        }
+        if d.status == .open, let t = model.trigger(for: d, in: project) {
+            Label(t, systemImage: "arrow.turn.down.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.inkText)
+                .fixedSize(horizontal: false, vertical: true)
         }
         if !d.why.isEmpty { Part(title: "WHY") { Prose(text: d.why) } }
         if !d.evidence.isEmpty { Part(title: "EVIDENCE") { Evidence(text: d.evidence, root: project.factory?.root ?? project.root) } }
@@ -607,6 +653,9 @@ struct DecisionCard: View {
             }
             Text(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Writes \(pending ? "yes" : "no") into \(fileName)." : "Writes \(pending ? "yes" : "no") and your note into \(fileName).")
                 .font(.system(size: 11)).foregroundStyle(Color.muted).lineLimit(2)
+            // what happens next, in plain words: what the CEO will do, and when
+            Text(model.consequence(of: decision, yes: pending, in: project)).font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
         } else {
             HStack(spacing: 10) {
                 Button { pending = true; failure = nil } label: {
@@ -632,7 +681,8 @@ struct DecisionCard: View {
             Text("\(d.status.rawValue.capitalized)\(d.answered.map { " · \($0.ago)" } ?? "")").font(.system(size: 14, weight: .bold)).foregroundStyle(color)
             if !d.answer.isEmpty { Text(d.answer).font(.system(size: 12.5)).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true) }
             if d.status == .yes || d.status == .no {
-                Text("The CEO acts on it at its next run.").font(.system(size: 11.5)).foregroundStyle(Color.muted)
+                Label(model.receipt(for: d, in: project), systemImage: "checklist").font(.system(size: 11.5)).foregroundStyle(Color.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         }
@@ -829,6 +879,154 @@ struct OpsCard: View {
             if let b = ops?.factory?.briefing, !b.briefing.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(b.briefing.prefix(3), id: \.self) { Text("· " + $0).font(.system(size: 11.5)).lineLimit(2) }
+                }
+            }
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+
+// MARK: setting a factory up (D76)
+
+/// A factory without its starter files: Meatproxy offers them one by one, shows what each says, and writes only the
+/// ticked ones that are missing, when you press Create. The allowlist is offered unticked.
+private struct SetUpFactoryCard: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    @State private var plan: [StarterFile] = []
+    @State private var ticked: Set<String> = []
+    @State private var open: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Set up this factory").font(.system(size: 15, weight: .bold))
+                Text("Its CEO works from a few files in factory/. Meatproxy can create starters for \(project.name). Nothing is written until you press Create, and nothing that is there is ever replaced.")
+                    .font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(spacing: 6) { ForEach(plan) { f in row(f) } }
+            let n = plan.filter { ticked.contains($0.path) && !$0.exists }.count
+            HStack(spacing: 8) {
+                Button { create() } label: { Text(n == 0 ? "Nothing to create" : "Create \(n) file\(n == 1 ? "" : "s")") }
+                    .buttonStyle(TactileButtonStyle(kind: .primary, inset: EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)))
+                    .disabled(n == 0 && plan.allSatisfy { !$0.exists || $0.optional })
+                Button { Self.copy(plan) } label: { Text("Copy them instead") }
+                    .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)))
+                    .help("Copies every file with its path, to write them yourself")
+            }
+        }
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.signal.opacity(0.7)))
+        .onAppear {
+            plan = model.setupPlan(project)
+            ticked = Set(plan.filter { !$0.optional && !$0.exists }.map(\.path))
+            if let d = model.debugViewFile { open = d }
+        }
+        .onChange(of: model.debugViewFile) { _, d in open = d }
+    }
+
+    @ViewBuilder private func row(_ f: StarterFile) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                if f.exists {
+                    Image(systemName: "checkmark.circle").font(.system(size: 13)).foregroundStyle(Color.muted).frame(width: 16)
+                } else {
+                    let on = ticked.contains(f.path)
+                    Button { if on { ticked.remove(f.path) } else { ticked.insert(f.path) } } label: {
+                        RoundedRectangle(cornerRadius: 3).fill(on ? Color.signal : Color.clear)
+                            .overlay(RoundedRectangle(cornerRadius: 3).stroke(on ? Color.signal : Color.muted, lineWidth: 1.2))
+                            .overlay(Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(Color.onSignal).opacity(on ? 1 : 0))
+                            .frame(width: 15, height: 15).padding(.top, 1)
+                    }
+                    .buttonStyle(.plain).frame(width: 16)
+                    .accessibilityLabel(f.path).accessibilityValue(on ? "will be created" : "not created").accessibilityAddTraits(.isToggle)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(f.path).font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    Text(f.exists ? "Already there: left as it is" : f.why).font(.system(size: 11.5)).foregroundStyle(Color.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Button(open == f.path ? "Hide" : "View") { open = open == f.path ? nil : f.path }
+                    .buttonStyle(.plain).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted)
+            }
+            if open == f.path {
+                ScrollView { Text(f.text).font(.system(size: 10.5, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                    .frame(maxHeight: 170).padding(8).background(Color.surface, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(Color.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func create() {
+        let files = plan.filter { ticked.contains($0.path) && !$0.exists }
+        if model.setUp(project, files: files) { model.justSetUp = project.root }
+    }
+
+    static func copy(_ plan: [StarterFile]) {
+        AppModel.copy(plan.map { "=== \($0.path)\n\($0.text)" }.joined(separator: "\n"))
+    }
+}
+
+/// Right after setting up: the first beat, now or at its time.
+private struct FirstBeatCard: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Set up. Run the first beat now?").font(.system(size: 13.5, weight: .bold))
+            Text("The CEO reads the project, writes a briefing and asks its first question. It changes nothing without your yes: it starts on Assistant.")
+                .font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button { model.runNow(project); model.justSetUp = nil } label: { Text("Run now") }
+                    .buttonStyle(TactileButtonStyle(kind: .primary, inset: EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)))
+                Button { model.justSetUp = nil } label: { Text("At its next beat") }
+                    .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)))
+            }
+        }
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+
+/// What the CEO can really do (the project's allowlist is the lock; the mandate says what it should do). Without an
+/// allowlist it offers the standard one, shown first, written only when you press Create.
+private struct PermissionsCard: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    @State private var showing = false
+    var body: some View {
+        let a = model.allowlist(project.root)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("WHAT IT CAN DO").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
+                Spacer(minLength: 0)
+                if a.exists { Text("\(a.rules) rules in .claude/settings.json").font(.system(size: 11)).foregroundStyle(Color.muted) }
+            }
+            Label(a.line, systemImage: a.exists ? "lock.shield" : "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(a.exists ? Color.inkText : Color.warn)
+            if !a.exists {
+                Text("Without an allowlist the CEO cannot run tests or commit, so most runs end with a question. The standard one lets it read, edit, test and commit; it can never push or merge.")
+                    .font(.system(size: 11.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                if showing {
+                    ScrollView { Text(model.standardAllowlist(project.root)).font(.system(size: 10.5, design: .monospaced)).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading) }
+                        .frame(maxHeight: 160).padding(8).background(Color.surface, in: RoundedRectangle(cornerRadius: 8))
+                }
+                HStack(spacing: 8) {
+                    if showing {
+                        Button { model.addAllowlist(project); showing = false } label: { Text("Create .claude/settings.json") }
+                            .buttonStyle(TactileButtonStyle(kind: .primary, inset: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)))
+                        Button("Cancel") { showing = false }.buttonStyle(.plain).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted)
+                    } else {
+                        Button { showing = true } label: { Text("Add the standard allowlist…") }
+                            .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)))
+                    }
                 }
             }
         }

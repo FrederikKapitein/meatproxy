@@ -12,6 +12,7 @@ extension CampusScene {
 
     func drawStatusLayer(_ world: World) {
         for n in life.layerNodes { n.removeFromParent() }
+        life.hotspots.removeAll { $0.node.parent == nil }
         life.layerNodes = []; life.layerLamps = []
         guard life.layerOn, let art else { return }
         // the services, along the front of the Server room
@@ -26,18 +27,23 @@ extension CampusScene {
                 let g = glow(Self.artP(i, j, 17), size: CGSize(width: 18, height: 18), color: col); g.zPosition = 0.1
                 n.addChild(g)
                 let label = SKLabelNode(text: s.name.uppercased())
-                label.fontName = "Menlo-Bold"; label.fontSize = 5.2 * px; label.fontColor = SKColor(white: 0.95, alpha: 1)
+                label.fontName = "Menlo-Bold"; label.fontSize = 5.2 * px; label.fontColor = Self.ink
                 label.position = scenePoint(CGPoint(x: Self.artP(i, j, 0).x, y: Self.artP(i, j, 0).y + 7)); label.verticalAlignmentMode = .center
-                let plate = SKShapeNode(rectOf: CGSize(width: label.frame.width + 5 * px, height: 7.5 * px), cornerRadius: 1.5 * px)
-                plate.fillColor = Self.ink.withAlphaComponent(0.85); plate.strokeColor = .clear; plate.position = label.position; plate.zPosition = -0.01
+                // a little plaque like the storeys': cream, an ink edge, square corners
+                let plate = SKShapeNode(rectOf: CGSize(width: label.frame.width + 6 * px, height: 8.5 * px), cornerRadius: 0)
+                plate.fillColor = SKColor(red: 1, green: 0.953, blue: 0.839, alpha: 1); plate.strokeColor = Self.ink; plate.lineWidth = 1 * px
+                plate.position = label.position; plate.zPosition = -0.01
                 n.addChild(plate); n.addChild(label)
                 ov.addChild(n); life.layerNodes.append(n)
+                let st = s.shown(now: world.now)
+                explain(n, (s.name, st == .unknown ? "Not read for a while: unknown" : st.rawValue.capitalized + (s.detail.isEmpty ? "" : " · " + s.detail)))
                 life.layerLamps.append((lamp, g, s.shown(now: world.now)))
             }
         }
         // a CI lamp by the plaque of every floor GitHub knows
         for (st, id) in storeys {
-            guard let p = world.project(id: id), let g = p.github, let host = layer(st.building, storey: st.index),
+            // a red one is the alarm light, which is always there
+            guard let p = world.project(id: id), let g = p.github, !g.ciFailing, let host = layer(st.building, storey: st.index),
                   let rects = art.plaques[st.building], st.index < rects.count else { continue }
             let r = rects[st.index], c = CGPoint(x: r.minX - 1, y: r.midY)
             let state: ServiceStatus.State = g.ciFailing ? .down : .ok
@@ -49,6 +55,7 @@ extension CampusScene {
             host.addChild(glowNode); host.addChild(lamp)
             life.layerNodes.append(contentsOf: [lamp, glowNode])
             life.layerLamps.append((lamp, glowNode, state))
+            explain(lamp, ("CI · \(p.name)", g.ciFailing ? "CI on main is red: " + g.failing.joined(separator: ", ") : "CI on main is green"))
         }
     }
 

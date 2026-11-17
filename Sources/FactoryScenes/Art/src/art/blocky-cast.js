@@ -86,7 +86,10 @@
   };
   /* roles: what they wear and carry, so you can tell them apart at a glance */
   const ROLES = {
-    ceo:        {label: "CEO", outfits: ["suit"], tops: ["#262a3e", "#3a2a4a"], legs: ["#262a3e"], hair: ["slick", "short", "bald"], props: ["mug"], extras: [null, "watch"]},
+    // the CEO (D73): all black, suit, shirt and tie, long dark hair swept back and a short beard; nobody else dresses so
+    ceo:        {label: "CEO", outfits: ["suit"], tops: ["#18181d"], legs: ["#18181d"], hair: ["long"], hairColor: "#17120f", beard: true, shirt: "#222228", tie: "#0b0b0e", shoes: "#0b0b0e", props: ["mug"], extras: [null, "watch"]},
+    // a plain project's main chat: smart casual, a navy jacket over a light shirt, a lanyard and a mug; not the CEO's black
+    lead:       {label: "Lead", outfits: ["blazer"], tops: ["#33507e", "#3d6a6a"], legs: ["#2a2433", "#5a6a8a"], hair: ["short", "curly", "bob", "slick"], props: ["mug"], extras: ["lanyard"]},
     sales:      {label: "Sales", outfits: ["blazer"], tops: ["#5a7ab0", "#8a5a7a", "#4a8a8a"], legs: ["#b89a6a", "#3a3f63"], hair: ["slick", "long", "short"], props: ["phone"], extras: [null]},
     marketing:  {label: "Marketing", outfits: ["tee"], tops: ["#ff7a5a", "#ff6ad5", "#3fd0a0"], legs: ["#3b5a9a", "#2a2433"], hair: ["long", "spiky", "short"], hats: ["beanie", "cap", null], props: ["megaphone"], extras: [null]},
     pm:         {label: "Product", outfits: ["cardigan"], tops: ["#2fb0a8", "#e0a04a", "#8a5cf0"], legs: ["#3a3f63", "#d9a43a"], hair: ["bun", "short", "long"], props: ["clipboard"], extras: ["lanyard"]},
@@ -102,10 +105,11 @@
   /* a person for a role: the role decides the outfit and the prop; the seed decides the rest */
   function person(role, seed) {
     const R = ROLES[role], r = rnd(role + ":" + seed), pick = a => a[Math.floor(r() * a.length)];
-    const hair = pick(HAIRS), skin = pick(SKINS), outfit = pick(R.outfits);
-    return {role, skin, hair, hairStyle: pick(R.hair), top: pick(R.tops), outfit, under: R.under ? pick(R.under) : "#f4f1ea", legs: pick(R.legs), shoes: pick(["#2a1a2e", "#f4f1ea", "#6a4026", "#8a5cf0"]),
+    const hair = R.hairColor || pick(HAIRS), skin = pick(SKINS), outfit = pick(R.outfits);
+    const shoes = pick(["#2a1a2e", "#f4f1ea", "#6a4026", "#8a5cf0"]), beardRoll = r() < .25;
+    return {role, skin, hair, hairStyle: pick(R.hair), top: pick(R.tops), outfit, under: R.under ? pick(R.under) : "#f4f1ea", legs: pick(R.legs), shoes: R.shoes || shoes,
       brows: shade(hair, .7), hat: R.hats ? pick(R.hats) : null, prop: pick(R.props), extra: pick(R.extras), glasses: pick(["#2a1a2e", "#8a5cf0", "#e05a5a", "#3f6fd8"]),
-      beard: r() < .25 ? hair : null, tall: .92 + r() * .18, wide: .94 + r() * .2};
+      beard: R.beard || beardRoll ? hair : null, shirt: R.shirt, tie: R.tie, tall: .92 + r() * .18, wide: .94 + r() * .2};
   }
   const VIEWS = {SW: 0, SE: -90, NW: 90, NE: 180};
 
@@ -163,10 +167,10 @@
       tdeco.back.push([-torsoW / 2, .2, torsoW / 2, 1.3, "#7a4a2e"]);
     }
     if (C.outfit === "suit" || C.outfit === "blazer") {
-      const shirt = C.outfit === "suit" ? "#f4f4f0" : "#cfe0ff";
+      const shirt = C.shirt || (C.outfit === "suit" ? "#f4f4f0" : "#cfe0ff");
       F.push([[[-2.6, torsoH], [2.6, torsoH], [0, torsoH - 4.6]], "!" + shirt, "poly"]);
       F.push([[[-2.6, torsoH], [-3.6, torsoH - .4], [-.6, torsoH - 5.6], [0, torsoH - 4.6]], shade(C.top, .8), "poly"], [[[2.6, torsoH], [3.6, torsoH - .4], [.6, torsoH - 5.6], [0, torsoH - 4.6]], shade(C.top, .8), "poly"]);
-      if (C.outfit === "suit") F.push([[[-.5, torsoH - .6], [.5, torsoH - .6], [.8, torsoH - 5.2], [0, torsoH - 6], [-.8, torsoH - 5.2]], "!#d9453a", "poly"]);
+      if (C.outfit === "suit") F.push([[[-.5, torsoH - .6], [.5, torsoH - .6], [.8, torsoH - 5.2], [0, torsoH - 6], [-.8, torsoH - 5.2]], "!" + (C.tie || "#d9453a"), "poly"]);
       F.push([-.25, .6, .25, torsoH - 5.6, shade(C.top, .7)], [.6, 1.6, 1.2, 2.2, "#c9a46a"], [.6, 3.4, 1.2, 4, "#c9a46a"]);
       if (C.outfit === "blazer") F.push([2.2, 3.2, 3.6, 3.6, "!#f4f4f0"]);
     }
@@ -177,7 +181,7 @@
     sc.box(body, [x0, -torsoD / 2, 0], [x1, torsoD / 2, torsoH], C.top, tdeco);
     if (C.outfit === "overalls") sc.box(body, [x0 + .1, -torsoD / 2 + .1, -.2], [x1 - .1, torsoD / 2 - .1, 1.6], C.top);   // the seat of the overalls under the belt
     if (C.outfit === "labcoat" && !pose.sit) sc.box(body, [x0 - .15, -torsoD / 2 - .15, -3.6], [x1 + .15, torsoD / 2 + .15, .2], C.top, {front: [[-.15, -3.6, .15, .2, "#cfcfc8"]]});
-    if (C.outfit === "suit" || C.outfit === "blazer") sc.box(body, [-2.6, -1.8, torsoH], [2.6, 1.8, torsoH + .9], C.outfit === "suit" ? "#f4f4f0" : "#cfe0ff");
+    if (C.outfit === "suit" || C.outfit === "blazer") sc.box(body, [-2.6, -1.8, torsoH], [2.6, 1.8, torsoH + .9], C.shirt || (C.outfit === "suit" ? "#f4f4f0" : "#cfe0ff"));
     // a collar or hood
     if (C.outfit === "hoodie") sc.box(body, [-3.8, -torsoD / 2 - .8, torsoH - .4], [3.8, -torsoD / 2 + 1.4, torsoH + 1.6], shade(C.top, .9));
     if (C.outfit === "turtleneck") sc.box(body, [-2.6, -1.8, torsoH], [2.6, 1.8, torsoH + 1.4], shade(C.top, .92));
@@ -259,6 +263,16 @@
     }
     // hats
     if (C.hat === "beanie") { sc.box(head, [-HW / 2 - .5, -HD / 2 - .5, hz + H - 2.4], [HW / 2 + .5, HD / 2 + .5, hz + H + 2], C.top === "#ff7a5a" ? "#3f6fd8" : "#ff7a5a", {front: [[-HW / 2 - .5, hz + H - 2.4, HW / 2 + .5, hz + H - 1.2, "#f4f1ea"]]}); sc.box(head, [-1.2, -1.2, hz + H + 2], [1.2, 1.2, hz + H + 3.6], "#f4f1ea"); }
+    // the CEO's crown (D73): a gold band with prongs, so a CEO never passes for anyone else
+    if (C.hat === "crown") {
+      // an open ring (the hair shows inside it), tall prongs and a red stone at the front
+      const G = "#f2c23a", t = .8, x0 = -HW / 2 - .4, x1 = HW / 2 + .4, y0 = -HD / 2 - .4, y1 = HD / 2 + .4, z0 = hz + H - .6, z1 = hz + H + 1.6;
+      sc.box(head, [x0, y1 - t, z0], [x1, y1, z1], G, {front: [[-.8, z0 + .5, .8, z1 - .4, "!#e0473a"]]});
+      sc.box(head, [x0, y0, z0], [x1, y0 + t, z1], G);
+      sc.box(head, [x0, y0, z0], [x0 + t, y1, z1], G);
+      sc.box(head, [x1 - t, y0, z0], [x1, y1, z1], G);
+      for (const [x, y] of [[x0, y1 - t], [-.4, y1 - t], [x1 - t, y1 - t], [x0, y0], [x1 - t, y0], [x0, -.4], [x1 - t, -.4]]) sc.box(head, [x, y, z1], [x + t, y + t, z1 + 3], G, {top: [[x, y, x + t, y + t, "!#ffe58a"]]});
+    }
     if (C.hat === "beret") sc.box(head, [-HW / 2 - 1.2, -HD / 2 - .8, hz + H - .2], [HW / 2 + .4, HD / 2 + .4, hz + H + 1.6], "#c4364a", {top: [[-.5, -.5, .5, .5, "#8a2434"]]});
     if (C.hat === "hardhat") { sc.box(head, [-HW / 2 - .6, -HD / 2 - .6, hz + H - 1], [HW / 2 + .6, HD / 2 + .6, hz + H + 2.8], "#ff8a2a", {top: [[-.5, -HD / 2 - .6, .5, HD / 2 + .6, "#ffb070"]]}); sc.box(head, [-HW / 2 - .6, HD / 2 + .6, hz + H - 1], [HW / 2 + .6, HD / 2 + 2, hz + H - .3], "#ff8a2a"); }
     if (C.hat === "cap") { sc.box(head, [-HW / 2 - .4, -HD / 2 - .4, hz + H - 1], [HW / 2 + .4, HD / 2 + .4, hz + H + 1.8], C.top, {front: [[-1.2, hz + H, 1.2, hz + H + 1.2, "#f4f1ea"]]}); sc.box(head, [-HW / 2 + 1, HD / 2 + .4, hz + H - 1], [HW / 2 - 1, HD / 2 + 3.4, hz + H - .3], shade(C.top, .85)); }

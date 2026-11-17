@@ -12,6 +12,8 @@ public final class CampusScene: WorldScene {
     var onSelectServer: ((Int) -> Void)?        // a rack in the Server room: the server in that slot (rack order)
     /// what the pointer is on, as a title and a line, and where (view points from the top left); nil when nothing
     var onHoverTitle: ((HoverTitle?) -> Void)?
+    /// an effect shows on the campus (D78): its kind, a title and what it means now; the app explains a kind once
+    var onEffect: ((String, String, String) -> Void)?
     var shownWorld: World = .empty
     /// how many racks hold a server, and the slot pulled out of one (rack index), with its parts
     private var rackCount = 0
@@ -260,6 +262,8 @@ public final class CampusScene: WorldScene {
                 e.position = scenePoint(c); e.zPosition = 0.7; e.targetNode = ov
                 ov.addChild(e); e.advanceSimulationTime(6)
                 chimneys.append(e)
+                explain(e, ("Smoke", "A factory works in this tower; it smokes more while one of its runs is busy"))
+                onEffect?("smoke", "Smoke from the chimney", "A factory works in this tower; more smoke while its CEO runs.")
             }
         }
     }
@@ -524,6 +528,9 @@ public final class CampusScene: WorldScene {
         }
         tickStacks(dt)
         tickLife(dt)
+        // close up, the storey plaques keep about their size on screen instead of filling the view
+        let k = max(0.5, min(1, cam.xScale / max(homeScale, 0.0001)))
+        for sg in signs where sg.plaque && abs(sg.node.xScale - k) > 0.005 { sg.node.setScale(k) }
         animateLights()
         fadePlaques(dt)
         for l in screenLines { l.node.lineWidth = screenWidth(l.width) }
@@ -740,7 +747,7 @@ public final class CampusScene: WorldScene {
         // the wheel's mark holds until the pointer moves on
         if let m = wheelMark {
             if let q = pointer, hypot(q.x - m.at.x, q.y - m.at.y) > 4 { wheelMark = nil }
-            else if isApart(m.key), let s = storeys.first(where: { $0.storey.building == m.key && $0.storey.index == m.index }) { t = .storey(s.project) }
+            else if stacks[m.key]?.target == 1, let s = storeys.first(where: { $0.storey.building == m.key && $0.storey.index == m.index }) { t = .storey(s.project) }
             else { wheelMark = nil }
         }
         if case .building(let k)? = t, k == focus { t = nil }
@@ -748,11 +755,16 @@ public final class CampusScene: WorldScene {
         hovering = p.flatMap(target(at:)) != nil && !cam.hasActions()
         // the title follows the pointer even over what is already picked (the outline does not)
         let titled = cam.hasActions() ? nil : (wheelMark != nil ? t : p.flatMap(target(at:)))
+        // what an effect means comes first (D74): an alarm light, the lift, a drone, a lamp of the Status layer
+        if !cam.hasActions(), wheelMark == nil, let p, let v = view, let hs = hotspot(at: p) {
+            let q = convertPoint(toView: p)
+            onHoverTitle?(HoverTitle(title: hs.0, line: hs.1, at: CGPoint(x: q.x, y: v.bounds.height - q.y), left: false))
+        }
         // a marked storey's line hangs by its plaque, like a label (4A); otherwise it follows the pointer
-        if let titled, let v = view, let words = title(for: titled),
+        else if let titled, let v = view, let words = title(for: titled),
            let at = markLabelPoint() ?? p.map({ q -> CGPoint in let q = convertPoint(toView: q); return CGPoint(x: q.x, y: v.bounds.height - q.y) }) {
             var left = false
-            switch titled { case .storey, .building: left = wheelMark == nil; default: break }
+            switch titled { case .storey, .building: left = true; default: break }
             onHoverTitle?(HoverTitle(title: words.0, line: words.1, at: at, left: left))
         } else { onHoverTitle?(nil) }
         guard t != hoverTarget else { return }

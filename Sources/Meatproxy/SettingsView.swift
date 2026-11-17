@@ -27,7 +27,7 @@ struct SettingsView: View {
                 if model.fixture { Text("Demo data: nothing is saved").font(.system(size: 11)).foregroundStyle(Color.muted).padding(.leading, 8) }
                 Spacer()
                 Button { close() } label: {
-                    Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).frame(width: 28, height: 26)
+                    HStack(spacing: 5) { KeyCap("esc"); Image(systemName: "xmark").font(.system(size: 11, weight: .bold)) }.padding(.horizontal, 6).frame(height: 26)
                 }
                 .buttonStyle(TactileButtonStyle(kind: .neutral))
                 .keyboardShortcut(.cancelAction).help("Close (Esc)")
@@ -100,7 +100,8 @@ private struct GeneralSettings: View {
             }
             SettingsCard("Wake-up sources") {
                 TokenRow(key: .sentry, text: "A token with read access to issues (Sentry › Settings › Auth tokens). Factories name their project in contract.yml.")
-                TokenRow(key: .tracker, text: "A read token from Tracker › Account settings › MCP access. Kept in the Keychain, never in a file.")
+                TrackerAddressRow()
+                TokenRow(key: .tracker, text: "A read token for that address (in Tracker: Account settings › MCP access).")
             }
             SettingsCard("Status pages") {
                 StatusSourcesRows()
@@ -127,6 +128,7 @@ private struct EngineRoomSettings: View {
     @EnvironmentObject private var model: AppModel
     /// the server open on its page ("new" for adding one)
     @State private var open: String?
+    @State private var importing = false
 
     var body: some View {
         content.onAppear {
@@ -147,6 +149,7 @@ private struct EngineRoomSettings: View {
     private var list: some View {
         VStack(alignment: .leading, spacing: 18) {
             PageTitle("Server room", "Your servers and sites, checked over SSH every minute, with alerts and a DevOps agent that keeps an eye on them.")
+            WhatWeCheckCard()
             DevOpsCard()
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
@@ -160,8 +163,13 @@ private struct EngineRoomSettings: View {
                             }
                         }.buttonStyle(SettingsButton()).disabled(model.checkingServers)
                     }
+                    if !model.sshAliases.isEmpty {
+                        Button { withAnimation(.easeOut(duration: 0.2)) { importing.toggle() } } label: { Label("From ~/.ssh/config", systemImage: "square.and.arrow.down") }
+                            .buttonStyle(SettingsButton()).help("Add the hosts of your ssh config in one go")
+                    }
                     Button { withAnimation(.easeOut(duration: 0.2)) { open = "new" } } label: { Label("Add server", systemImage: "plus") }.buttonStyle(SettingsButton())
                 }
+                if importing { SSHImportCard { importing = false } }
                 if model.serverConfigs.isEmpty {
                     Text("No servers yet: the Server room says “not connected”.").font(.system(size: 13)).foregroundStyle(Color.muted).padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading).background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
@@ -501,7 +509,7 @@ private struct ProjectsSettings: View {
     private var list: some View {
         let all = model.projectCandidates
         return VStack(alignment: .leading, spacing: 18) {
-            PageTitle("Projects", "Every project folder with recent sessions gets a floor. Keep one there, or switch it on as a Dark Software Factory with a CEO on a heartbeat.")
+            PageTitle("Projects", "Every project folder with recent sessions gets a floor. Keep one there, or switch it on as a factory: an AI CEO that works on it on a schedule and asks you here.")
             HStack {
                 Spacer()
                 Button { choose() } label: { Label("Add folder…", systemImage: "folder.badge.plus") }.buttonStyle(SettingsButton())
@@ -570,7 +578,7 @@ private struct ProjectPage: View {
             BackButton("Projects", action: back)
             PageTitle(name, root.replacingOccurrences(of: NSHomeDirectory(), with: "~"), mono: true)
             SettingsCard("On the campus") {
-                SwitchRow("Dark Software Factory", "Its CEO's queue in factory/ shows on its floor, and its CEO runs on a heartbeat. Switching on creates no files.",
+                SwitchRow("Factory", "An AI CEO works on this project on a schedule and asks you here. Switching on writes nothing; setting it up shows each file first.",
                           isOn: Binding(get: { factory }, set: { model.setFactory(root, on: $0) }))
                 SwitchRow("Keep on campus", factory ? "A factory always stays on the campus." : "Its floor stays without recent sessions.",
                           isOn: Binding(get: { pinned }, set: { v in if v { model.setHidden(root, on: false) }; model.setPinned(root, on: v) }), disabled: factory)
@@ -578,18 +586,16 @@ private struct ProjectPage: View {
                           isOn: Binding(get: { model.projectSettings.hidden.contains(root) }, set: { model.setHidden(root, on: $0) }), disabled: factory)
             }
             if factory {
-                SettingsCard("Meatproxy itself") {
-                    SwitchRow("Meatproxy's own factory", "Its CEO works on this app. ⌘I sends your ideas for Meatproxy here, from anywhere in the app.",
-                              isOn: Binding(get: { model.projectSettings.ownFactory == root }, set: { model.setOwnFactory(root, on: $0) }))
-                    SwitchRow("Allow Dark", "Off: its CEO runs Assistant or Hybrid at most. Meatproxy's own factory starts with Dark off.",
+                SettingsCard("Limits") {
+                    SwitchRow("Allow Dark", "Off: its CEO runs Assistant or Hybrid at most, whatever the mandate says.",
                               isOn: Binding(get: { model.projectSettings.darkAllowed(root) }, set: { model.setDarkAllowed(root, on: $0) }))
                 }
             }
             if factory, let f = model.world.projects.first(where: { $0.root == root })?.factory {
                 if f.takesMandate { MandateCards(root: root) }
                 else {
-                    Note(icon: "doc.text", title: "Mandate needs contract v3") {
-                        Text("This factory follows meatproxy-factory v\(f.contractVersion). Once its CEO declares version 3 in factory/contract.yml, you set here what it may do on its own, its role and your preferences.")
+                    Note(icon: "doc.text", title: "Upgrade this factory's contract") {
+                        Text("This factory follows meatproxy-factory v\(f.contractVersion); the current one is v\(FactoryContract.current). Ask its CEO to upgrade factory/contract.yml (the contract is in docs/contracts/factory.md); then you set here what it may do on its own, its role and your preferences.")
                     }
                 }
             }
@@ -606,6 +612,7 @@ private struct ProjectPage: View {
 
 /// A heartbeat as cards: when it beats, what else wakes it, and its limits (D47, D48).
 private struct HeartbeatCards: View {
+    @EnvironmentObject private var model: AppModel
     let hb: Heartbeat
     /// a factory also wakes on your answers, ideas and a failed CI run
     let factoryWakes: Bool
@@ -654,10 +661,19 @@ private struct HeartbeatCards: View {
                               : src.hasSentry ? "New or returning errors (error, fatal) in \(src.sentryOrg!)/\(src.sentryProject!), every 15 minutes. Not when the mandate has bugs off."
                               : "Name the project in factory/contract.yml: sentry: org/project.",
                               isOn: Binding(get: { hb.wakeOnSentry }, set: { v in update { $0.wakeOnSentry = v } }), disabled: !v4 || !src.hasSentry)
+                    if v4, src.hasSentry, hb.wakeOnSentry {
+                        SourceHealthLine(health: model.sourceHealth[f.root]?.sentry,
+                                         missing: Secrets.get(.sentry) == nil && !model.fixture ? "No Sentry token yet: add one in General › Wake-up sources." : nil)
+                    }
                     SwitchRow("A Tracker story", !v4 ? "Needs factory contract v4: the CEO names its Tracker project in factory/contract.yml."
                               : src.tracker.map { "A story in \($0) that is rejected or ready to pick up, every 15 minutes." }
                               ?? "Name the project in factory/contract.yml: tracker: <slug>.",
                               isOn: Binding(get: { hb.wakeOnTracker }, set: { v in update { $0.wakeOnTracker = v } }), disabled: !v4 || src.tracker == nil)
+                    if v4, src.tracker != nil, hb.wakeOnTracker {
+                        SourceHealthLine(health: model.sourceHealth[f.root]?.tracker,
+                                         missing: WakeSources.trackerURL(model.projectSettings.trackerURL) == nil ? "No Tracker address yet: add it in General › Wake-up sources."
+                                         : Secrets.get(.tracker) == nil && !model.fixture ? "No Tracker token yet: add one in General › Wake-up sources." : nil)
+                    }
                 }
             }.id("wakes")
         }
@@ -762,12 +778,21 @@ private struct PrivacySettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Data & privacy").font(.system(size: 22, weight: .bold))
-            Text("Everything stays on this Mac. Nothing is sent anywhere.").font(.system(size: 13)).foregroundStyle(Color.muted)
+            Text("What Meatproxy reads, what it contacts, and what your agents send. Nothing goes to Tuinstra or anyone else: there is no analytics and no account.")
+                .font(.system(size: 13)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            Eyebrow("Read on this Mac")
             item("doc.text.magnifyingglass", "Sessions", "Read-only from the files Claude Code and Codex already keep: ~/.claude/projects and ~/.codex/sessions. The app never writes there.")
+            item("building.2", "Projects", "Your campus and factory settings, in ~/Library/Application Support/Meatproxy/projects.json. The app reads a factory's factory/ folder; it writes only your answers and ideas there, and the starter files you approve.")
             item("server.rack", "Servers", "Host names and kinds only, in ~/Library/Application Support/Meatproxy/servers.json. No passwords, no keys: ssh uses yours.")
-            item("building.2", "Projects", "The projects you keep on the campus and switched on as factories, with their heartbeats, in ~/Library/Application Support/Meatproxy/projects.json. The app reads a factory's factory/ folder and writes only your answer into an open question.")
-            item("waveform.path.ecg", "Heartbeat", "A factory's CEO runs as claude -p or codex exec in its own folder, with that project's allowlist. Logs and run state stay in ~/Library/Application Support/Meatproxy/heartbeats. CI is read with your own gh login.")
-            item("terminal", "Checks", "ssh in batch mode, with your keys and ~/.ssh/config. The built-in check reads load, disk and memory and changes nothing.")
+            Eyebrow("Contacted over the network")
+            item("antenna.radiowaves.left.and.right", "Status pages", "Every few minutes: the status pages in General (Claude, OpenAI and GitHub by default). Only a read of their public status.")
+            item("chevron.left.forwardslash.chevron.right", "GitHub", "With your own gh login: the newest CI run on main and merged pull requests of each project's repo. Read only.")
+            item("ladybug", "Sentry and Tracker", "Only when you add a token and a factory names a project: new issues and stories, read with that token.")
+            item("terminal", "Your servers", "ssh in batch mode, with your keys and ~/.ssh/config. The built-in check reads load, disk and memory and changes nothing.")
+            Eyebrow("Sent to the model")
+            item("waveform.path.ecg", "A factory's CEO", "Runs as claude -p or codex exec in the project's folder. What it reads there (code, files, your answers) goes to Anthropic or OpenAI, as with any Claude Code or Codex session. Logs stay in ~/Library/Application Support/Meatproxy/heartbeats.")
+            Eyebrow("Tokens")
+            item("key", "In the Keychain", "Sentry and Tracker tokens are kept in your login Keychain, never in a file or a log.")
             item("photo", "Screenshots", "Start the app with --fixture to show made-up data, safe to share.")
         }
     }
@@ -871,14 +896,63 @@ private struct SettingsCard<C: View>: View {
 
 /// A switch with its name and one line on what it does.
 /// A token for a wake-up source (D61): typed once, kept in the macOS Keychain, shown only as saved.
+/// How a wake source did at its last check: works, or what fails and since when; or what is still missing.
+struct SourceHealthLine: View {
+    let health: SourceHealth?
+    let missing: String?
+    var label: String? = nil
+    var body: some View {
+        let (ok, line): (Bool, String) = {
+            if let missing { return (false, missing) }
+            guard let h = health else { return (true, "Not checked yet: the first look is within 15 minutes.") }
+            if h.ok { return (true, "Works · checked \(h.at.formatted(date: .omitted, time: .shortened))") }
+            let since = h.since.map { " since " + $0.formatted(.dateTime.weekday(.abbreviated).hour().minute()) } ?? ""
+            return (false, h.line + since + ". The CEO is not woken by it until it works.")
+        }()
+        Label((label.map { $0 + ": " } ?? "") + line, systemImage: ok ? "checkmark.circle" : "exclamationmark.triangle.fill")
+            .font(.system(size: 11.5)).foregroundStyle(ok ? Color.muted : Color.warn)
+            .padding(.horizontal, 14).padding(.bottom, 8).frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Your Tracker's MCP address: Tracker is anyone's, so it is yours to name. Empty: Tracker is off.
+private struct TrackerAddressRow: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var text = ""
+    @FocusState private var focused: Bool
+    var body: some View {
+        let valid = WakeSources.trackerURL(text) != nil
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Tracker address").font(.system(size: 13.5, weight: .semibold))
+                Text(text.isEmpty ? "Your Tracker's MCP address. Empty: Tracker is off."
+                     : valid ? "Factories naming a Tracker project in contract.yml are woken from here."
+                     : "Use the full https:// address of the MCP endpoint.")
+                    .font(.system(size: 12)).foregroundStyle(text.isEmpty || valid ? Color.muted : Color.warn).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            TextField("", text: $text, prompt: Text("https://tracker.example.com/mcp").foregroundStyle(Color.muted)).focused($focused)
+                .font(.system(size: 12, design: .monospaced)).textFieldStyle(.plain)
+                .padding(.horizontal, 10).padding(.vertical, 6).frame(width: 250).lifted(focused: focused)
+                .onSubmit { if text.isEmpty || valid { model.setTrackerURL(text) } }
+                .onChange(of: focused) { _, on in if !on, text.isEmpty || valid { model.setTrackerURL(text) } }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .onAppear { text = model.projectSettings.trackerURL }
+    }
+}
+
 private struct TokenRow: View {
     @EnvironmentObject private var model: AppModel
     let key: Secrets.Key
     let text: String
     @State private var saved = false
     @State private var value = ""
+    @State private var testing = false
+    @State private var result: (ok: Bool, line: String)?
     @FocusState private var focused: Bool
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(key.label) token").font(.system(size: 13.5, weight: .semibold))
@@ -887,7 +961,9 @@ private struct TokenRow: View {
             Spacer(minLength: 0)
             if saved {
                 Label("In the Keychain", systemImage: "checkmark.seal").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.done)
-                Button { if !model.fixture { Secrets.set(key, nil) }; saved = false } label: { Text("Remove") }.buttonStyle(SettingsButton())
+                Button { test() } label: { Text(testing ? "Testing…" : "Test") }.buttonStyle(SettingsButton()).disabled(testing)
+                    .help("Reads what your factories name, once, to see that the token works")
+                Button { if !model.fixture { Secrets.set(key, nil) }; saved = false; result = nil } label: { Text("Remove") }.buttonStyle(SettingsButton())
             } else {
                 SecureField("Paste token", text: $value).focused($focused).font(.system(size: 12, design: .monospaced))
                     .textFieldStyle(.plain).padding(.horizontal, 10).padding(.vertical, 6).frame(width: 170).lifted(focused: focused)
@@ -895,13 +971,24 @@ private struct TokenRow: View {
                 Button(action: save) { Text("Save") }.buttonStyle(SettingsButton()).disabled(value.isEmpty)
             }
         }
+        if let result {
+            Label(result.line, systemImage: result.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(result.ok ? Color.done : Color.warn)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .onAppear { saved = !model.fixture && Secrets.get(key) != nil }
+    }
+    private func test() {
+        testing = true; result = nil
+        Task { result = await model.testToken(key); testing = false }
     }
     /// demo data saves nothing, also not in the Keychain
     private func save() {
         guard !value.isEmpty else { return }
         saved = model.fixture ? true : Secrets.set(key, value); value = ""
+        if saved { test() }   // a fresh token is tried right away
     }
 }
 
@@ -1088,5 +1175,64 @@ private struct StatusSourcesRows: View {
         guard let s = StatusSource.custom(address), !model.statusSources.contains(where: { $0.id == s.id }) else { return }
         model.updateStatusSources { $0.append(s) }
         address = ""
+    }
+}
+
+
+/// What the Server room checks, how often, and when it alerts: said once, plainly.
+private struct WhatWeCheckCard: View {
+    @State private var open = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button { withAnimation(.easeOut(duration: 0.18)) { open.toggle() } } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).rotationEffect(.degrees(open ? 90 : 0))
+                    Text("What we check").font(.system(size: 13, weight: .semibold))
+                    Spacer(minLength: 0)
+                }.contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            if open {
+                VStack(alignment: .leading, spacing: 5) {
+                    bullet("Every minute, over ssh in batch mode with your own keys and ~/.ssh/config. No passwords; nothing is installed.")
+                    bullet("The built-in check only reads: a warning at a root disk \(ServerProbe.diskWarn)% full, a load of \(String(format: "%.1f", ServerProbe.loadWarn)) per core, or under \(Int(ServerProbe.memoryFreeWarn * 100))% memory free. No answer is down.")
+                    bullet("An alert after two bad checks in a row, so a hiccup stays quiet; another when it is fine again.")
+                    bullet("A check of your own: exit 0 is fine, 1 a warning, anything else down; its first line is the detail.")
+                    bullet("Sites every 5 minutes: no answer, or a certificate that expires within \(SiteCheck.certWarnDays) days, is an alert.")
+                }
+                .font(.system(size: 12)).foregroundStyle(Color.muted)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+    private func bullet(_ t: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) { Text("·"); Text(t).fixedSize(horizontal: false, vertical: true) }
+    }
+}
+
+/// The hosts of your ssh config that are not on the Server room yet, ticked; Add makes each a server (checked at once).
+private struct SSHImportCard: View {
+    @EnvironmentObject private var model: AppModel
+    let done: () -> Void
+    @State private var ticked: Set<String> = []
+    var body: some View {
+        let known = Set(model.serverConfigs.map(\.host))
+        let fresh = model.sshAliases.filter { !known.contains($0) }
+        VStack(alignment: .leading, spacing: 8) {
+            Text(fresh.isEmpty ? "Every host in ~/.ssh/config is on the Server room already." : "Hosts in ~/.ssh/config: tick the ones to watch. Each is checked with your keys straight away.")
+                .font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            ForEach(fresh, id: \.self) { h in
+                Toggle(isOn: Binding(get: { ticked.contains(h) }, set: { on in if on { ticked.insert(h) } else { ticked.remove(h) } })) {
+                    Text(h).font(.system(size: 12.5, design: .monospaced))
+                }.toggleStyle(TactileToggleStyle())
+            }
+            HStack(spacing: 8) {
+                Button { model.importServers(fresh.filter { ticked.contains($0) }); done() } label: { Text("Add \(ticked.count) server\(ticked.count == 1 ? "" : "s")") }
+                    .buttonStyle(SettingsButton()).disabled(ticked.isEmpty)
+                Button("Cancel", action: done).buttonStyle(SettingsButton())
+            }
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
     }
 }

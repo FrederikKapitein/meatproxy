@@ -535,7 +535,18 @@ public struct FactoryIdea: Identifiable, Sendable, Hashable {
 /// Your mandate for a factory (contract v3, D56): how much its CEO may do on its own, its role, and your preferences.
 /// Meatproxy writes it (factory/mandate.yml); the CEO reads it every run and follows it over autonomy.yml and its playbook.
 public struct FactoryMandate: Hashable, Sendable {
-    public enum Level: String, CaseIterable, Sendable { case assistant, hybrid, dark, custom }
+    public enum Level: String, CaseIterable, Sendable {
+        case assistant, hybrid, dark, custom
+        /// the level in one plain sentence, for the CEO tab
+        public var sentence: String {
+            switch self {
+            case .assistant: "Asks you before everything it does."
+            case .hybrid: "Fixes bugs, updates and merges its tested PRs; asks before new work, shipping and spending."
+            case .dark: "Ships on its own; asks only before spending money and store releases."
+            case .custom: "Your own mix, item by item."
+            }
+        }
+    }
     public enum Mode: String, CaseIterable, Sendable { case ask, notify, off }
     public enum Role: String, CaseIterable, Sendable { case orchestrator, handsOn = "hands-on" }
 
@@ -634,7 +645,7 @@ public struct FactoryMandate: Hashable, Sendable {
     public var yaml: String {
         func q(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
         var out = """
-        # Marcel's mandate for this factory, written by Meatproxy (meatproxy-factory v3). The CEO follows it on every run;
+        # The user's mandate for this factory, written by Meatproxy (meatproxy-factory v3). The CEO follows it on every run;
         # it wins over autonomy.yml and the playbook. Change it in Meatproxy, not here.
         level: \(level.rawValue)            # assistant | hybrid | dark | custom
         role: \(role.rawValue)        # orchestrator (delegates all work) | hands-on (may do small things itself)
