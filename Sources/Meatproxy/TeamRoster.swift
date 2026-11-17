@@ -11,6 +11,8 @@ struct TeamRoster: View {
     let project: Project?
     @State private var more = false
     @State private var faces = 0
+    @State private var adding = false
+    @State private var removing: AgentProfile?
 
     private var root: String? { project?.root }
     private var current: (team: AgentTeam, own: Bool) {
@@ -47,6 +49,13 @@ struct TeamRoster: View {
                         .contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
+            if adding {
+                NewProfileForm { adding = false; more = true }
+            } else {
+                Button { adding = true } label: { Label("New profile", systemImage: "plus") }
+                    .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)))
+                    .help("A profile of your own: a name, what it may do, its model and its look. Every floor can use it.")
+            }
             Text("In all \(team.size) agent\(team.size == 1 ? "" : "s") may work here at once: the sum of your numbers. No limit but yours.")
                 .font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
             if let project {
@@ -56,6 +65,12 @@ struct TeamRoster: View {
                         .font(.system(size: 11.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
                 }
             }
+        }
+        .alert("Remove the \(removing?.label ?? "") profile?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+            Button("Remove", role: .destructive) { if let r = removing { model.removeProfile(r.name) }; removing = nil }
+            Button("Cancel", role: .cancel) { removing = nil }
+        } message: {
+            Text("It leaves every team that has it. Agent files already written for it stay in their projects.")
         }
         .task(id: model.profiles(root).map(\.name)) {
             await model.controller.ensurePortraits(([.ceo] + model.profiles(root).map(\.role)).map(key))
@@ -133,6 +148,11 @@ struct TeamRoster: View {
                 }
             }
             Spacer(minLength: 6)
+            if project == nil && model.isCustom(p.name) {
+                Button { removing = p } label: { Image(systemName: "trash").font(.system(size: 11)).frame(width: 24, height: 26).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).foregroundStyle(Color.muted).accessibilityLabel("Remove the \(p.label) profile")
+                    .help("Remove this profile from every team (its agent files stay where they are)")
+            }
             counter(p, n)
         }
         .padding(.vertical, 6)
@@ -202,6 +222,67 @@ private struct TeamFilesCard: View {
             .padding(10).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.signal.opacity(0.7)))
+        }
+    }
+}
+
+/// A profile of your own (D79): a name (its file and sub-agent type), what it may do, a model, how much it may touch
+/// and the outfit it wears on the floor.
+private struct NewProfileForm: View {
+    @EnvironmentObject private var model: AppModel
+    let done: () -> Void
+    @State private var name = ""
+    @State private var may = ""
+    @State private var llm = "sonnet"
+    @State private var access = CustomProfile.Access.read
+    @State private var look = CastRole.researcher
+    @State private var tried = false
+
+    private var problem: String? { CustomProfile.check(name, taken: model.profiles(nil).map(\.name)) }
+    static let looks: [CastRole] = [.researcher, .dev, .tester, .designer, .pm, .devops, .marketing, .sales]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("New profile").font(.system(size: 13, weight: .bold))
+            field("Name", hint: "code-reviewer") { TextField("code-reviewer", text: $name).textFieldStyle(.roundedBorder).accessibilityLabel("Profile name") }
+            if tried, let problem { Text(problem).font(.system(size: 11)).foregroundStyle(Color.warn) }
+            field("May do", hint: nil) { TextField("Reviews pull requests, changes nothing", text: $may).textFieldStyle(.roundedBorder).accessibilityLabel("What it may do") }
+            field("Touches", hint: nil) {
+                Picker("Touches", selection: $access) { ForEach(CustomProfile.Access.allCases, id: \.self) { Text($0.label).tag($0) } }
+                    .labelsHidden().pickerStyle(.menu)
+            }
+            field("Model", hint: nil) {
+                Picker("Model", selection: $llm) { ForEach(["opus", "sonnet", "haiku"], id: \.self) { Text($0.capitalized).tag($0) } }
+                    .labelsHidden().pickerStyle(.segmented)
+            }
+            field("Looks like", hint: nil) {
+                Picker("Looks like", selection: $look) { ForEach(Self.looks, id: \.self) { Text($0.label).tag($0) } }
+                    .labelsHidden().pickerStyle(.menu)
+            }
+            HStack(spacing: 8) {
+                Button("Add profile") {
+                    tried = true
+                    guard problem == nil else { return }
+                    model.addProfile(CustomProfile(name: name.trimmingCharacters(in: .whitespaces), may: may.trimmingCharacters(in: .whitespaces),
+                                                   model: llm, access: access, look: look))
+                    done()
+                }
+                .buttonStyle(TactileButtonStyle(kind: .primary, inset: EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)))
+                Button("Cancel", action: done)
+                    .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)))
+            }
+            Text("It becomes .claude/agents/\(name.isEmpty ? "<name>" : name).md on a floor that puts it on its team, shown to you first.")
+                .font(.system(size: 11)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.divider))
+    }
+
+    private func field<V: View>(_ label: String, hint: String?, @ViewBuilder _ content: () -> V) -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted).frame(width: 74, alignment: .leading)
+            content()
         }
     }
 }

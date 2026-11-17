@@ -2,7 +2,7 @@ import Foundation
 
 /// The roles you see on a floor (D41): every role its own outfit and something in its hand. The CEO is the main chat of
 /// a project, where the work starts and gets handed out; you are the stakeholder, not one of the cast.
-public enum CastRole: String, Sendable, CaseIterable {
+public enum CastRole: String, Sendable, CaseIterable, Codable {
     case ceo, lead, sales, marketing, pm, dev, designer, tester, devops, researcher
 
     public var label: String {

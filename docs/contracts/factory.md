@@ -218,6 +218,10 @@ developer, tester, designer, research, devops, marketing, sales), shows them fir
 replaces one. Claude Code has no limit per type of its own, so the numbers are an agreement:
 Meatproxy shows it on the Team tab when more ran at once than allowed. Codex has no agent files;
 there only the numbers apply. A mandate without a `team` block leaves helpers to the playbook.
+Profiles you make yourself in Meatproxy (a name, what it may do, a model, how much it may touch
+and a look) are offered on every floor and written as agent files the same way. Every team member
+is always on the floor: a free one waits in the lounge; when the CEO calls one in, that person does
+the job beside it and walks back after.
 
 ## Ideas: `ideas/I-NNNN-<slug>.md` (v2)
 

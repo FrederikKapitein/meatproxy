@@ -3,7 +3,7 @@
    four views (front-left, front-right, back-left, back-right) come for free. A plain script (no imports):
      BlockyCast.figure(name, {pose, mood, view, frame}) → SVG markup round the feet at (0, 0)
    view: SE (front-right) | SW (front-left) | NE (back-right) | NW (back-left)
-   pose: idle | walkA | walkB | sit | type | wave | ask | stuck | mug | cheer
+   pose: idle | walkA | walkB | sit | type | typeB | read | point | snooze | wave | ask | stuck | mug | cheer
    mood: calm | happy | focus | wait | stuck | tired */
 (function () {
   const f = v => (+v).toFixed(2);
@@ -120,6 +120,10 @@
     walkB: {armL: [-28, 4, 10], armR: [28, 4, 10], legL: 26, legR: -26, bob: .4},
     sit:   {armL: [20, 6, 30], armR: [20, 6, 30], legL: 90, legR: 90, sit: true},
     type:  {armL: [52, 8, 60], armR: [52, 8, 60], legL: 90, legR: 90, sit: true, head: -8},
+    typeB: {armL: [44, 8, 72], armR: [60, 8, 48], legL: 90, legR: 90, sit: true, head: -6},
+    read:  {armL: [46, 12, 84], armR: [46, 12, 84], legL: 0, legR: 0, head: -14},
+    point: {armL: [0, 6, 0], armR: [78, 14, 4], legL: 0, legR: 0, head: 6},
+    snooze: {armL: [16, 6, 26], armR: [16, 6, 26], legL: 90, legR: 90, sit: true, head: -24},
     wave:  {armL: [0, 6, 0], armR: [0, 150, -40], legL: 0, legR: 0, head: 6},
     ask:   {armL: [10, 28, 70], armR: [-10, 146, -26], legL: 0, legR: 0, head: 8},
     stuck: {armL: [0, 140, 95], armR: [0, 140, 95], legL: 0, legR: 0, head: -10},

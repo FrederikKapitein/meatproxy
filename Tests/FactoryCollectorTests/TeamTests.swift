@@ -125,4 +125,69 @@ import Testing
         let old = try JSONDecoder().decode(ProjectSettings.self, from: Data("{\"projects\": []}".utf8))
         #expect(old.defaultTeam == .campusStart)
     }
+
+    @Test func aProfileOfYourOwnNeedsAFreeFileName() {
+        let taken = AgentProfile.standard.map(\.name)
+        #expect(CustomProfile.check("code-reviewer", taken: taken) == nil)
+        #expect(CustomProfile.check("", taken: taken) != nil)
+        #expect(CustomProfile.check("Code Reviewer", taken: taken) != nil)
+        #expect(CustomProfile.check("../evil", taken: taken) != nil)
+        #expect(CustomProfile.check("tester", taken: taken) != nil)
+        #expect(CustomProfile.check("ceo", taken: taken) != nil)
+    }
+
+    @Test func aProfileOfYourOwnBecomesAnAgentFileWithItsAccess() throws {
+        let mine = CustomProfile(name: "code-reviewer", may: "Reviews pull requests, changes nothing", model: "opus", access: .read, look: .tester)
+        #expect(mine.profile.label == "Code reviewer")
+        #expect(mine.profile.role == .tester)
+        let root = try tempProject()
+        let plan = TeamFiles.plan(root: root, project: "Pebble", team: AgentTeam(["code-reviewer": 1]), profiles: AgentProfile.standard + [mine.profile])
+        #expect(plan.map(\.path) == [".claude/agents/code-reviewer.md"])
+        #expect(plan[0].text.contains("tools: Read, Glob, Grep, WebSearch, WebFetch\n"))
+        #expect(plan[0].text.contains("model: opus\n"))
+        #expect(!plan[0].text.contains("Edit"))
+        var s = ProjectSettings(); s.customProfiles = [mine]
+        let back = try JSONDecoder().decode(ProjectSettings.self, from: JSONEncoder().encode(s))
+        #expect(back.customProfiles == [mine])
+    }
+
+    func floor(team: AgentTeam, helpers: [SubAgent], roles: [String: CastRole] = [:]) -> Project {
+        var s = Session(id: "s1", provider: .claude, cwd: "/p", title: "CEO run", lastAt: Date(), turnOpen: true, projectRoot: "/p")
+        s.subAgents = helpers
+        var p = Project(id: "p", provider: .claude, root: "/p", name: "Pebble", isChat: false, sessions: [s],
+                        factory: FactoryText.factory(root: "/p", files: [:]))
+        p.team = team; p.teamRoles = roles
+        return p
+    }
+
+    @Test func everyTeamMemberHasAPlaceAndAHelperAtWorkTakesOne() {
+        let p = floor(team: AgentTeam(["developer": 2, "tester": 1]), helpers: [
+            SubAgent(id: "a", type: "developer", summary: "", finished: false),
+            SubAgent(id: "b", type: "tester", summary: "", finished: true),
+            SubAgent(id: "c", type: "developer", summary: "", finished: false),
+            SubAgent(id: "d", type: "developer", summary: "", finished: false),
+        ])
+        let slots = p.teamSlots
+        #expect(slots.map(\.id) == ["team:/p:developer:0", "team:/p:developer:1", "team:/p:tester:0"])
+        // two developers at work fill both places, in the order they started; the third is extra and gets none
+        #expect(slots.map(\.helper) == ["a", "c", nil])
+        #expect(slots[0].owner == "s1")
+        // a place keeps its face, busy or free
+        #expect(slots[0].cast == CastKey(role: .dev, seed: "team:/p:developer:0"))
+        #expect(p.isTeamProfile("Tester") && !p.isTeamProfile("research"))
+    }
+
+    @Test func aPlainProjectOrNoTeamHasNoPlaces() {
+        var p = floor(team: AgentTeam(["developer": 1]), helpers: [])
+        p.factory = nil
+        #expect(p.teamSlots.isEmpty && !p.isTeamProfile("developer"))
+        var q = floor(team: AgentTeam(), helpers: [])
+        q.team = nil
+        #expect(q.teamSlots.isEmpty)
+    }
+
+    @Test func aProfileOfYourOwnWearsTheLookYouChose() {
+        let p = floor(team: AgentTeam(["code-reviewer": 1]), helpers: [], roles: ["code-reviewer": .designer])
+        #expect(p.teamSlots.first?.role == .designer)
+    }
 }

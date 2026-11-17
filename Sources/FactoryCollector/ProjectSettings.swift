@@ -36,6 +36,8 @@ public struct ProjectSettings: Codable, Equatable, Sendable {
     public var trackerURL = ""
     /// the campus default team (D79): every factory floor follows it until it has its own
     public var defaultTeam = AgentTeam.campusStart
+    /// profiles you made yourself, offered on every floor
+    public var customProfiles: [CustomProfile] = []
 
     public init(projects: [Entry] = [], showChats: Bool = true, heartbeatWhenClosed: Bool = false) {
         self.projects = projects; self.showChats = showChats; self.heartbeatWhenClosed = heartbeatWhenClosed
@@ -55,7 +57,7 @@ public struct ProjectSettings: Codable, Equatable, Sendable {
     }
 
     // tolerant decoding: a field added later has its default
-    enum CodingKeys: String, CodingKey { case projects, showChats, heartbeatWhenClosed, pauseAll, devops, hidden, darkOff, trackerURL, defaultTeam }
+    enum CodingKeys: String, CodingKey { case projects, showChats, heartbeatWhenClosed, pauseAll, devops, hidden, darkOff, trackerURL, defaultTeam, customProfiles }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         projects = try c.decodeIfPresent([Entry].self, forKey: .projects) ?? []
@@ -67,6 +69,7 @@ public struct ProjectSettings: Codable, Equatable, Sendable {
         darkOff = try c.decodeIfPresent([String].self, forKey: .darkOff) ?? []
         trackerURL = try c.decodeIfPresent(String.self, forKey: .trackerURL) ?? ""
         defaultTeam = try c.decodeIfPresent(AgentTeam.self, forKey: .defaultTeam) ?? .campusStart
+        customProfiles = try c.decodeIfPresent([CustomProfile].self, forKey: .customProfiles) ?? []
     }
 }
 

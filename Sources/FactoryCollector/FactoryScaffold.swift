@@ -188,9 +188,10 @@ public enum FactoryScaffold {
 /// The team's agent files (D79): one Claude Code sub-agent per profile in `.claude/agents/`, shown before anything is
 /// written and never replacing a file that is there (you may have made it your own).
 public enum TeamFiles {
-    /// the agent files the team needs, for the standard profiles on it; your own profiles bring their own file
-    public static func plan(root: String, project: String, team: AgentTeam) -> [StarterFile] {
-        team.names.compactMap(AgentProfile.standard).map { p in
+    /// the agent files the team needs, for the profiles Meatproxy can write (its own and the ones you made in Settings);
+    /// an agent file you wrote yourself is there already
+    public static func plan(root: String, project: String, team: AgentTeam, profiles: [AgentProfile] = AgentProfile.standard) -> [StarterFile] {
+        team.names.compactMap { n in profiles.first { $0.name == n && !$0.tools.isEmpty } }.map { p in
             let path = ".claude/agents/\(p.name).md"
             return StarterFile(path: path, text: p.agentFile(project: project),
                                exists: FileManager.default.fileExists(atPath: (root as NSString).appendingPathComponent(path)),

@@ -91,11 +91,12 @@ public final class WorldController {
             + "|servers:" + w.servers.map { "\($0.id)=\($0.kind.rawValue)/\($0.state.rawValue)" }.joined(separator: ",")
     }
     static func signature(_ p: Project, now: Date) -> String {
-        p.id + "=" + p.sessions.map { "\($0.id.prefix(8))\($0.state(now: now).rawValue.prefix(2))\($0.subAgents.count)\($0.room(now: now).rawValue.prefix(3))" }.joined()
+        p.id + "=" + p.sessions.map { "\($0.id.prefix(8))\($0.state(now: now).rawValue.prefix(2))\($0.subAgents.count)\($0.subAgents.filter(\.finished).count)\($0.room(now: now).rawValue.prefix(3))" }.joined()
+            + (p.team.map { t in "|t" + t.names.map { "\($0):\(t.count($0))" }.joined(separator: ",") } ?? "")
     }
 
     /// The people of a project, and their helpers, as cast keys.
-    private func casts(_ p: Project) -> [CastKey] { p.sessions.flatMap { s in [p.cast(of: s)] + s.subAgents.map(\.cast) } }
+    private func casts(_ p: Project) -> [CastKey] { p.sessions.flatMap { s in [p.cast(of: s)] + s.subAgents.map(\.cast) } + p.teamSlots.map(\.cast) }
 
     private func loadFigures(_ keys: [CastKey]) async {
         for k in keys where figures[k.key] == nil { if let f = try? await engine.figure(k) { figures[k.key] = f } }

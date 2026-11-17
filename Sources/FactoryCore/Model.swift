@@ -151,6 +151,9 @@ public struct Project: Identifiable, Sendable, Hashable {
     public var cost: ProjectCost?
     /// What GitHub says about its repos (D67), when it has any there and gh can read them.
     public var github: GitHubStatus?
+    /// On a factory floor, who its CEO may call in and how many at once (D79), and the look of each profile.
+    public var team: AgentTeam?
+    public var teamRoles: [String: CastRole] = [:]
 
     public init(id: String, provider: Provider, root: String, name: String, isChat: Bool, sessions: [Session], factory: Factory? = nil) {
         self.id = id; self.provider = provider; self.root = root; self.name = name; self.isChat = isChat; self.sessions = sessions

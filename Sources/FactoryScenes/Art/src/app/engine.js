@@ -152,7 +152,7 @@
     });
     const a = atlas(objs, R, 2048);
     // the foot (art origin) inside each frame: x and y are where the frame's top-left goes relative to the feet
-    return {R, page: a.pages[0], frames: a.items.sort((p, q) => +p.id - +q.id).map(it => ({px: it.px, py: it.py, pw: it.pw, ph: it.ph, x: it.x, y: it.y, w: it.w, h: it.h})), top: cast.top, skin: cast.skin};
+    return {R, page: a.pages[0], pages: a.pages, frames: a.items.sort((p, q) => +p.id - +q.id).map(it => ({page: it.page, px: it.px, py: it.py, pw: it.pw, ph: it.ph, x: it.x, y: it.y, w: it.w, h: it.h})), top: cast.top, skin: cast.skin};
   }
 
   /* name tags, emotes and the stuck cloud, as on the board, one image each centred on its anchor */
@@ -162,7 +162,7 @@
     const markup = `<rect x="${-tw / 2}" y="-9" width="${tw}" height="12" fill="${wait ? "#FFD83D" : stuck ? "#ff4a4a" : "#20182c"}" stroke="#2a1a2e" stroke-width="1.6"/><text x="0" y="0.6" font-family="x" font-size="7.4" text-anchor="middle" fill="${wait ? "#1d1626" : "#fff8ec"}">${text.replace(/[<&>]/g, "")}</text>`;
     return raster(markup, "", [-tw / 2 - 1.5, -10.5, tw / 2 + 1.5, 4.5], R);
   }
-  const GLYPH = {"?": ["?", "#3f6fd8"], "!": ["!", "#e0473a"], dots: ["…", "#2a1a2e"], coffee: ["☕", "#7a4a30"], check: ["✓", "#2f9a5a"], back: ["↩", "#3f6fd8"], bug: ["✗", "#8a5cf0"], wait: ["⏳", "#2a1a2e"]};
+  const GLYPH = {"?": ["?", "#3f6fd8"], "!": ["!", "#e0473a"], dots: ["…", "#2a1a2e"], coffee: ["☕", "#7a4a30"], check: ["✓", "#2f9a5a"], back: ["↩", "#3f6fd8"], zzz: ["z", "#5b6ad0"], bug: ["✗", "#8a5cf0"], wait: ["⏳", "#2a1a2e"]};
   function emote(o) {
     const G = GLYPH[o.kind] || GLYPH["!"];
     const markup = `<rect x="-9" y="-16" width="18" height="15" fill="#fffaf0" stroke="#2a1a2e" stroke-width="1.6"/><path d="M-3,-1 l3,5 l2,-5z" fill="#fffaf0" stroke="#2a1a2e" stroke-width="1.4" stroke-linejoin="round"/><text x="0" y="-4.5" font-family="x" font-size="11" text-anchor="middle" fill="${G[1]}">${G[0]}</text>`;

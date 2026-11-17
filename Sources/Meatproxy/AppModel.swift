@@ -378,9 +378,9 @@ final class AppModel: ObservableObject {
     }
 
     private func apply(_ w: World) {
-        world = w
+        world = withTeams(w)
         lastRead = w.now
-        controller.show(w)
+        controller.show(world)
         Task { await controller.ensurePortraits(w.projects.flatMap { p in p.sessions.map { p.cast(of: $0) } }); objectWillChange.send() }
     }
 
@@ -731,26 +731,62 @@ final class AppModel: ObservableObject {
     func setTeam(_ root: String, _ change: (inout AgentTeam) -> Void) {
         let start = team(root).team
         setMandate(root) { m in m.ownTeam = true; m.team = start; change(&m.team) }
+        showTeams()
     }
 
     /// Back to the campus default, or its own team starting from the default's numbers.
     func followCampusTeam(_ root: String, _ follow: Bool) {
         let start = team(root).team
         setMandate(root) { m in m.ownTeam = !follow; m.team = start }
+        showTeams()
     }
 
     /// Changes the campus default and writes it into every factory floor that follows it.
     func setDefaultTeam(_ change: (inout AgentTeam) -> Void) {
         changeProjects { change(&$0.defaultTeam) }
         for root in projectSettings.factoryRoots where isSetUp(root) && !mandate(root).ownTeam { setMandate(root) { _ in } }
+        showTeams()
     }
 
-    /// The profiles a roster shows: Meatproxy's, then your own agent files in the project.
-    func profiles(_ root: String?) -> [AgentProfile] {
-        guard let root, !fixture else { return AgentProfile.standard }
-        let own = TeamFiles.existing(root: root).filter { AgentProfile.standard($0.key) == nil }
-        return AgentProfile.standard + own.keys.sorted().map { AgentProfile.own($0, model: own[$0] ?? nil) }
+    /// Every factory floor knows its team and the look of each profile, so all of them are on the floor (D79).
+    private func withTeams(_ w: World) -> World {
+        var w = w
+        let roles = Dictionary(projectSettings.customProfiles.map { ($0.name, $0.look) }, uniquingKeysWith: { a, _ in a })
+        for b in w.buildings.indices {
+            for k in w.buildings[b].projects.indices where w.buildings[b].projects[k].factory != nil {
+                let root = w.buildings[b].projects[k].root
+                guard isSetUp(root) else { continue }
+                w.buildings[b].projects[k].team = team(root).team
+                w.buildings[b].projects[k].teamRoles = roles
+            }
+        }
+        return w
     }
+    /// the floor follows a team change at once
+    private func showTeams() { world = withTeams(world); controller.show(world) }
+
+    /// Adds a profile of your own; it is offered on every floor.
+    func addProfile(_ p: CustomProfile) {
+        changeProjects { $0.customProfiles.append(p) }
+        showTeams()
+    }
+    /// Removes a profile of your own: from the list and from every team (its agent files stay where they are).
+    func removeProfile(_ name: String) {
+        changeProjects { $0.customProfiles.removeAll { $0.name == name }; $0.defaultTeam.set(name, 0) }
+        for root in projectSettings.factoryRoots where isSetUp(root) && mandate(root).ownTeam && mandate(root).team.count(name) > 0 {
+            setMandate(root) { $0.team.set(name, 0) }
+        }
+        showTeams()
+    }
+
+    /// The profiles a roster shows: Meatproxy's, the ones you made, then other agent files in the project.
+    func profiles(_ root: String?) -> [AgentProfile] {
+        let mine = AgentProfile.standard + projectSettings.customProfiles.map(\.profile)
+        guard let root, !fixture else { return mine }
+        let own = TeamFiles.existing(root: root).filter { e in !mine.contains { $0.name == e.key } }
+        return mine + own.keys.sorted().map { AgentProfile.own($0, model: own[$0] ?? nil) }
+    }
+    func isCustom(_ name: String) -> Bool { projectSettings.customProfiles.contains { $0.name == name } }
 
     /// The model a profile runs on in this project: its agent file's, or the one Meatproxy writes.
     func model(_ p: AgentProfile, root: String?) -> String {
@@ -761,7 +797,7 @@ final class AppModel: ObservableObject {
     /// The agent files a floor's team still needs (none on a Codex floor: Codex has no agent files).
     func teamFiles(_ project: Project) -> [StarterFile] {
         guard project.provider == .claude else { return [] }
-        var plan = TeamFiles.plan(root: project.root, project: project.name, team: team(project.root).team)
+        var plan = TeamFiles.plan(root: project.root, project: project.name, team: team(project.root).team, profiles: profiles(project.root))
         if fixture { for k in plan.indices { plan[k].exists = demoTeamFiles.contains(project.root + plan[k].path) } }
         return plan
     }

@@ -16,8 +16,12 @@ public struct AgentProfile: Hashable, Sendable, Identifiable {
     public var when: String
     public var id: String { name }
 
-    /// "Developer"; your own profile by its name
-    public var label: String { AgentProfile.standard(name) != nil ? role.label : name.capitalized }
+    /// "Developer"; your own profile by its name ("code-reviewer" → "Code reviewer")
+    public var label: String {
+        if AgentProfile.standard(name) != nil { return role.label }
+        let words = name.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ")
+        return words.prefix(1).uppercased() + words.dropFirst()
+    }
 
     /// The profiles Meatproxy knows, in the order the roster shows them.
     public static let standard: [AgentProfile] = [
@@ -123,6 +127,86 @@ extension FactoryMandate {
         for n in team.names { out += "  \(n): \(team.count(n))\n" }
         return out
     }
+}
+
+/// A profile you made yourself (D79): kept with your settings and offered on every floor, written as an agent file like
+/// Meatproxy's own.
+public struct CustomProfile: Codable, Hashable, Sendable, Identifiable {
+    /// what it may touch: reading only, editing files, or editing and running commands
+    public enum Access: String, Codable, CaseIterable, Sendable {
+        case read, edit, run
+        public var tools: [String] {
+            switch self {
+            case .read: ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]
+            case .edit: ["Read", "Edit", "Write", "Glob", "Grep"]
+            case .run: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"]
+            }
+        }
+        public var label: String {
+            switch self { case .read: "Reads only"; case .edit: "Edits files"; case .run: "Edits and runs commands" }
+        }
+    }
+    public var name: String
+    public var may: String
+    public var model: String
+    public var access: Access
+    /// the outfit it wears on the floor
+    public var look: CastRole
+    public var id: String { name }
+
+    public init(name: String, may: String, model: String = "sonnet", access: Access = .read, look: CastRole = .researcher) {
+        self.name = name; self.may = may; self.model = model; self.access = access; self.look = look
+    }
+
+    public var profile: AgentProfile {
+        AgentProfile(name: name, role: look, model: model, tools: access.tools, may: may.isEmpty ? access.label : may,
+                     when: "when its work fits: \(may.isEmpty ? access.label.lowercased() : may.lowercased())")
+    }
+
+    /// A profile name is a file name and a sub-agent type: lower case letters, digits and dashes, not one that exists.
+    public static func check(_ name: String, taken: [String]) -> String? {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        if n.isEmpty { return "Give it a name" }
+        if n.range(of: "^[a-z][a-z0-9-]{0,30}$", options: .regularExpression) == nil { return "Lower case letters, digits and dashes, starting with a letter" }
+        if n == "ceo" || taken.contains(n) { return "There is a profile called \(n) already" }
+        return nil
+    }
+}
+
+/// One place for a team member on a factory floor (D79): every agent you switch on is always there. A free one waits
+/// in the lounge; when the CEO calls one in, that same person does the job, then comes back.
+public struct TeamSlot: Hashable, Sendable {
+    /// "team:<root>:developer:0", the same person every time
+    public var id: String
+    public var profile: String
+    public var role: CastRole
+    /// the helper doing a job in this place now, and the session it works for
+    public var helper: String?
+    public var owner: String?
+    public var cast: CastKey { CastKey(role: role, seed: id) }
+}
+
+extension Project {
+    /// Its team's places, each with the running helper of that profile that fills it (in the order the helpers
+    /// started). Helpers beyond the numbers get no place: they are shown as extra, and the Team tab says so.
+    public var teamSlots: [TeamSlot] {
+        guard let team, factory != nil else { return [] }
+        var running: [String: [(sub: String, owner: String)]] = [:]
+        for s in sessions.sorted(by: { $0.id < $1.id }) {
+            for a in s.subAgents where !a.finished { running[a.type.lowercased(), default: []].append((a.id, s.id)) }
+        }
+        return team.names.flatMap { name -> [TeamSlot] in
+            let role = teamRoles[name] ?? AgentProfile.standard(name)?.role ?? CastRole(subAgentType: name)
+            let busy = running[name] ?? []
+            return (0..<team.count(name)).map { k in
+                TeamSlot(id: "team:\(root):\(name):\(k)", profile: name, role: role,
+                         helper: k < busy.count ? busy[k].sub : nil, owner: k < busy.count ? busy[k].owner : nil)
+            }
+        }
+    }
+
+    /// a helper of a profile on the team: once its job is done it is back in the lounge, not standing about
+    public func isTeamProfile(_ type: String) -> Bool { factory != nil && (team?.count(type.lowercased()) ?? 0) > 0 }
 }
 
 /// Counts the helpers of each profile working on a project right now: its sessions' sub-agents that have not finished,

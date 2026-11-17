@@ -322,18 +322,26 @@ public struct Figure {
         Spec(pose: "idle", view: v, mood: "wait", noProp: false), Spec(pose: "stuck", view: v, mood: "stuck", noProp: true),
         Spec(pose: "mug", view: v, mood: "tired", noProp: false), Spec(pose: "cheer", view: v, mood: "happy", noProp: true),
         Spec(pose: "wave", view: v, mood: "happy", noProp: false), Spec(pose: "idle", view: v, mood: "tired", noProp: false),
+        // the loops of someone who stands still (IdleMotion): typing, asking, reading, pointing, dozing
+        Spec(pose: "typeB", view: v, mood: "focus", noProp: true), Spec(pose: "ask", view: v, mood: "wait", noProp: false),
+        Spec(pose: "read", view: v, mood: "calm", noProp: false), Spec(pose: "point", view: v, mood: "calm", noProp: false),
+        Spec(pose: "snooze", view: v, mood: "tired", noProp: true),
     ] }
     public var frames: [String: (texture: SKTexture, rect: CGRect)] = [:]
     public var portrait: CGImage?
 
     init(_ d: [String: Any]) {
-        guard let page = d["page"] as? [String: Any], let cg = decodeImage( page["png"] as? String) else { return }
-        let tex = SKTexture(cgImage: cg), W = CGFloat(cg.width), H = CGFloat(cg.height)
+        // one atlas page, or more when the frames do not fit on one
+        let pages = ((d["pages"] as? [[String: Any]]) ?? [d["page"] as? [String: Any]].compactMap { $0 })
+            .compactMap { decodeImage($0["png"] as? String) }
+        guard !pages.isEmpty else { return }
+        let textures = pages.map { SKTexture(cgImage: $0) }
         for (k, f) in ((d["frames"] as? [[String: Any]]) ?? []).enumerated() where k < Self.specs.count {
+            let n = min(Int(num(f["page"])), pages.count - 1), tex = textures[n], W = CGFloat(pages[n].width), H = CGFloat(pages[n].height)
             let px = num(f["px"]), py = num(f["py"]), pw = num(f["pw"]), ph = num(f["ph"])
             let t = SKTexture(rect: CGRect(x: px / W, y: 1 - (py + ph) / H, width: pw / W, height: ph / H), in: tex)
             frames[Self.specs[k].name] = (t, CGRect(x: num(f["x"]), y: num(f["y"]), width: num(f["w"]), height: num(f["h"])))
-            if k == 0 { portrait = cg.cropping(to: CGRect(x: px, y: py, width: pw, height: ph * 0.62)) }
+            if k == 0 { portrait = pages[n].cropping(to: CGRect(x: px, y: py, width: pw, height: ph * 0.62)) }
         }
     }
 
