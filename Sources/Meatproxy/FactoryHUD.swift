@@ -186,8 +186,8 @@ struct FactoryOverview: View {
     private var tab: Tab { model.factoryTabs[project.id] ?? .overview }
 
     /// What you act on stays on top (a pause, the open questions); the rest is behind four tabs, so the panel never
-    /// becomes one long stack (D44).
-    enum Tab: String, Hashable { case overview, work, ceo }
+    /// becomes one long stack (D44). Team (D79) says who the CEO may call in.
+    enum Tab: String, Hashable { case overview, work, ceo, team }
 
     var body: some View {
         if !model.isSetUp(project.root) { SetUpFactoryCard(project: project) }
@@ -228,6 +228,7 @@ struct FactoryOverview: View {
         case .overview: briefing; ideas
         case .work: work
         case .ceo: ceo
+        case .team: TeamRoster(project: project)
         }
         if !factory.problems.isEmpty {
             Text("Could not read \(factory.problems.joined(separator: ", "))").font(.system(size: 11.5)).foregroundStyle(Color.stuck)
@@ -243,6 +244,7 @@ struct FactoryOverview: View {
             .init(id: .overview, title: newIdeas > 0 ? "Overview · \(newIdeas)" : "Overview", help: "The CEO's briefing and your ideas"),
             .init(id: .work, title: "Work · \(factory.activeWorkstreams.count + project.sessions.count)", help: "Workstreams and sessions"),
             .init(id: .ceo, title: "CEO" + ceoFlag, help: hb?.running == true ? "The CEO is running" : "Heartbeat, autonomy and contract"),
+            .init(id: .team, title: "Team · \(model.team(project.root).team.size)", help: "Who the CEO may call in, and how many at once"),
         ]
     }
 

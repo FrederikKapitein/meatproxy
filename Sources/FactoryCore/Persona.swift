@@ -23,7 +23,11 @@ public enum CastRole: String, Sendable, CaseIterable {
     /// A sub-agent's type picks the helper's role: an Explore helper reads, a reviewer tests, and so on.
     public init(subAgentType type: String) {
         let t = type.lowercased()
-        if t.contains("explor") || t.contains("research") || t.contains("search") || t.contains("doc") { self = .researcher }
+        // a team profile's name is exact (D79): a helper started as "tester" is the Tester
+        let exact: [String: CastRole] = ["product": .pm, "developer": .dev, "tester": .tester, "designer": .designer, "research": .researcher,
+                                         "researcher": .researcher, "devops": .devops, "marketing": .marketing, "sales": .sales]
+        if let r = exact[t] { self = r }
+        else if t.contains("explor") || t.contains("research") || t.contains("search") || t.contains("doc") { self = .researcher }
         else if t.contains("plan") || t.contains("architect") { self = .pm }
         else if t.contains("review") || t.contains("test") || t.contains("qa") || t.contains("verif") || t.contains("audit") { self = .tester }
         else if t.contains("design") || t.contains("ui") || t.contains("style") { self = .designer }

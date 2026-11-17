@@ -190,6 +190,11 @@ preferences:
   batch_small_fixes: true
 notes: |
   Your own words; part of the mandate.
+team:                    # who the CEO may call in as sub-agents (subagent_type = the name), at most how many at once
+  follows: own           # campus: the campus default team · own: this floor's own team
+  product: 1
+  developer: 2
+  tester: 1
 ```
 
 The levels are presets over the items: **assistant** asks everything; **hybrid** lets bugs,
@@ -202,6 +207,17 @@ CEO follows it on every run; it wins over `autonomy.yml` and the playbook. `auto
 stays the CEO's record of its gates and streaks; its promote proposals remain questions for
 you. Without `mandate.yml` the CEO works from `autonomy.yml` as in version 2. The floor's
 darkness follows the mandate's level.
+
+The `team` block (D79) says which helpers the CEO may call in and how many of each may work at
+once. The CEO itself is always there and is not listed. There is no maximum but the user's:
+the team is the CEO plus the sum of the numbers. A floor follows the campus default team until
+the user gives it its own (`follows: own`); Meatproxy writes the default's numbers out either
+way, so the CEO only reads this file. Each name is a Claude Code sub-agent in
+`.claude/agents/<name>.md`; Meatproxy offers those files for the standard profiles (product,
+developer, tester, designer, research, devops, marketing, sales), shows them first and never
+replaces one. Claude Code has no limit per type of its own, so the numbers are an agreement:
+Meatproxy shows it on the Team tab when more ran at once than allowed. Codex has no agent files;
+there only the numbers apply. A mandate without a `team` block leaves helpers to the playbook.
 
 ## Ideas: `ideas/I-NNNN-<slug>.md` (v2)
 

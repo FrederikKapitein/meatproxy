@@ -708,13 +708,73 @@ final class AppModel: ObservableObject {
         return world.projects.first { $0.root == root }?.factory?.mandate ?? FactoryMandate()
     }
 
-    /// Changes a factory's mandate and writes it (contract v3, D56); the CEO follows it from its next run.
+    /// Changes a factory's mandate and writes it (contract v3, D56); the CEO follows it from its next run. A floor that
+    /// follows the campus team gets the campus default's numbers written out.
     func setMandate(_ root: String, _ change: (inout FactoryMandate) -> Void) {
         var m = mandate(root)
         change(&m)
+        if !m.ownTeam { m.team = projectSettings.defaultTeam }
         if fixture { demoMandates[root] = m; objectWillChange.send(); return }
         do { try MandateFile.write(m, root: root); refresh() }
         catch { status = "Could not write the mandate: \(error.localizedDescription)" }
+    }
+
+    // MARK: the team (D79)
+
+    /// The team a floor works with: its own, or the campus default.
+    func team(_ root: String) -> (team: AgentTeam, own: Bool) {
+        let m = mandate(root)
+        return m.ownTeam ? (m.team, true) : (projectSettings.defaultTeam, false)
+    }
+
+    /// Gives a floor its own team (starting from the one it has) and changes it.
+    func setTeam(_ root: String, _ change: (inout AgentTeam) -> Void) {
+        let start = team(root).team
+        setMandate(root) { m in m.ownTeam = true; m.team = start; change(&m.team) }
+    }
+
+    /// Back to the campus default, or its own team starting from the default's numbers.
+    func followCampusTeam(_ root: String, _ follow: Bool) {
+        let start = team(root).team
+        setMandate(root) { m in m.ownTeam = !follow; m.team = start }
+    }
+
+    /// Changes the campus default and writes it into every factory floor that follows it.
+    func setDefaultTeam(_ change: (inout AgentTeam) -> Void) {
+        changeProjects { change(&$0.defaultTeam) }
+        for root in projectSettings.factoryRoots where isSetUp(root) && !mandate(root).ownTeam { setMandate(root) { _ in } }
+    }
+
+    /// The profiles a roster shows: Meatproxy's, then your own agent files in the project.
+    func profiles(_ root: String?) -> [AgentProfile] {
+        guard let root, !fixture else { return AgentProfile.standard }
+        let own = TeamFiles.existing(root: root).filter { AgentProfile.standard($0.key) == nil }
+        return AgentProfile.standard + own.keys.sorted().map { AgentProfile.own($0, model: own[$0] ?? nil) }
+    }
+
+    /// The model a profile runs on in this project: its agent file's, or the one Meatproxy writes.
+    func model(_ p: AgentProfile, root: String?) -> String {
+        guard let root, !fixture, let m = TeamFiles.existing(root: root)[p.name] else { return p.model }
+        return m ?? "inherit"
+    }
+
+    /// The agent files a floor's team still needs (none on a Codex floor: Codex has no agent files).
+    func teamFiles(_ project: Project) -> [StarterFile] {
+        guard project.provider == .claude else { return [] }
+        var plan = TeamFiles.plan(root: project.root, project: project.name, team: team(project.root).team)
+        if fixture { for k in plan.indices { plan[k].exists = demoTeamFiles.contains(project.root + plan[k].path) } }
+        return plan
+    }
+    private var demoTeamFiles: Set<String> = []
+
+    /// Writes the missing agent files you approved; never replaces one. The demo only pretends.
+    func createTeamFiles(_ project: Project, files: [StarterFile]) {
+        if fixture { for f in files { demoTeamFiles.insert(project.root + f.path) }; objectWillChange.send(); return }
+        do {
+            let written = try FactoryScaffold.create(files, root: project.root)
+            status = "Wrote \(written.count) agent file\(written.count == 1 ? "" : "s") in \(project.name)"
+            objectWillChange.send()
+        } catch { status = "Could not write the agent files: \(error.localizedDescription)" }
     }
 
     /// Sends the factory's CEO an idea (factory/ideas/), and wakes it a few minutes later like an answer does.

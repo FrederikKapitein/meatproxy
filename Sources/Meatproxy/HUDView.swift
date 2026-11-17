@@ -160,7 +160,7 @@ struct HUDView: View {
                     if xy.count == 2 { WindowShot.mouse("right", x: xy[0], y: xy[1]) }
                 }
                 else if step.hasPrefix("building:") { model.controller.focusBuilding(String(step.dropFirst(9))) }
-                // "tab:<overview|work|ceo>": that tab in the open factory's inspector
+                // "tab:<overview|work|ceo|team>": that tab in the open factory's inspector
                 else if step.hasPrefix("tab:"), let id = model.selection.projectID, let t = FactoryOverview.Tab(rawValue: String(step.dropFirst(4))) { model.factoryTabs[id] = t }
                 else if step.hasPrefix("floor:") { model.controller.enterFloor(String(step.dropFirst(6))) }
                 else if step == "orbit" { model.controller.showOrbit(true) }
@@ -173,6 +173,7 @@ struct HUDView: View {
                     }
                 }
                 else if step == "settings" { model.settingsOpen = true }
+                else if step == "settings:projects" { model.settingsAtProjects = true; model.settingsOpen = true }
                 else if step.hasPrefix("walk:"), let k = Int(step.dropFirst(5)) { model.walkStep = k; if k == 1 { model.controller.focusBuilding("claude") } }
                 else if step.hasPrefix("factory:") { model.setFactory(String(step.dropFirst(8)), on: true) }
                 else if step.hasPrefix("view:") { model.debugViewFile = String(step.dropFirst(5)) }
@@ -685,7 +686,7 @@ struct SessionCard: View {
     }
 }
 
-private struct Avatar: View {
+struct Avatar: View {
     let cg: CGImage?
     var body: some View {
         ZStack {

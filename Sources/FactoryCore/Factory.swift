@@ -579,6 +579,9 @@ public struct FactoryMandate: Hashable, Sendable {
     public var batchSmallFixes: Bool = true
     /// anything else, in your words: part of the mandate the CEO must follow
     public var notes: String = ""
+    /// who the CEO may call in, and how many at once (D79); it follows the campus default until the floor has its own
+    public var team: AgentTeam = .campusStart
+    public var ownTeam = false
 
     public init() {}
 
@@ -668,12 +671,13 @@ public struct FactoryMandate: Hashable, Sendable {
         """
         let lines = notes.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: .newlines)
         out += (lines == [""] ? ["  (none)"] : lines.map { "  " + $0 }).joined(separator: "\n") + "\n"
+        out += teamYAML(team, own: ownTeam)
         return out
     }
 
     /// Reads factory/mandate.yml (tolerant: a field it does not know keeps its default).
     public static func parse(_ text: String) -> FactoryMandate {
-        var m = FactoryMandate(), block = "", notes: [String] = []
+        var m = FactoryMandate(), block = "", notes: [String] = [], counts: [String: Int] = [:], sawTeam = false
         for raw in text.components(separatedBy: "\n") {
             if block == "notes" {
                 if raw.hasPrefix("  ") || raw.isEmpty { notes.append(String(raw.dropFirst(min(2, raw.count)))); continue }
@@ -696,6 +700,10 @@ public struct FactoryMandate: Hashable, Sendable {
                 continue
             }
             if block == "items", let i = Item(rawValue: k), let mode = Mode(rawValue: v) { m.items[i] = mode }
+            if block == "team" {
+                sawTeam = true
+                if k == "follows" { m.ownTeam = v == "own" } else if let n = Int(v) { counts[k] = n }
+            }
             if block == "preferences" {
                 switch k {
                 case "quiet_hours": m.quietHours = v
@@ -710,6 +718,7 @@ public struct FactoryMandate: Hashable, Sendable {
         let n = notes.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         m.notes = n == "(none)" ? "" : n
         if m.level != .custom { m.items = preset(m.level) }
+        if sawTeam { m.team = AgentTeam(counts) }
         return m
     }
 }

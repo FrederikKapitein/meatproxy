@@ -514,6 +514,12 @@ private struct ProjectsSettings: View {
                 Spacer()
                 Button { choose() } label: { Label("Add folder…", systemImage: "folder.badge.plus") }.buttonStyle(SettingsButton())
             }
+            VStack(alignment: .leading, spacing: 8) {
+                Eyebrow("Default team")
+                Text("Who a factory's CEO may call in, and how many of each at once. Every factory follows this team until you give its floor its own, on its Team tab.")
+                    .font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                TeamRoster(project: nil).frame(maxWidth: 420, alignment: .leading)
+            }
             group("Factories", all.filter(\.factory))
             group("On campus", all.filter { $0.pinned && !$0.factory })
             group("Recent", all.filter { !$0.pinned && !$0.factory })
