@@ -174,6 +174,8 @@ struct HUDView: View {
                 }
                 else if step == "settings" { model.settingsOpen = true }
                 else if step == "settings:projects" { model.settingsAtProjects = true; model.settingsOpen = true }
+                // "settingspage:<privacy|engine|project:<root>|server:<id>>": Settings open on that page
+                else if step.hasPrefix("settingspage:") { model.settingsPage = String(step.dropFirst(13)); model.settingsOpen = true }
                 else if step.hasPrefix("walk:"), let k = Int(step.dropFirst(5)) { model.walkStep = k; if k == 1 { model.controller.focusBuilding("claude") } }
                 else if step.hasPrefix("factory:") { model.setFactory(String(step.dropFirst(8)), on: true) }
                 else if step.hasPrefix("view:") { model.debugViewFile = String(step.dropFirst(5)) }
@@ -188,7 +190,6 @@ struct HUDView: View {
                 else if step.hasPrefix("runnow:") { model.runNow(root: String(step.dropFirst(7))) }
                 else if step.hasPrefix("settings:page:") { model.settingsPage = String(step.dropFirst(14)); model.settingsOpen = true }
                 else if step.hasPrefix("settings:scroll:") { model.settingsScrollTo = String(step.dropFirst(16)) }
-                else if step == "settings:projects" { model.settingsAtProjects = true; model.settingsOpen = true }
                 else if step.hasPrefix("settings:test:") { model.debugTestHost = String(step.dropFirst(14)); model.settingsAtForm = true; model.settingsOpen = true }
                 else if step == "office" { model.controller.showOrbit(false) }
                 else if step.hasPrefix("session:") { model.controller.select(session: String(step.dropFirst(8))) }

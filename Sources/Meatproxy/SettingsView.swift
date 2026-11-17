@@ -61,8 +61,8 @@ struct SettingsView: View {
                 .onAppear {
                     if model.settingsAtProjects { section = .projects; model.settingsAtProjects = false }
                     if let p = model.settingsPage {
-                        section = p.hasPrefix("server:") || p == "engine" ? .engine : p.hasPrefix("project:") ? .projects : .general
-                        if p == "engine" || p == "general" { model.settingsPage = nil }
+                        section = p.hasPrefix("server:") || p == "engine" ? .engine : p.hasPrefix("project:") ? .projects : p == "privacy" ? .privacy : .general
+                        if p == "engine" || p == "general" || p == "privacy" { model.settingsPage = nil }
                     }
                     if model.settingsAtForm { section = .engine }
                 }
