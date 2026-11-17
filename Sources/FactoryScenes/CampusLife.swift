@@ -239,9 +239,18 @@ extension CampusScene {
             b.alpha = CGFloat(fade)
         }
         // towards you is +i +j (down the screen): a beam there lights the lens and the glow
-        let toYou = a.beams.isEmpty ? 1 : (0..<2).map { max(0, cos(angle + Double($0) * .pi - .pi / 4)) }.max() ?? 0
+        var toYou: Double = 1
+        if !a.beams.isEmpty {
+            let first: Double = cos(angle - .pi / 4)
+            let second: Double = cos(angle + .pi - .pi / 4)
+            toYou = max(0, max(first, second))
+        }
         let f = CGFloat(0.55 + 0.45 * toYou)
-        a.faces.enumerated().forEach { k, n in n.fillColor = Self.alarmRed.withBrightness((k == 0 ? 0.82 : 0.62) * (0.7 + 0.5 * f)) }
+        let lit: CGFloat = 0.7 + 0.5 * f
+        for (k, n) in a.faces.enumerated() {
+            let base: CGFloat = k == 0 ? 0.82 : 0.62
+            n.fillColor = Self.alarmRed.withBrightness(base * lit)
+        }
         a.glow.alpha = 0.35 + 0.65 * f
         a.glow.setScale(0.8 + 0.5 * f)
     }
