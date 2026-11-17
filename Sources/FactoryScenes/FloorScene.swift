@@ -105,7 +105,7 @@ public final class FloorScene: WorldScene {
         var taken = spots.values.map { CGPoint(x: $0.spot.i, y: $0.spot.j) } + free.map { CGPoint(x: $0.spot.i, y: $0.spot.j) }
         for (t, spot) in free {
             guard let fig = figures[t.cast.key] else { continue }
-            let p = person(t.id, owner: nil, figure: fig, scale: 0.62, spot: spot, room: FloorRoom.lounge.rawValue)
+            let p = person(t.id, owner: nil, figure: fig, scale: Self.helperScale, spot: spot, room: FloorRoom.lounge.rawValue)
             p.ref = nil; p.state = .done
             p.name = AgentProfile.standard(t.profile)?.label ?? t.profile
             (p.pose, p.mood) = (spot.seat > 0 ? "sit" : "idle", "tired")
@@ -131,7 +131,7 @@ public final class FloorScene: WorldScene {
             setTag(p, text: s.persona.name, state: st)
             setEmote(p, st == .waiting ? "?" : st == .stuck ? "!" : s.wentBack(now: now) ? "back" : st == .done && spot.seat > 0 ? "zzz" : nil)
             seen.insert(s.id)
-            // helpers: beside their person on screen, smaller, facing you; the running ones closest, a finished one
+            // helpers: beside their person on screen, facing you, as big as everyone (every agent counts the same); the running ones closest, a finished one
             // further off and faded
             for sub in s.subAgents.sorted(by: { !$0.finished && $1.finished }) {
                 // a team member's job done: they are back in the lounge, not standing about here
@@ -139,7 +139,7 @@ public final class FloorScene: WorldScene {
                 let place = placeOf[sub.id]
                 guard let hf = figures[place?.cast.key ?? sub.cast.key] else { continue }
                 let hs = helperSpot(beside: spot, finished: sub.finished, taken: &taken)
-                let hp = person(place?.id ?? sub.id, owner: s.id, figure: hf, scale: 0.62, spot: hs, room: room.rawValue)
+                let hp = person(place?.id ?? sub.id, owner: s.id, figure: hf, scale: Self.helperScale, spot: hs, room: room.rawValue)
                 hp.ref = place == nil ? nil : sub.id
                 setTag(hp, text: "", state: .done)
                 hp.state = sub.finished ? .done : .working
@@ -154,7 +154,7 @@ public final class FloorScene: WorldScene {
         if let s = selectedSession, people[s] == nil { selectedSession = nil; selectedSubAgent = nil }
         applyFactory(project.factory, art: art)
         for p in people.values {
-            p.loop = IdleMotion.loop(state: p.state, room: p.room, spotPose: p.spot.pose, seated: p.spot.seat > 0, helper: p.scale < 1)
+            p.loop = IdleMotion.loop(state: p.state, room: p.room, spotPose: p.spot.pose, seated: p.spot.seat > 0, helper: p.owner != nil)
             layout(p)
         }
         updateMarker()
@@ -291,19 +291,22 @@ public final class FloorScene: WorldScene {
     /// Where a helper stands: to the right of their person on screen (along +i, a little forward when that is taken),
     /// clear of the person's ring and of everyone else, on a free cell, and not behind anything tall. A finished helper
     /// starts one place further off.
+    /// Helpers are as big as the person they work for: every agent counts the same.
+    static let helperScale: CGFloat = 1
+
     private func helperSpot(beside spot: FloorArt.Spot, finished: Bool, taken: inout [CGPoint]) -> FloorArt.Spot {
-        // to the right first, clear of the person's ring (at least 1.25 tile of i − j: 20 art units on screen); the left
-        // (−i) only when the right is full or hidden
-        let offsets: [CGPoint] = [CGPoint(x: 1.3, y: 0), CGPoint(x: 1.7, y: 0.4), CGPoint(x: 2.1, y: 0.8), CGPoint(x: 2.1, y: 0),
-                                  CGPoint(x: 2.5, y: 0.4), CGPoint(x: 1.0, y: -0.4), CGPoint(x: -1.3, y: 0), CGPoint(x: -1.7, y: -0.4),
-                                  CGPoint(x: -0.9, y: 0.4), CGPoint(x: 2.9, y: 0.8)]
-        let base = CGPoint(x: spot.i, y: spot.j)
+        // to the right first, clear of the person's ring and body (a full-size figure is about 20 art units wide: 1.5
+        // tile of i − j keeps them apart on screen); the left (−i) only when the right is full or hidden
+        let offsets: [CGPoint] = [CGPoint(x: 1.5, y: 0), CGPoint(x: 2.0, y: 0.5), CGPoint(x: 2.5, y: 1.0), CGPoint(x: 2.6, y: 0),
+                                  CGPoint(x: 3.1, y: 0.5), CGPoint(x: 1.2, y: -0.5), CGPoint(x: -1.5, y: 0), CGPoint(x: -2.0, y: -0.5),
+                                  CGPoint(x: -1.1, y: 0.5), CGPoint(x: 3.6, y: 1.0)]
+        let base = CGPoint(x: spot.i, y: spot.j), k = Self.helperScale / 0.62, gap = 0.65 * k * 0.85
         func ok(_ p: CGPoint) -> Bool {
             guard let map = walkMap, let art else { return true }
-            guard map.free(p), taken.allSatisfy({ hypot($0.x - p.x, $0.y - p.y) >= 0.65 }) else { return false }
-            // nothing drawn in front of the little figure (about 12 × 26 art units above its feet; the feet may touch)
+            guard map.free(p), taken.allSatisfy({ hypot($0.x - p.x, $0.y - p.y) >= gap }) else { return false }
+            // nothing drawn in front of the figure (its body above its feet; the feet may touch)
             let foot = project(p.x, p.y), z = depthKey(p.x, p.y, boxes: art.boxes)
-            let body = CGRect(x: foot.x - 6, y: foot.y - 26, width: 12, height: 21)
+            let body = CGRect(x: foot.x - 6 * k, y: foot.y - 26 * k, width: 12 * k, height: 21 * k)
             // (an object's rect is its bounding box, so a corner of it over the figure does not count)
             let hid = art.objects.filter { o in
                 let x = o.rect.intersection(body)
@@ -312,13 +315,13 @@ public final class FloorScene: WorldScene {
             // and not in front of or behind anyone else on screen
             let byPeople = taken.contains { q in
                 let f = project(q.x, q.y)
-                return abs(f.x - foot.x) < 14 && abs(f.y - foot.y) < 30
+                return abs(f.x - foot.x) < 14 * k && abs(f.y - foot.y) < 30 * k
             }
             return hid.isEmpty && !byPeople
         }
         let list = offsets.dropFirst(finished ? 1 : 0).map { CGPoint(x: base.x + $0.x, y: base.y + $0.y) }
         let pick = list.first(where: ok)
-            ?? list.first { p in walkMap?.free(p) != false && taken.allSatisfy { hypot($0.x - p.x, $0.y - p.y) >= 0.65 } }
+            ?? list.first { p in walkMap?.free(p) != false && taken.allSatisfy { hypot($0.x - p.x, $0.y - p.y) >= gap } }
             ?? CGPoint(x: base.x + 1.0, y: base.y + (spot.seat > 0 ? 0.1 : 0))
         taken.append(pick)
         return FloorArt.Spot(i: pick.x, j: pick.y, pose: "idle", dir: "down", seat: 0)

@@ -113,7 +113,9 @@
     testing: [[19.8, 14.4, "idle", "right"], [21.0, 12.4, "idle", "down"], [19.2, 12.3, "idle", "down"], [22.2, 14.9, "idle", "left"], [18.2, 13.0, "idle", "right"]],
     pullRequests: [[11.9, 12.9, "idle", "down"], [10.4, 12.7, "idle", "down"], [12.6, 15.0, "idle", "up"], [10.8, 15.0, "idle", "up"]],
     deploy: [[6.2, 18.0, "cheer", "down"], [6.4, 12.6, "idle", "down"], [4.6, 17.5, "idle", "right"], [5.0, 14.8, "idle", "right"], [7.6, 15.0, "idle", "left"]],
-    lounge: [[1.6, 12.6, "mug", "right"], [0.95, 12.1, "sit", "right", 6], [0.95, 13.2, "sit", "right", 6], [2.3, 10.2, "idle", "down"], [2.4, 15.4, "mug", "left"], [2.2, 9.6, "idle", "left"]],
+    // the sofa seats sit on the front edge of the cushion (i 1.3): further in, the sofa is drawn over whoever sits there;
+    // the standing spots are spread across the room so full-size people do not stand in each other
+    lounge: [[2.9, 11.8, "mug", "right"], [1.35, 12.1, "sit", "right", 6], [1.35, 13.2, "sit", "right", 6], [2.4, 9.9, "idle", "down"], [2.4, 15.4, "mug", "left"], [1.9, 15.95, "idle", "left"]],
     // in front of the counter and west of it, clear of the hall's way through, looking at you
     needsYou: [[10.4, 9.55, "idle", "down"], [9.2, 9.55, "idle", "down"], [8.0, 9.55, "idle", "down"], [6.8, 9.55, "idle", "down"], [8.4, 8.2, "idle", "down"], [7.2, 8.2, "idle", "down"]],
     parked: [[16.0, 8.62, "sit", "down", 4], [16.8, 8.62, "sit", "down", 4]]
