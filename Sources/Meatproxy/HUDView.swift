@@ -101,7 +101,7 @@ struct HUDView: View {
         let right = w - (model.selection.level != .all ? g + Shell.side + g : g)
         let bottom = h - (model.terminalShown ? model.terminals.height + 2 * g : Shell.bar + 2 * g)
         let area = CGRect(x: left, y: Shell.top, width: max(0, right - left), height: max(0, bottom - Shell.top))
-        if area != model.freeArea { model.freeArea = area }
+        if area != model.freeArea { model.freeArea = area; model.controller.setSafeArea(area) }
     }
 
     /// the campus is really being built

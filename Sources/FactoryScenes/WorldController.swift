@@ -74,6 +74,7 @@ public final class WorldController {
     public func attach(_ v: SKView) {
         view = v
         v.ignoresSiblingOrder = false
+        if let f = pendingFree { pendingFree = nil; setSafeArea(f) }
         if v.scene == nil { v.presentScene(inOrbit ? orbit : (floor ?? campus)) }
     }
 
@@ -92,12 +93,24 @@ public final class WorldController {
     }
     public static let defaultSafeArea = SafeArea(left: 376, right: 376, top: 64, bottom: 64)
     public private(set) var safeArea = WorldController.defaultSafeArea
+    private var pendingFree: CGRect?
 
     /// The HUD says what it covers: every world frames itself inside the rest. The campus overview keeps no room on the
     /// right (no inspector there; the island runs out of the view on purpose, A4), its building levels and the floors do.
+    /// The free area as the HUD keeps it (AppModel.freeArea): a rect in window points from the top left, measured
+    /// against the world's view. Without an inspector open its right edge is near the window's; the building levels
+    /// still keep room for the inspector they open.
+    public func setSafeArea(_ free: CGRect) {
+        guard free.width > 0, free.height > 0 else { return }
+        // (before the view is attached: kept for then)
+        guard let v = view else { pendingFree = free; return }
+        let size = v.bounds.size
+        setSafeArea(SafeArea(left: free.minX, right: max(0, size.width - free.maxX), top: free.minY, bottom: max(0, size.height - free.maxY)))
+    }
+
     public func setSafeArea(_ a: SafeArea) {
         safeArea = a
-        campus.insets = (a.left, 0); campus.bars = (a.top, a.bottom); campus.inspectorRight = a.right
+        campus.insets = (a.left, 0); campus.bars = (a.top, a.bottom); campus.inspectorRight = max(a.right, Self.defaultSafeArea.right)
         orbit.insets = (a.left, 0); orbit.bars = (a.top, a.bottom)
         if let f = floor { f.insets = (a.left, a.right); f.bars = (a.top, a.bottom) }
     }

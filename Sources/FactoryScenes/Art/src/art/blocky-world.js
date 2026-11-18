@@ -279,14 +279,15 @@
     // the back walls (Research, Entrance, Planning, Development) and the Lounge's wall: behind everything that stands
     plaque("room:stacks", "front", 2, 0, 40, "RESEARCH", {key: -1});
     plaque("room:landing", "front", 7.1, 0, 40, "ENTRANCE", {key: -1});
-    plaque("room:war", "front", 9.3, 0, 41, "PLANNING", {key: -1});
+    // Planning's on its side wall, low: the planners' plates hang high, along the back wall
     plaque("room:workshop", "front", 18.1, 0, 42, "DEVELOPMENT", {key: -1});
     plaque("room:porch", "right", 12.9, 0, 42, "LOUNGE", {key: -1});
     // the rooms behind glass partitions: on the partition behind (or beside) the room, facing into it
     plaque("room:switch", "front", 22.6, 3, 11, "TOOLS");
     plaque("room:boiler", "right", 7.6, 18, 9, "BUILDS");
     // on Testing's side wall: its back partition has the scoreboard in front of it
-    plaque("room:crash", "right", 12.3, 17, 15, "TESTING");
+    plaque("room:crash", "right", 14.6, 17, 18, "TESTING");
+    plaque("room:war", "right", 2.6, 8, 13, "PLANNING");
     plaque("room:mail", "front", 11.4, 11, 10, "PULL REQUESTS");
     plaque("room:launch", "front", 7.7, 11, 10, "DEPLOY");
     // the front desk's name on its own front, small and quiet (D73: yellow stays for what waits for you)
