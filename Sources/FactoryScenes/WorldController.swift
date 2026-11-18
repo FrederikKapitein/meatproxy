@@ -44,6 +44,8 @@ public final class WorldController {
     private var campusSignature = ""
     private var orbitSignature = ""
     private var painting = false
+    /// the campus is painted by moonlight (A8)
+    private var campusNight = false
     private var needsRepaint = false
     private var needsIndex = -1
     /// the question you asked to see; it stays while you are at its project's level, so a fly there does not drop it
@@ -56,6 +58,12 @@ public final class WorldController {
         campus.onSelectSession = { [weak self] id in self?.select(session: id) }
         campus.onHoverTitle = { [weak self] t in self?.onHoverTitle?(t) }
         campus.onEffect = { [weak self] k, t, l in self?.onEffect?(k, t, l) }
+        // A8: dusk and dawn repaint the campus by moonlight or by day
+        campus.onNightChange = { [weak self] night in
+            guard let self, self.campusNight != night else { return }
+            self.campusNight = night
+            Task { await self.repaintCampus() }
+        }
         campus.onSelectServer = { [weak self] c in guard let self else { return }; self.select(server: self.world.racks.indices.contains(c) ? self.world.racks[c].id : nil) }
         orbit.engine = engine
         orbit.insets = (330, 0)
@@ -107,7 +115,9 @@ public final class WorldController {
         painting = true; defer { painting = false }
         if !campus.isPainted { onStatus?("Building the campus…") }
         do {
-            let art = try await engine.campus(world)
+            let started = Date()
+            let art = try await engine.campus(world, night: campusNight)
+            if WindowShotLog.on { print("campus painted in \(Int(Date().timeIntervalSince(started) * 1000)) ms (art engine \(art.timing))") }
             // a few of the team walk the roads: the most recent sessions
             let walkers = world.projects.flatMap { p in p.sessions.map { (p, $0) } }.sorted { $0.1.lastAt > $1.1.lastAt }.prefix(CampusScene.walkerCount).map { $0.0.cast(of: $0.1) }
             await loadFigures(walkers)
@@ -426,3 +436,6 @@ public final class WorldController {
         onChange?(selection)
     }
 }
+
+/// Window shots print a few timings (debug aid).
+enum WindowShotLog { static let on = ProcessInfo.processInfo.environment["SF_WINDOW_SHOT"] != nil }

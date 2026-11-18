@@ -13,6 +13,11 @@
   const VIEWDIR = [1, 1, 1].map(x => x / Math.sqrt(3));
   // flat shading with a warm light and cool shadows
   function lit(base, n) {
+    if (window.__NIGHT) { // moonlight from the same side (D80, A8): dark, cool, with the faces still told apart
+      const d = Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]), k = .21 + .22 * d;
+      const c = hex(base), moon = [26, 32, 66];
+      return toHex(c.map((v, i) => v * k + moon[i] * (.55 + .25 * d)));
+    }
     const d = Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]), k = .58 + .5 * d;
     const c = hex(base), warm = [255, 244, 225], cool = [70, 60, 120];
     return toHex(c.map((v, i) => k >= 1 ? v + (warm[i] - v) * (k - 1) * .9 : v * k + cool[i] * (1 - k) * .28));
@@ -64,7 +69,7 @@
           return toWorld(F, [u, y1, v]);
         };
         if (shape === "poly") face.decals.push({pts: d[0].map(([u, v]) => proj(pt(u, v))), fill: lit(dcol, n)});
-        else face.decals.push({pts: [pt(d[0], d[1]), pt(d[2], d[1]), pt(d[2], d[3]), pt(d[0], d[3])].map(proj), fill: dcol === "#ffffff" || dcol[0] === "!" ? (dcol[0] === "!" ? dcol.slice(1) : dcol) : lit(dcol, n)});
+        else face.decals.push({pts: [pt(d[0], d[1]), pt(d[2], d[1]), pt(d[2], d[3]), pt(d[0], d[3])].map(proj), fill: window.__NIGHT ? lit(dcol[0] === "!" ? dcol.slice(1) : dcol, n) : dcol === "#ffffff" || dcol[0] === "!" ? (dcol[0] === "!" ? dcol.slice(1) : dcol) : lit(dcol, n)});
       }
       this.faces.push(face);
     }

@@ -48,14 +48,18 @@ struct WalkingTests {
             let t = CampusRoads.trip(from: a, to: b)
             #expect(t.first == arms[a].outEnd)
             #expect(t.last == arms[b].outEnd)
-            #expect(t.count > 3, "a trip goes round the fountain")
+            #expect(t.count > 3, "a trip goes round the crossing")
             #expect(axisAligned(t), "trip \(a) → \(b) has a diagonal leg")
-            // never through the fountain's basin
-            let basin = CGRect(x: 13.4, y: 11.4, width: 3.2, height: 3.2)
+            // never through the middle of the crossing, and on the road only on a zebra (blocky-campus.js: the zebras
+            // lie on tiles 28-29 and 34-35 across the road along i, 19-20 and 25-26 across the road along j)
             for (p, q) in zip(t, t.dropFirst()) {
                 for k in 0...10 {
                     let m = CGPoint(x: p.x + (q.x - p.x) * CGFloat(k) / 10, y: p.y + (q.y - p.y) * CGFloat(k) / 10)
-                    #expect(!basin.contains(m))
+                    #expect(!CampusRoads.crossing.contains(m))
+                    if CampusRoads.height(m.x, m.y) < 0 {
+                        let zebra = ((28..<30).contains(m.x) || (34..<36).contains(m.x)) || ((19..<21).contains(m.y) || (25..<27).contains(m.y))
+                        #expect(zebra, "trip \(a) → \(b) crosses the road off a zebra at \(m)")
+                    }
                 }
             }
         } }

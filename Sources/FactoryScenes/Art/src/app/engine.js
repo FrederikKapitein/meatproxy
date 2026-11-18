@@ -175,24 +175,68 @@
     return raster(markup, "", [-13.5, -11.5, 13.5, 15], o.R || 5);
   }
 
-  /* ---------- the campus (D22, D33): the island, the provider towers, the Server room ---------- */
+  /* ---------- the campus (D22, D33, Spel+ D80): ops from the world kit onto layers and atlases ---------- */
+  const K = window.WorldKit;
+  /* ops onto one image over their own box (pad in art units); extra: [ops, alpha] drawn after, each through its own canvas */
+  function opsImage(ops, R, box, extra = []) {
+    box = box || K.opsBounds(ops, 1);
+    const c = canvas((box[2] - box[0]) * R, (box[3] - box[1]) * R), g = c.getContext("2d");
+    g.setTransform(R, 0, 0, R, -box[0] * R, -box[1] * R);
+    K.draw(g, ops);
+    for (const [more, alpha] of extra) {
+      if (!more.length) continue;
+      // shadows overlap: paint them solid on their own, then lay them down at once, see-through
+      const o = canvas(c.width, c.height), og = o.getContext("2d");
+      og.setTransform(R, 0, 0, R, -box[0] * R, -box[1] * R); K.draw(og, more);
+      g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = alpha; g.drawImage(o, 0, 0); g.globalAlpha = 1;
+      g.setTransform(R, 0, 0, R, -box[0] * R, -box[1] * R);
+    }
+    return {png: png(c), x: box[0], y: box[1], w: c.width / R, h: c.height / R};
+  }
+  /* objects of ops packed onto atlas pages, as atlas() does for scenes */
+  function opsAtlas(objs, R, side = 4096) {
+    const list = objs.filter(o => o.ops.length).map(o => { const b = K.opsBounds(o.ops); return {o, b, pw: Math.ceil((b[2] - b[0]) * R) + 2, ph: Math.ceil((b[3] - b[1]) * R) + 2}; })
+      .filter(e => e.pw < side && e.ph < side);
+    const pages = [];
+    let page = null, x = 0, y = 0, shelf = 0;
+    const open = () => { page = {w: 0, h: 0, items: []}; pages.push(page); x = 0; y = 0; shelf = 0; };
+    open();
+    for (const e of list.slice().sort((a, b) => b.ph - a.ph)) {
+      if (x + e.pw > side) { x = 0; y += shelf; shelf = 0; }
+      if (y + e.ph > side) open();
+      e.page = pages.length - 1; e.px = x; e.py = y;
+      x += e.pw; shelf = Math.max(shelf, e.ph);
+      page.w = Math.max(page.w, e.px + e.pw); page.h = Math.max(page.h, e.py + e.ph); page.items.push(e);
+    }
+    const out = pages.filter(pg => pg.items.length).map(pg => {
+      const c = canvas(pg.w, pg.h), g = c.getContext("2d");
+      for (const e of pg.items) { g.setTransform(R, 0, 0, R, e.px + 1 - e.b[0] * R, e.py + 1 - e.b[1] * R); K.draw(g, e.o.ops); }
+      return {png: png(c), w: c.width, h: c.height};
+    });
+    return {R, pages: out, items: list.map(e => ({id: e.o.id || null, key: e.o.key, alpha: e.o.alpha != null ? e.o.alpha : 1, page: e.page, px: e.px, py: e.py, pw: e.pw, ph: e.ph,
+      x: e.b[0] - 1 / R, y: e.b[1] - 1 / R, w: e.pw / R, h: e.ph / R}))};
+  }
+
   async function campus(input) {
-    const R = input.R || 3, svg = scratch();
-    const floors = list => list.map(f => ({name: String(f.name).toUpperCase(), wait: !!f.wait, kind: ["factory", "chats"].includes(f.kind) ? f.kind : "project", logo: /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(f.logo || "") ? f.logo : null}));
-    const c = W.campus(svg, {claude: floors(input.claude || []), chatgpt: floors(input.chatgpt || []), waiting: input.waiting || 0, people: [], engine: input.engine});
-    const parts = c.parts, view = viewBox(svg);
-    const ground = image([...parts.under, parts.base], R);
+    const R = input.R || 2, t0 = performance.now(), svg = scratch();
+    const floors = list => list.map(f => ({name: String(f.name), wait: !!f.wait, kind: ["factory", "chats"].includes(f.kind) ? f.kind : "project", logo: /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(f.logo || "") ? f.logo : null}));
+    const c = W.campus(svg, {claude: floors(input.claude || []), chatgpt: floors(input.chatgpt || []), waiting: input.waiting || 0, quests: input.quests || [],
+      engine: input.engine, racks: input.racks || [], night: !!input.night});
+    const parts = c.parts, t1 = performance.now();
+    // the island's underside is coarse rock: fewer pixels; the top with its kerbs and paving gets the full R
+    const under = opsImage(parts.under, Math.max(1, R * .6));
+    const ground = opsImage([...parts.base], R, null, [[parts.shadows, input.night ? .35 : .24], [parts.water, 1]]);
     // the buildings get more pixels than the rest: the camera comes close to them (the Provider and Server room levels)
-    const objects = atlas(parts.objs.filter(o => !(o.id || "").startsWith("building:")), R);
-    const buildings = atlas(parts.objs.filter(o => (o.id || "").startsWith("building:")), input.RB || 10);
-    const light = await raster(parts.light, parts.defs, view, Math.min(R, 2));
-    const signs = await rasterParts(svg, parts.topParts, parts.defs, input.RS || 12);
+    const isB = o => (o.id || "").startsWith("building:");
+    const objects = opsAtlas(parts.objs.filter(o => !isB(o)), input.RO || 3);
+    const buildings = opsAtlas(parts.objs.filter(isB), input.RB || 8);
+    const light = opsImage(parts.light, 1, parts.view);
+    const signs = await rasterParts(svg, parts.topParts, "", input.RS || 12);
     svg.remove();
-    // the footprints of what you can click (buildings, the fountain), in tiles; the rack LEDs and the beacon lens in
-    // art units, for the app to light; where each building's plaques are, so the camera can frame them
-    const footprints = Object.fromEntries(parts.boxes.filter(b => b.id).map(b => [b.id, [b.i0, b.j0, b.i1, b.j1]]));
-    return {R, view, ground, objects, buildings, light, signParts: signs, boxes: parts.boxes, storeys: parts.storeys, fountain: c.P(15, 13, 0), footprints,
-      racks: parts.racks, beacon: parts.beacon, towers: parts.towers, labels: parts.labels, hits: parts.hits};
+    const t2 = performance.now();
+    return {R, view: parts.view, island: parts.island, night: !!input.night, under, ground, objects, buildings, light, signParts: signs, boxes: parts.boxes, storeys: parts.storeys, fountain: parts.fountain, footprints: parts.footprints,
+      racks: parts.racks, rackPanels: parts.rackPanels, beacon: parts.beacon, towers: parts.towers, labels: parts.labels, hits: parts.hits, streams: parts.streams,
+      timing: [Math.round(t1 - t0), Math.round(t2 - t1)]};
   }
 
   /* ---------- Orbit (D6, D14, D42): bodies from the generator, one image per size and light ---------- */
