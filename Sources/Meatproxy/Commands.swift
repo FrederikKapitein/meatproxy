@@ -444,9 +444,3 @@ private struct CommandRow: View {
         return a
     }
 }
-
-/// The one close control: a small square with a cross, as on the inspector and in Settings (Esc does the same).
-struct CloseKey: View {
-    let action: () -> Void
-    var body: some View { CloseButton(action: action) }
-}

@@ -413,15 +413,3 @@ struct CostLine: View {
         .accessibilityElement(children: .combine)
     }
 }
-
-/// Avatar kept for callers that show a portrait without a role (a plain socket).
-struct Avatar: View {
-    let cg: CGImage?
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 10).fill(Color.raised)
-            if let cg { Image(decorative: cg, scale: 1).resizable().scaledToFit().padding(.top, 4).frame(maxHeight: .infinity, alignment: .bottom) }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-}
