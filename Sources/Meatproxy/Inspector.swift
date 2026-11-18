@@ -142,8 +142,10 @@ private struct BuildingFloors: View {
                             if let line, line.warn { Tag(line.text, tone: .warn).padding(.top, 2) }
                         }.layoutPriority(1)
                         Spacer(minLength: 4)
-                        if waiting > 0 { QuestBadge(count: waiting) }
-                        Text(p.cost.map { $0.today > 0 ? ProjectCost.format($0.today) : "" } ?? "").font(.s13m.monospacedDigit()).foregroundStyle(Color.inkText).fixedSize()
+                        // two fixed columns, so badges and prices line up from floor to floor
+                        Group { if waiting > 0 { QuestBadge(count: waiting) } }.frame(width: 26, alignment: .center)
+                        Text(p.cost.map { $0.today > 0 ? ProjectCost.format($0.today) : "" } ?? "").font(.s13m.monospacedDigit()).foregroundStyle(Color.inkText)
+                            .lineLimit(1).fixedSize().frame(width: 56, alignment: .trailing)
                             .help("Today at API prices (an estimate)")
                     }
                     .spelCard(flag: line?.warn == true ? .warn : nil, pad: 10)

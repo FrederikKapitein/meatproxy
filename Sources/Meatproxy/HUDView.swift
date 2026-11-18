@@ -508,6 +508,8 @@ private struct QuestLog: View {
                     .disabled(items.isEmpty)
                     .help("Go to the next one that waits for you (N)")
             }
+            // while the walk runs, the log says so in a line of its own, never over a card
+            if walking { Tag("Waits until the walk is done", icon: "pause").padding(.top, 12).zIndex(1) }
             if let here, !items.isEmpty {
                 LiftedSegments(items: [.init(id: false, title: "\(here.label) · \(mine.count)"), .init(id: true, title: "All · \(items.count)")],
                                selected: all, fontSize: 13, padding: EdgeInsets(top: 3, leading: 9, bottom: 3, trailing: 9)) { all = $0 }
@@ -540,11 +542,13 @@ private struct QuestLog: View {
         }
         .padding(16)
         .spelFrame()
-        // while the walk runs, the log waits for it (D9); its own step (Needs you) lights it again
-        .overlay {
+        // while the walk runs, the log waits for it (D9): its cards dim, the line above them stays readable; its own
+        // step (Needs you) lights it again
+        .overlay(alignment: .bottom) {
             if walking {
-                RoundedRectangle(cornerRadius: 10).fill(Color.ink.opacity(0.62))
-                    .overlay { Tag("Waits until the walk is done").background(RoundedRectangle(cornerRadius: 6).fill(Color.panel)) }
+                UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 10, bottomTrailingRadius: 10, topTrailingRadius: 0)
+                    .fill(Color.ink.opacity(0.62))
+                    .padding(.top, 96)
                     .allowsHitTesting(false)
             }
         }
