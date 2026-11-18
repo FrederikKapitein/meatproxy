@@ -52,10 +52,51 @@ public struct Persona: Hashable, Sendable {
     static let names = ["Mira", "Kai", "Rae", "Dex", "Lio", "Fen", "Uma", "Teo", "Ines", "Pax", "Rue", "Sol", "Vik", "Wren", "Yara", "Zia",
                         "Bram", "Cleo", "Duc", "Elif", "Gus", "Hana", "Ivy", "Jos", "Noor", "Otto"]
 
-    public init(id: String) {
+    public init(id: String) { name = Self.names[Self.index(id)] }
+    public init(name: String) { self.name = name }
+
+    /// where a seed lands in the list of names
+    static func index(_ seed: String) -> Int {
         var h: UInt32 = 2166136261
-        for b in id.utf8 { h = (h ^ UInt32(b)) &* 16777619 }
-        name = Self.names[Int(h % UInt32(Self.names.count))]
+        for b in seed.utf8 { h = (h ^ UInt32(b)) &* 16777619 }
+        return Int(h % UInt32(names.count))
+    }
+}
+
+extension World {
+    /// Everyone on the campus gets a name of their own: a name comes from the person's seed, and when two seeds land on
+    /// the same name, the later one takes the next free name in the list. Each factory's CEO chooses first and keeps its
+    /// name; everyone else goes in a fixed order (project, then session), so names stay put between refreshes.
+    public func withUniqueNames() -> World {
+        var taken = Set<String>(), bySeed: [String: String] = [:]
+        func assign(_ seed: String) {
+            guard bySeed[seed] == nil else { return }
+            let pool = Persona.names, start = Persona.index(seed)
+            if let free = (0..<pool.count).map({ pool[(start + $0) % pool.count] }).first(where: { !taken.contains($0) }) {
+                taken.insert(free); bySeed[seed] = free
+            } else {
+                // more people than names: number them
+                var k = 2
+                while taken.contains("\(pool[start]) \(k)") { k += 1 }
+                taken.insert("\(pool[start]) \(k)"); bySeed[seed] = "\(pool[start]) \(k)"
+            }
+        }
+        let ordered = projects.sorted { $0.id < $1.id }
+        for p in ordered where p.factory != nil && !p.isChat {
+            if let id = p.ceoID, let s = p.sessions.first(where: { $0.id == id }) { assign(s.personaSeed) } else { assign("ceo:" + p.root) }
+        }
+        for p in ordered { for s in p.sessions.sorted(by: { $0.id < $1.id }) { assign(s.personaSeed) } }
+        var w = self
+        for b in w.buildings.indices {
+            for k in w.buildings[b].projects.indices {
+                let root = w.buildings[b].projects[k].root
+                for i in w.buildings[b].projects[k].sessions.indices {
+                    w.buildings[b].projects[k].sessions[i].displayName = bySeed[w.buildings[b].projects[k].sessions[i].personaSeed]
+                }
+                w.buildings[b].projects[k].ceoName = bySeed["ceo:" + root]
+            }
+        }
+        return w
     }
 }
 
@@ -114,7 +155,7 @@ extension Session {
     /// The heartbeat's CEO is the same person every run: seeded by its project folder, everyone else by their session.
     /// The CEO is the same person every run, seeded by its project: a heartbeat's run, or a run that says CEO in its title.
     public var personaSeed: String { heartbeatRun == true || Project.isCEOTitle(title) ? "ceo:" + (projectRoot ?? cwd) : id }
-    public var persona: Persona { Persona(id: personaSeed) }
+    public var persona: Persona { displayName.map(Persona.init(name:)) ?? Persona(id: personaSeed) }
 
     /// The role from what the session does (D41), apart from the CEO, which its project decides (`Project.role(of:)`).
     /// The title names marketing, sales and design work; otherwise the actions vote, and pushes and deploys weigh three.
@@ -226,6 +267,7 @@ extension Project {
         var s = Session(id: Self.standingCEOPrefix + root, provider: provider, cwd: root, title: "CEO, waiting for the next heartbeat",
                         lastAt: .distantPast, turnOpen: false, projectRoot: root)
         s.heartbeatRun = true
+        s.displayName = ceoName
         var p = self
         p.sessions.append(s)
         return p

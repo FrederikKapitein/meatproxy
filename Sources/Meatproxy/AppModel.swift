@@ -428,7 +428,7 @@ final class AppModel: ObservableObject {
     }
 
     private func apply(_ w: World) {
-        world = withTeams(w)
+        world = withTeams(w).withUniqueNames()
         lastRead = w.now
         controller.show(world)
         Task { await controller.ensurePortraits(w.projects.flatMap { p in p.sessions.map { p.cast(of: $0) } }); objectWillChange.send() }

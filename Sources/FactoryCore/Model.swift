@@ -83,6 +83,8 @@ public struct Session: Identifiable, Codable, Sendable, Hashable {
     public var lastSaid: String?
     /// The heartbeat says this CEO's run is going right now: it works, whatever its file looks like.
     public var liveRun: Bool?
+    /// The name this person has on the campus, when the world gave out names (`World.withUniqueNames`): one of its own
+    public var displayName: String?
 
     public init(id: String, provider: Provider, cwd: String, title: String, branch: String? = nil, model: String? = nil,
                 startedAt: Date? = nil, lastAt: Date, turnOpen: Bool, activities: [Activity] = [], subAgents: [SubAgent] = [],
@@ -154,6 +156,8 @@ public struct Project: Identifiable, Sendable, Hashable {
     /// On a factory floor, who its CEO may call in and how many at once (D79), and the look of each profile.
     public var team: AgentTeam?
     public var teamRoles: [String: CastRole] = [:]
+    /// a factory's CEO's name on the campus (`World.withUniqueNames`), also for its resting stand-in
+    public var ceoName: String?
 
     public init(id: String, provider: Provider, root: String, name: String, isChat: Bool, sessions: [Session], factory: Factory? = nil) {
         self.id = id; self.provider = provider; self.root = root; self.name = name; self.isChat = isChat; self.sessions = sessions
