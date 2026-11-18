@@ -285,7 +285,9 @@
     // the buildings get more pixels than the rest: the camera comes close to them (the Provider and Server room levels)
     const isB = o => (o.id || "").startsWith("building:");
     const objects = opsAtlas(parts.objs.filter(o => !isB(o)), input.RO || 3);
-    const buildings = opsAtlas(parts.objs.filter(isB), input.RB || 8);
+    // a tower with many storeys is tall: its pixels go down so it still fits on one atlas page
+    const tallest = Math.max(1, ...parts.objs.filter(isB).map(o => { const b = K.opsBounds(o.ops); return Math.max(b[2] - b[0], b[3] - b[1]); }));
+    const buildings = opsAtlas(parts.objs.filter(isB), Math.min(input.RB || 8, 4000 / tallest));
     const light = opsImage(parts.light, 1, parts.view);
     const signs = await rasterParts(svg, parts.topParts, "", input.RS || 12);
     svg.remove();

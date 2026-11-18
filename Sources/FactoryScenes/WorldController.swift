@@ -112,7 +112,7 @@ public final class WorldController {
 
     public func repaintCampus() async {
         if painting { needsRepaint = true; return }
-        painting = true; defer { painting = false }
+        painting = true
         if !campus.isPainted { onStatus?("Building the campus…") }
         do {
             let started = Date()
@@ -130,6 +130,9 @@ public final class WorldController {
             }
             onStatus?(nil)
         } catch { onStatus?("The art engine did not answer: \(error.localizedDescription)") }
+        // the flag goes down first: a repaint asked for meanwhile (new data, a night that fell) must not find it still up
+        // and be lost
+        painting = false
         if needsRepaint { needsRepaint = false; await repaintCampus() }
     }
 

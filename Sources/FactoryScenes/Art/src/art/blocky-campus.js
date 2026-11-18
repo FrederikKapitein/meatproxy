@@ -411,7 +411,7 @@
     else { lines.forEach((q, k) => side.push({t: q, c: k === 0 ? yel : "!#fff8ec", z: 32.4 - k * 5.8})); if (n > lines.length) side.push({t: `+${n - lines.length} MORE`, c: "!#9a94b0", z: 32.4 - lines.length * 5.8 - 1.2}); }
     W.box(ci - .9, cj - .9, zp + 10, ci + .9, cj + .9, zp + 40, "#d8cfc0", {deco: {front: [[ci - .74, zp + 15, ci + .74, zp + 38, "#2a1a2e"], [ci - .68, zp + 15.5, ci + .68, zp + 37.5, "#3a2a50"]], right: [[cj - .74, zp + 15, cj + .74, zp + 38, "#2a1a2e"], [cj - .68, zp + 15.5, cj + .68, zp + 37.5, "#3a2a50"]]},
       text: [{f: "front", a: ci, z: zp + 22.5, t: big, s: big.length > 1 ? 11 : 14, c: n > 0 ? yel : "!#fff8ec", wt: 900, font: GAME}, {f: "front", a: ci, z: zp + 17.6, t: n === 1 ? "QUEST" : "QUESTS", s: 2.8, c: "!#fff8ec", wt: 900, font: GAME},
-        ...side.map(q => ({f: "right", a: cj, z: zp + q.z, t: q.t.length > 10 ? q.t.slice(0, 9) + "…" : q.t, s: 2.5, c: q.c, wt: 900, font: GAME}))]});
+        ...side.map(q => ({f: "right", a: cj, z: zp + q.z, t: q.t.length > 12 ? q.t.slice(0, 11) + "…" : q.t, s: 2.5, c: q.c, wt: 900, font: GAME}))]});
     W.box(ci - 1, cj - 1, zp + 40, ci + 1, cj + 1, zp + 42, "#c9bfae");
     // the quest marker over it: a voxel "!" while something waits (the app turns its glow)
     if (n > 0) {
