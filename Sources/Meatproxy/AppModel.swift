@@ -21,7 +21,53 @@ final class AppModel: ObservableObject {
     @Published var commandsOpen = false
     @Published var contextMenuState: ContextMenuState?
     /// a panel of the HUD is open over the world: plain keys (N, Esc) belong to it, not to the world
-    var overlayOpen: Bool { paletteOpen || commandsOpen || contextMenuState != nil }
+    var overlayOpen: Bool { paletteOpen || commandsOpen || factoryPickerOpen || contextMenuState != nil }
+    /// the walk's last quest (D1): which project gets a CEO
+    @Published var factoryPickerOpen = false
+    /// the floor that quest landed on: its Factory switch is step 2 of 2 until you switch it on
+    @Published var factoryQuest: String?
+    /// Help's tab: every key, or the field guide (D7)
+    @Published var helpTab: HelpTab = .keys
+    /// window shots: a tab to open on the next floor entered
+    var pendingTab: FactoryOverview.Tab?
+    /// the group open on a factory's CEO tab (D2): "rhythm", "wakes", "autonomy", "limits", "models", "contract"
+    @Published var ceoGroup: String?
+    /// the walk's open step: its goal is done, and one button takes you on (D8)
+    @Published var walkGoalDone = false
+    /// a key pressed the visible button's way: N on Next, Esc on Up
+    @Published var nextPulse = 0
+    @Published var upPulse = 0
+    /// 1 or 2 pressed on an open question (C4, C9): its card shows the confirm step for that answer
+    struct AnswerKey: Equatable { var count = 0; var yes = true }
+    @Published var answerKey = AnswerKey()
+    /// the open question the inspector shows: a factory's decision, or the question about the open server (C9)
+    var openQuestion: (project: Project, decision: FactoryDecision)? {
+        let s = selection
+        if let d = s.decisionID, let pid = s.projectID, let q = world.decision(project: pid, d), q.decision.status == .open { return q }
+        if s.decisionID == nil, s.engineRoom, let id = s.serverID, let sv = world.servers.first(where: { $0.id == id }),
+           let ops = world.ops, let d = Self.question(about: sv.name, in: ops) { return (ops, d) }
+        return nil
+    }
+    var answerable: Bool { openQuestion != nil }
+    /// tokens "saved" in a demo: nothing reaches the Keychain
+    @Published var demoTokens: Set<Secrets.Key> = []
+
+    /// A resume command that first prints what the chat asked (C5). The question goes in as an argument of sh, never
+    /// into the script, so nothing in it is run.
+    static func withQuestion(_ c: TerminalCommand, _ said: String?) -> TerminalCommand {
+        guard let q = said?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty else { return c }
+        let shown = q.count > 1200 ? "…" + String(q.suffix(1199)) : q
+        return TerminalCommand(title: c.title, executable: "/bin/sh",
+                               args: ["-c", "printf '\\033[2mIt asked:\\033[0m\\n%s\\n\\n' \"$1\"; shift; exec \"$@\"", "sh", shown, c.executable] + c.args, cwd: c.cwd)
+    }
+    /// the DevOps agent's open question about a server: the first that names it as a word
+    static func question(about server: String, in ops: Project) -> FactoryDecision? {
+        let word = try? NSRegularExpression(pattern: "(^|[^A-Za-z0-9_-])" + NSRegularExpression.escapedPattern(for: server) + "($|[^A-Za-z0-9_-])")
+        return ops.factory?.openDecisions.first { d in
+            let text = d.title + " " + d.why
+            return word?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+        }
+    }
     /// the Status layer on the campus (D69), remembered between launches
     @Published var statusLayer = !AppModel.demo && UserDefaults.standard.bool(forKey: "statusLayer")
     /// the status pages you watch (D69)
@@ -469,7 +515,9 @@ final class AppModel: ObservableObject {
     /// heartbeat run that is still going stops first (it is yours now), and that factory's heartbeat waits until you
     /// close the tab.
     func takeOver(_ s: Session) {
-        guard let cmd = TerminalCommand.resume(s) else { status = "This session cannot be resumed here (no \(s.provider == .claude ? "claude" : "codex") CLI found)."; return }
+        guard let resume = TerminalCommand.resume(s) else { status = "This session cannot be resumed here (no \(s.provider == .claude ? "claude" : "codex") CLI found)."; return }
+        // a chat that waits shows what it asked above the conversation (C5): answering happens there, not in the app
+        let cmd = s.state(now: world.now) == .waiting ? Self.withQuestion(resume, s.lastSaid) : resume
         let root = world.projects.first { $0.sessions.contains { $0.id == s.id } }?.root
         let ceo = s.heartbeatRun == true && root != nil
         if ceo, let root { heartbeats.takeOver(root) }
@@ -631,7 +679,10 @@ final class AppModel: ObservableObject {
 
     /// Switches a project on or off as a Dark Software Factory. Nothing in the project changes: the factory's files are
     /// its CEO's; the app only reads them (and writes your answers). A factory stays on the campus.
-    func setFactory(_ root: String, on: Bool) { changeProjects { $0.update(root) { e in e.factory = on; if on { e.pinned = true } } } }
+    func setFactory(_ root: String, on: Bool) {
+        changeProjects { $0.update(root) { e in e.factory = on; if on { e.pinned = true } } }
+        if on, factoryQuest == root { factoryQuest = nil }
+    }
     /// Keeps a project on the campus without a recent session (D46).
     func setPinned(_ root: String, on: Bool) { changeProjects { $0.update(root) { $0.pinned = on } } }
     func setShowChats(_ on: Bool) { changeProjects { $0.showChats = on } }
@@ -978,6 +1029,7 @@ final class AppModel: ObservableObject {
     @Published var nextPressed = 0
     func endWalk() {
         walkStep = nil
+        walkGoalDone = false
         if !fixture { UserDefaults.standard.set(true, forKey: "walkDone") }
     }
 

@@ -104,10 +104,10 @@ struct BrandMark: View {
 
 // MARK: tactile controls
 
-/// A Tuinstra button (tactile-utility): a face on a 1 px edge and a solid ledge straight below, plus a faint soft
-/// shadow. Pressing moves the face straight down onto its ledge within about 70 ms and holds at least 88 ms, so a quick
-/// click still reads; letting go springs back in about 180 ms. Disabled buttons sit flat. Never more than one primary
-/// per decision.
+/// A Tuinstra button in the Spel+ shape (D80): a 2 pt edge and a hard ledge straight below. Pressing moves the face
+/// down onto its ledge within about 70 ms and holds at least 88 ms, so a quick click still reads; letting go springs
+/// back in about 180 ms. Disabled buttons sit flat with a dashed edge and keep a readable label (E9). Never more than
+/// one primary per view.
 struct TactileButtonStyle: ButtonStyle {
     /// primary: the one yellow action; neutral: everything else; destructive: a confirmed removal, in semantic red
     enum Kind { case primary, neutral, destructive }
@@ -129,6 +129,7 @@ private struct TactileBody: View {
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var down = false
+    @State private var hover = false
     @State private var since = Date.distantPast
     /// the latest press: a release scheduled by an earlier one is dropped
     @State private var token = 0
@@ -150,42 +151,50 @@ private struct TactileBody: View {
         // with reduced motion the face moves at most a pixel and nothing springs
         let depth: CGFloat = kind == .neutral ? 2 : 3, travel = reduceMotion ? min(depth, 1) : depth
         let lifted = enabled && !down
-        let face: Color = kind == .primary ? .signal : kind == .destructive ? .stuck : .raised
-        let ledge: Color = kind == .primary ? .ledge : kind == .destructive ? .dangerLedge : .neutralLedge
-        configuration.label
+        let shape = RoundedRectangle(cornerRadius: radius)
+        let ink: Color = !enabled ? .muted : kind == .neutral ? .inkText : .onSignal
+        let edge: Color = kind == .primary ? .signalEdge : kind == .destructive ? Color(hex: 0xB23A3A) : .border
+        let ledge: Color = kind == .primary ? .ledge : kind == .destructive ? .dangerLedge : .plinth
+        let top: Color = kind == .primary ? (hover ? Color(hex: 0xFFE987) : .signalTop) : kind == .destructive ? .stuck : (hover ? Color(hex: 0x3B3B3B) : Color(hex: 0x333333))
+        let bottom: Color = kind == .primary ? .signal : kind == .destructive ? .stuck : Color(hex: 0x292929)
+        let faceStyle: AnyShapeStyle = enabled ? AnyShapeStyle(LinearGradient(colors: [top, bottom], startPoint: .top, endPoint: .bottom)) : AnyShapeStyle(Color.clear)
+        return configuration.label
             .padding(inset ?? EdgeInsets())
-            .foregroundStyle(kind == .neutral ? Color.inkText : Color.onSignal)
-            .background(face, in: RoundedRectangle(cornerRadius: radius))
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(kind == .neutral ? Color.border : Color.onSignal, lineWidth: 1))
-            // the ledge: the same shape, solid, straight below; and the faint soft shadow under it
-            .background(RoundedRectangle(cornerRadius: radius).fill(ledge)
-                .offset(y: lifted ? depth : 0).opacity(lifted ? 1 : 0))
-            .shadow(color: .black.opacity(lifted ? 0.08 : 0), radius: 2.5, y: 3)
+            .foregroundStyle(ink)
+            .background(shape.fill(faceStyle))
+            .overlay(alignment: .top) {
+                if enabled && kind == .neutral { Rectangle().fill(Color.white.opacity(0.09)).frame(height: 1).padding(.horizontal, radius).padding(.top, 2) }
+            }
+            .overlay {
+                if enabled { shape.strokeBorder(edge, lineWidth: 2) }
+                else { shape.strokeBorder(Color.border, style: StrokeStyle(lineWidth: 2, dash: [4, 3])) }
+            }
+            // the ledge: the same shape, solid, straight below
+            .background(shape.fill(ledge).offset(y: lifted ? depth : 0).opacity(lifted ? 1 : 0))
             .offset(y: enabled && down ? travel : 0)
-            .opacity(enabled ? 1 : 0.45)
-            .contentShape(RoundedRectangle(cornerRadius: radius))
+            .contentShape(shape)
+            .onHover { hover = $0 }
             .onChange(of: configuration.isPressed) { _, pressed in if pressed { press() } else { release() } }
             // a keyboard shortcut: the same press and release
             .onChange(of: pulse) { _, _ in guard enabled else { return }; press(); release() }
     }
 }
 
-/// A lifted input field: a surface on a 1 px edge and a 2 px neutral ledge. It never travels; focus shows a ring.
+/// An input field (Spel+): recessed in a well with a 2 pt control edge; focus shows a white edge.
 struct LiftedField: ViewModifier {
     var focused: Bool
-    var radius: CGFloat = 6
+    var radius: CGFloat = 10
     func body(content: Content) -> some View {
-        content
-            .background(Color.surface, in: RoundedRectangle(cornerRadius: radius))
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Color.border, lineWidth: 1))
-            .background(RoundedRectangle(cornerRadius: radius).fill(Color.neutralLedge).offset(y: 2))
-            .shadow(color: .black.opacity(0.08), radius: 2.5, y: 3)
-            .overlay(RoundedRectangle(cornerRadius: radius + 3).stroke(Color.inkText, lineWidth: 2).padding(-3).opacity(focused ? 1 : 0))
+        let shape = RoundedRectangle(cornerRadius: radius)
+        return content
+            .background(shape.fill(Color.well))
+            .overlay(alignment: .top) { Rectangle().fill(Color.black.opacity(0.35)).frame(height: 2).padding(.horizontal, radius / 2).padding(.top, 2) }
+            .overlay(shape.strokeBorder(focused ? Color.inkText : Color.border, lineWidth: 2))
     }
 }
 
 extension View {
-    func lifted(focused: Bool, radius: CGFloat = 6) -> some View { modifier(LiftedField(focused: focused, radius: radius)) }
+    func lifted(focused: Bool, radius: CGFloat = 10) -> some View { modifier(LiftedField(focused: focused, radius: radius)) }
 }
 
 // MARK: type
@@ -275,43 +284,45 @@ struct BrandLockup: View {
 
 // MARK: segments
 
-/// A Tuinstra segmented control: a lifted neutral tray (1 px edge, 2 px ledge) in which the current segment is a lifted
-/// yellow key (yellow face, ink edge, 3 px yellow-brown ledge), as in Tuinstra's own toggles. The key slides to the
-/// segment you pick; the others are quiet.
+/// A segmented choice (Spel+): a well with chunky keys; the chosen one is lit white on its ledge, never yellow (E1).
+/// The key slides to the segment you pick; the others are quiet. A segment that cannot be picked keeps its readable
+/// label with a dashed edge (E9).
 struct LiftedSegments<ID: Hashable>: View {
     struct Item { var id: ID; var title: String; var icon: String? = nil; var enabled = true; var help: String? = nil }
     let items: [Item]
     let selected: ID
     var mono = false
     var fontSize: CGFloat = 13
-    var padding = EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+    var padding = EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10)
+    /// stretch the segments to the width they are given
+    var fill = false
     let pick: (ID) -> Void
-    /// the yellow key slides to the segment you pick
     @Namespace private var keySpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 2) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                let on = item.id == selected
                 Button { pick(item.id) } label: {
                     HStack(spacing: 6) {
-                        if let icon = item.icon { Image(systemName: icon) }
+                        if let icon = item.icon { PixelIcon(icon, color: on ? .onSignal : .muted) }
                         Text(item.title).lineLimit(1).fixedSize()
                     }
-                    .font(.system(size: fontSize, weight: item.id == selected ? .bold : .semibold, design: mono ? .monospaced : .default))
+                    .font(.system(size: fontSize <= 12 ? 11 : 13, weight: on ? .bold : .semibold, design: mono ? .monospaced : .default))
                     .padding(padding)
+                    .frame(maxWidth: fill ? .infinity : nil)
                 }
-                .buttonStyle(SegmentKeyStyle(on: item.id == selected, keySpace: keySpace))
-                .disabled(!item.enabled && item.id != selected)
+                .buttonStyle(SegmentKeyStyle(on: on, keySpace: keySpace))
+                .disabled(!item.enabled && !on)
                 .help(item.help ?? "")
+                .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
         .animation(reduceMotion ? nil : Motion.slide, value: selected)
-        .padding(.horizontal, 3).padding(.top, 3).padding(.bottom, 6)
-        .background(Color.surface, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.border, lineWidth: 1))
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.neutralLedge).offset(y: 2))
-        .shadow(color: .black.opacity(0.08), radius: 2.5, y: 3)
+        .padding(.horizontal, 2).padding(.top, 2).padding(.bottom, 4)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.well))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.divider, lineWidth: 2))
     }
 }
 
@@ -330,22 +341,25 @@ private struct SegmentKey: View {
     @State private var hover = false
     var body: some View {
         let pressed = configuration.isPressed && enabled
-        configuration.label
-            .foregroundStyle(on ? Color.onSignal : !enabled ? Color.muted.opacity(0.45) : hover ? Color.inkText : Color.muted)
+        let ink: Color = on ? Color.onSignal : hover && enabled ? Color.inkText : Color.muted
+        return configuration.label
+            .foregroundStyle(ink)
             .background {
                 if on {
-                    // the key: yellow face, ink edge, its yellow-brown ledge straight below; pressed, it lands on the ledge
-                    RoundedRectangle(cornerRadius: 5).fill(Color.signal)
-                        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.onSignal, lineWidth: 1))
-                        .background(RoundedRectangle(cornerRadius: 5).fill(Color.ledge).offset(y: pressed ? 0 : 3))
+                    // the key: a white face and edge, its grey ledge straight below; pressed, it lands on the ledge
+                    RoundedRectangle(cornerRadius: 6).fill(LinearGradient(colors: [.lit, .lit2], startPoint: .top, endPoint: .bottom))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white, lineWidth: 2))
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.litLedge).offset(y: pressed ? 0 : 2))
                         .matchedGeometryEffect(id: "key", in: keySpace)
-                } else if hover && enabled {
-                    RoundedRectangle(cornerRadius: 5).fill(Color.divider.opacity(0.5))
+                } else if !enabled {
+                    RoundedRectangle(cornerRadius: 6).strokeBorder(Color.border, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+                } else if hover {
+                    RoundedRectangle(cornerRadius: 6).fill(Color.raised)
                 }
             }
-            .offset(y: pressed ? (on ? (reduceMotion ? 1 : 3) : 1) : 0)
+            .offset(y: pressed ? (on ? (reduceMotion ? 1 : 2) : 1) : 0)
             .animation(reduceMotion ? nil : pressed ? Motion.pressIn : Motion.springBack, value: pressed)
-            .contentShape(RoundedRectangle(cornerRadius: 5))
+            .contentShape(RoundedRectangle(cornerRadius: 6))
             .onHover { hover = $0 }
     }
 }
@@ -361,44 +375,53 @@ struct CardPressStyle: ButtonStyle {
 
 // MARK: switches
 
-/// A Tuinstra switch: a lifted track (1 px edge, 2 px neutral ledge). Off: a neutral track with a light knob on the left.
-/// On: a solid Tuinstra-yellow track (the current state) with an ink knob on the right. The knob slides; with reduced
-/// motion it jumps. Keeps the switch's accessibility.
+/// A switch (Spel+, E1): on is green with the word ON, never yellow; off a recessed track with OFF. A white square knob
+/// slides; with reduced motion it jumps. A switch that is fixed has a dashed edge and keeps its word. It keeps the
+/// system switch's accessibility.
 struct TactileToggleStyle: ToggleStyle {
-    func makeBody(configuration: Configuration) -> some View { TactileSwitch(configuration: configuration) }
+    /// the word beside the track (ON / OFF)
+    var word = true
+    func makeBody(configuration: Configuration) -> some View { TactileSwitch(configuration: configuration, word: word) }
 }
 
 private struct TactileSwitch: View {
     let configuration: ToggleStyleConfiguration
+    let word: Bool
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         let on = configuration.isOn
+        let shape = RoundedRectangle(cornerRadius: 6)
         // a real button: focusable, Space toggles it, disabled when the switch is; its label is spoken, not drawn
         // (the row around it shows the words)
-        Button { configuration.isOn.toggle() } label: {
-            // switched on but fixed (disabled): a neutral track, so it reads as locked rather than as a faded yes
-            let lit = on && enabled
-            ZStack(alignment: on ? .trailing : .leading) {
-                Capsule().fill(lit ? Color.signal : on ? Color.divider : Color.raised)
-                    .overlay(Capsule().strokeBorder(lit ? Color.onSignal : Color.border, lineWidth: 1))
-                    .background(Capsule().fill(lit ? Color.ledge : Color.neutralLedge).offset(y: 2))
-                Circle().fill(lit ? Color.onSignal : Color.inkText).frame(width: 14, height: 14).padding(3)
+        return Button { configuration.isOn.toggle() } label: {
+            HStack(spacing: 8) {
+                if word {
+                    Text(on ? "ON" : "OFF").font(.s11).tracking(0.7).foregroundStyle(on ? Color.done : Color.muted).frame(width: 28, alignment: .trailing)
+                }
+                ZStack(alignment: on ? .trailing : .leading) {
+                    shape.fill(on ? Color.done : Color.well)
+                        .overlay {
+                            if enabled { shape.strokeBorder(on ? Color.doneEdge : Color.border, lineWidth: 2) }
+                            else { shape.strokeBorder(Color.border, style: StrokeStyle(lineWidth: 2, dash: [3, 2])) }
+                        }
+                    RoundedRectangle(cornerRadius: 4).fill(Color.inkText)
+                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color(hex: 0xBDBDBD), lineWidth: 2))
+                        .frame(width: 18, height: 18).padding(.horizontal, 3)
+                }
+                .frame(width: 44, height: 24)
             }
-            .frame(width: 38, height: 20)
-            .shadow(color: .black.opacity(0.08), radius: 2.5, y: 3)
-            .contentShape(Capsule())
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .opacity(enabled ? 1 : on ? 0.8 : 0.45)
         .animation(reduceMotion ? nil : Motion.slide, value: on)
         // to assistive tech it is the system switch, with its label and on/off value
         .accessibilityRepresentation { Toggle(isOn: configuration.$isOn) { configuration.label } }
     }
 }
 
-/// A keyboard shortcut shown where its action is (tuinstra tactile): a small key with an edge and a 1 pt ledge.
-/// On yellow it takes the ink of the yellow key it sits on.
+/// A keyboard shortcut shown where its action is (Spel+): a small recessed key with a thicker bottom edge.
+/// On yellow it takes the ink of the yellow button it sits on.
 struct KeyCap: View {
     let key: String
     var onYellow = false
@@ -406,15 +429,16 @@ struct KeyCap: View {
     var body: some View {
         // the colours first: in one expression this takes the compiler too long to type-check
         let ink: Color = onYellow ? Color.onSignal : Color.muted
-        let face: Color = onYellow ? Color.onSignal.opacity(0.08) : Color.surface
-        let edge: Color = onYellow ? Color.onSignal.opacity(0.55) : Color.border.opacity(0.8)
-        let ledge: Color = onYellow ? Color.ledge.opacity(0.5) : Color.neutralLedge
-        return Text(key).font(.system(size: 10, weight: .semibold, design: .rounded)).lineLimit(1).fixedSize()
+        let face: Color = onYellow ? Color.onSignal.opacity(0.12) : Color.well
+        let edge: Color = onYellow ? Color.onSignal.opacity(0.45) : Color.border
+        let shape = RoundedRectangle(cornerRadius: 6)
+        return Text(key).font(.system(size: 11, weight: .semibold)).lineLimit(1).fixedSize()
             .foregroundStyle(ink)
-            .padding(.horizontal, 4).frame(minWidth: 16, minHeight: 15)
-            .background(RoundedRectangle(cornerRadius: 3).fill(face))
-            .overlay(RoundedRectangle(cornerRadius: 3).stroke(edge, lineWidth: 1))
-            .background(RoundedRectangle(cornerRadius: 3).fill(ledge).offset(y: 1))
+            .padding(.horizontal, 5).frame(minWidth: 20, minHeight: 18, maxHeight: 18)
+            .background(shape.fill(face))
+            .overlay(shape.strokeBorder(edge, lineWidth: 1.5))
+            .background(shape.fill(edge).offset(y: 1.5))
+            .padding(.bottom, 1.5)
             .accessibilityHidden(true)
     }
 }
