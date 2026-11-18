@@ -86,5 +86,10 @@ final class WorldSKView: SKView {
     }
     override func scrollWheel(with event: NSEvent) { scene?.scrollWheel(with: event) }
     override func magnify(with event: NSEvent) { scene?.magnify(with: event) }
-    override func keyDown(with event: NSEvent) { scene?.keyDown(with: event) }
+    /// A plain key while the world has the keyboard: the HUD's keys first (N, Esc, 1, 2, ?), so their buttons press
+    /// visibly and the walk sees them; what the HUD does not take goes to the world (+ and − zoom).
+    override func keyDown(with event: NSEvent) {
+        if let host = window?.contentView, host.performKeyEquivalent(with: event) { return }
+        scene?.keyDown(with: event)
+    }
 }

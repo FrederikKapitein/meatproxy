@@ -55,6 +55,19 @@ enum WindowShot {
         } else if let m = ev(.mouseMoved) { sk.mouseMoved(with: m) }
     }
 
+    /// A key press through the app, as from the keyboard: "n", "esc", "1", "cmd-k" (window shots check the HUD's keys).
+    static func key(_ spec: String) {
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }) else { return }
+        let cmd = spec.hasPrefix("cmd-"), k = cmd ? String(spec.dropFirst(4)) : spec
+        let chars = k == "esc" ? "\u{1b}" : k
+        let code: UInt16 = k == "esc" ? 53 : k == "n" ? 45 : k == "1" ? 18 : k == "2" ? 19 : k == "k" ? 40 : 0
+        for t in [NSEvent.EventType.keyDown, .keyUp] {
+            if let e = NSEvent.keyEvent(with: t, location: .zero, modifierFlags: cmd ? .command : [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                        windowNumber: window.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars,
+                                        isARepeat: false, keyCode: code) { NSApp.sendEvent(e) }
+        }
+    }
+
     static func shoot(to out: URL, quit: Bool = true) {
         guard let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }), let content = window.contentView else { NSApp.terminate(nil); return }
         let bounds = content.bounds

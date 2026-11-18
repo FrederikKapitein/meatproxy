@@ -4,12 +4,13 @@ import FactoryCore
 import FactoryCollector
 import FactoryScenes
 
-/// The Mac window as the Game HUD (D31): the world fills the window and everything floats over it as glass panels.
-/// Breadcrumb top-left, Campus/Orbit in the middle, the Server room top-right; Needs you as a quest log on the left,
-/// the selection as character cards on the right; level chips, Up and zoom at the bottom, and the yellow counter (D25).
+/// The Mac window as the game HUD (D31, Spel+ D80): the world fills the window and everything floats over it in one
+/// frame. One grid (E7): the location plate and the toolbar 48 high at 16 from the top; the quest log on the left and
+/// the inspector on the right, both 360 wide on one top line (80); Up and zoom at the bottom centre. The terminal
+/// drawer takes the bottom when it is open, and the side panels end 16 above it (E10).
 struct HUDView: View {
     @EnvironmentObject private var model: AppModel
-    /// the lockup flies from the loading screen to the head of the left column
+    /// the lockup on the loading screen
     @Namespace private var lockupSpace
     /// the HUD parts have arrived (after the loading screen)
     @State private var hudShown = false
@@ -22,38 +23,31 @@ struct HUDView: View {
                 .ignoresSafeArea().allowsHitTesting(false)
             // while the campus is first built, the window is the loading screen alone: no HUD over it
             if !model.settingsOpen && !loading { hud }
-            // the terminal (D57): over the bottom of the world, on the shell's gutters
-            if !model.settingsOpen && !loading && model.terminalShown {
-                // it keeps clear of the inspector when one is open, so a card's buttons stay reachable
-                VStack { Spacer(minLength: 0); TerminalPanel(center: model.terminals) }
-                    .padding(.leading, Shell.gutter)
-                    .padding(.trailing, Shell.gutter + (model.selection.level != .all ? 348 + Shell.gap : 0))
-                    .padding(.bottom, Shell.gutter + 52)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            // D72: a right-click menu at the pointer, ⌘K search and the ? sheet; a click outside closes them
+            // D72: a right-click menu at the pointer, ⌘K search, Help and the factory picker; a click outside closes them
             if !model.settingsOpen && !loading {
                 if let m = model.contextMenuState {
                     Color.black.opacity(0.001).ignoresSafeArea().onTapGesture { model.contextMenuState = nil }
-                    // its top left corner at the pointer, kept inside the window (an estimate of its height: rows of 27 pt)
+                    // its top left corner at the pointer, kept inside the window (an estimate of its height: rows of 30 pt)
                     GeometryReader { geo in
-                        let h = CGFloat(m.items.count) * 27 + 40
+                        let h = CGFloat(m.items.count) * 30 + 44
                         ContextMenuView(menu: m)
-                            .offset(x: min(m.at.x + 4, geo.size.width - 276), y: min(m.at.y + 4, geo.size.height - h - 8))
+                            .offset(x: min(m.at.x + 4, geo.size.width - 296), y: min(m.at.y + 4, geo.size.height - h - 8))
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     }
                     .ignoresSafeArea()
                     .onExitCommand { model.contextMenuState = nil }
                 }
-                if model.paletteOpen || model.commandsOpen {
-                    Color.ink.opacity(0.35).ignoresSafeArea().contentShape(Rectangle())
-                        .onTapGesture { model.paletteOpen = false; model.commandsOpen = false }.transition(.opacity)
+                if model.paletteOpen || model.commandsOpen || model.factoryPickerOpen {
+                    Color.ink.opacity(0.5).ignoresSafeArea().contentShape(Rectangle())
+                        .onTapGesture { model.paletteOpen = false; model.commandsOpen = false; model.factoryPickerOpen = false }.transition(.opacity)
                     // each its own view with a steady identity, so what you typed survives the world's refreshes
                     VStack {
-                        if model.paletteOpen { CommandPalette().id("palette").padding(.top, 96) }
-                        else { CommandSheet().id("commands").padding(.top, 96) }
-                        Spacer()
+                        if model.paletteOpen { CommandPalette(seed: model.paletteSeed).id("palette") }
+                        else if model.factoryPickerOpen { FactoryPicker().id("picker") }
+                        else { CommandSheet().id("commands") }
+                        Spacer(minLength: 0)
                     }
+                    .padding(.top, Shell.top).padding(.horizontal, Shell.gutter)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
@@ -61,23 +55,30 @@ struct HUDView: View {
             if !model.settingsOpen && !loading && model.contextMenuState == nil, let t = model.hoverTitle {
                 GeometryReader { geo in HoverTip(title: t, bounds: geo.size) }.ignoresSafeArea().allowsHitTesting(false)
             }
-            // the settings drawer slides in from the right over the dimmed world; a click on the world closes it
+            // Settings (E8): the same floating frame as every sheet, over the dimmed world; a click beside it closes it
             if model.settingsOpen {
-                Color.ink.opacity(0.45).ignoresSafeArea().contentShape(Rectangle())
+                Color.ink.opacity(0.55).ignoresSafeArea().contentShape(Rectangle())
                     .onTapGesture { model.settingsOpen = false }.transition(.opacity)
                 GeometryReader { geo in
-                    HStack(spacing: 0) { Spacer(minLength: 0); SettingsView().frame(width: SettingsView.width(geo.size.width)) }
+                    SettingsView(page: model.settingsPage, atProjects: model.settingsAtProjects, atForm: model.settingsAtForm)
+                        .frame(width: min(Shell.wideSheet, geo.size.width - 2 * Shell.gutter))
+                        .frame(maxHeight: geo.size.height - Shell.top - Shell.gutter, alignment: .top)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(.top, Shell.top)
                 }
-                .ignoresSafeArea().transition(.move(edge: .trailing))
+                .ignoresSafeArea()
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
             }
             if loading {
                 // the loading screen: the whole window, nothing of the HUD over it
                 LoadingScreen(status: building ? model.status : nil, lockup: lockupSpace) { startupDone = true }.transition(.opacity)
             } else if let s = model.status {
-                do {
-                    Text(s).font(.system(size: 13, weight: .semibold)).padding(.horizontal, 16).padding(.vertical, 10)
-                        .glass(radius: 6)
+                VStack {
+                    Spacer()
+                    Text(s).font(.s13m).foregroundStyle(Color.inkText).padding(.horizontal, 16).padding(.vertical, 10).spelFrame()
+                        .padding(.bottom, 96)
                 }
+                .allowsHitTesting(false)
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: model.settingsOpen)
@@ -85,7 +86,6 @@ struct HUDView: View {
         .onChange(of: loading, initial: true) { _, now in if !now { hudShown = true } }
         .background(WindowShot.active ? Color.clear : Color.ink)
         .task { await runShotActions() }
-
     }
 
     /// the campus is really being built
@@ -94,305 +94,506 @@ struct HUDView: View {
     private var loading: Bool { building || !startupDone }
     @State private var startupDone = false
 
-    /// The HUD over the world (hidden under the settings, so its key shortcuts never catch what you type there).
+    /// The HUD over the world (hidden under Settings, so its key shortcuts never catch what you type there).
     private var hud: some View {
-            // one grid: a 52 pt bar level with the traffic lights, then two columns on 16 pt gutters with 12 pt gaps (the
-            // lockup heads the left one), and the bottom bar on the same gutters; centred things sit on the window's axis
-            VStack(spacing: 0) {
-                TopBar().arrive(hudShown, from: .top, order: 0)
-                    .zIndex(2)
-                    .overlay(alignment: .bottom) { FieldNoteBanner().offset(y: 70).zIndex(3) }
-                HStack(alignment: .top, spacing: 0) {
-                    VStack(alignment: .leading, spacing: Shell.gap) {
-                        Button { Brand.showAbout() } label: {
-                            BrandLockup(size: 26).contentShape(Rectangle())
-                                .matchedGeometryEffect(id: "lockup", in: lockupSpace, anchor: .topLeading)
-                        }
-                        .buttonStyle(LockupButtonStyle()).help("About \(Brand.name): \(Brand.productLine)")
-                        // the quest log is the overview's (campus, a building, Orbit's systems); on a floor the inspector
-                        // has that floor's own questions, and N or the button bottom right still goes to the next one
-                        if model.selection.level.rawValue < Level.project.rawValue {
-                            NeedsYouPanel().arrive(hudShown, from: .leading, order: 1)
-                                .transition(.move(edge: .leading).combined(with: .opacity))
-                        }
-                    }
-                    .frame(width: 300, alignment: .leading)
-                    Spacer(minLength: Shell.gutter)
-                    if model.selection.level != .all {
-                        InspectorPanel().frame(width: 348)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                            .arrive(hudShown, from: .trailing, order: 2)
-                    }
-                }
-                .padding(.horizontal, Shell.gutter).padding(.top, Shell.gap).padding(.bottom, Shell.gap)
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: Shell.gap) {
+                LocationPlate().padding(.leading, Shell.lightsInset).arrive(hudShown, from: .top, order: 0)
                 Spacer(minLength: 0)
-                if model.walkStep != nil { WalkCard().padding(.bottom, Shell.gap).transition(.move(edge: .bottom).combined(with: .opacity)) }
-                BottomBar().padding(.horizontal, Shell.gutter).padding(.bottom, Shell.gutter).arrive(hudShown, from: .bottom, order: 3)
+                Toolbar().arrive(hudShown, from: .top, order: 0)
             }
-            .ignoresSafeArea(edges: .top)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: model.selection.level)
+            .frame(height: Shell.bar)
+            .padding(.horizontal, Shell.gutter).padding(.top, Shell.gutter)
+            .zIndex(2)
+            .overlay(alignment: .bottom) { FieldNoteBanner().offset(y: Shell.gutter + 64).zIndex(3) }
+            HStack(alignment: .top, spacing: 0) {
+                QuestLog().frame(width: Shell.side).arrive(hudShown, from: .leading, order: 1)
+                Spacer(minLength: Shell.gutter)
+                if model.selection.level != .all {
+                    InspectorPanel().frame(width: Shell.side)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .arrive(hudShown, from: .trailing, order: 2)
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, Shell.gutter).padding(.top, Shell.gutter).padding(.bottom, Shell.gutter)
+            if model.terminalShown {
+                // the drawer is a panel like the others, on the shell's gutters; the side panels end 16 above it
+                TerminalPanel(center: model.terminals)
+                    .padding(.horizontal, Shell.gutter).padding(.bottom, Shell.gutter)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                if model.walkStep != nil {
+                    WalkCard().padding(.bottom, Shell.gap).transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                BottomBar().padding(.bottom, Shell.gutter).arrive(hudShown, from: .bottom, order: 3)
+            }
+        }
+        .ignoresSafeArea(edges: .top)
+        .background { KeyCatcher() }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: model.selection.level)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: model.terminalShown)
     }
 
     private func runShotActions() async {
-            guard let action = WindowShot.action else { return }
-            try? await Task.sleep(nanoseconds: 3_500_000_000)
-            // "hover:x,y" and "click:x,y" carry a comma of their own
-            var steps: [String] = []
-            for t in action.split(separator: ",").map(String.init) {
-                if Double(t) != nil, let last = steps.last, last.hasPrefix("hover:") || last.hasPrefix("click:") || last.hasPrefix("uiclick:") || last.hasPrefix("context:"), !last.contains(";") { steps[steps.count - 1] += ";" + t }
-                else { steps.append(t) }
+        guard let action = WindowShot.action else { return }
+        try? await Task.sleep(nanoseconds: 3_500_000_000)
+        // "hover:x,y" and "click:x,y" carry a comma of their own
+        var steps: [String] = []
+        for t in action.split(separator: ",").map(String.init) {
+            if Double(t) != nil, let last = steps.last, last.hasPrefix("hover:") || last.hasPrefix("click:") || last.hasPrefix("uiclick:") || last.hasPrefix("context:"), !last.contains(";") { steps[steps.count - 1] += ";" + t }
+            else { steps.append(t) }
+        }
+        for (n, step) in steps.enumerated() {
+            if n > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+            if step == "next" { model.controller.nextWaiting() }
+            else if step == "up" { model.controller.up() }
+            // D65/D66 shots: "apart:<tower>" holds a tower apart, "mark:<k>" marks storey k, "life:demo" plays all
+            // of the campus's life at night, "hour:<h>" sets the clock
+            else if step.hasPrefix("apart:") { model.controller.campus.holdApart(String(step.dropFirst(6))) }
+            else if step.hasPrefix("mark:"), let k = Int(step.dropFirst(5)) { model.controller.campus.mark(k) }
+            else if step == "life:demo" { model.controller.campus.demoLife() }
+            else if step.hasPrefix("hour:"), let h = Double(step.dropFirst(5)) { model.controller.campus.setHour(h) }
+            else if step == "layer:status" { model.setStatusLayer(true) }
+            else if step == "commands" { model.commandsOpen = true }
+            // "help:guide": Help on its Field guide tab
+            else if step == "help:guide" { model.helpTab = .guide; model.commandsOpen = true }
+            // "pick": the factory picker the walk's last quest opens (D1)
+            else if step == "pick" { model.factoryPickerOpen = true }
+            // "quest:<root>": the walk's factory quest landed on that floor (step 2 of 2)
+            else if step.hasPrefix("quest:") { model.factoryQuest = String(step.dropFirst(6)) }
+            else if step.hasPrefix("search:") { model.paletteSeed = String(step.dropFirst(7)); model.paletteOpen = true }
+            else if step.hasPrefix("context:") {
+                let xy = step.dropFirst(8).split(separator: ";").compactMap { Double($0) }
+                if xy.count == 2 { WindowShot.mouse("right", x: xy[0], y: xy[1]) }
             }
-            for (n, step) in steps.enumerated() {
-                if n > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
-                if step == "next" { model.controller.nextWaiting() }
-                else if step == "up" { model.controller.up() }
-                // D65/D66 shots: "apart:<tower>" holds a tower apart, "mark:<k>" marks storey k, "life:demo" plays all
-                // of the campus's life at night, "hour:<h>" sets the clock
-                else if step.hasPrefix("apart:") { model.controller.campus.holdApart(String(step.dropFirst(6))) }
-                else if step.hasPrefix("mark:"), let k = Int(step.dropFirst(5)) { model.controller.campus.mark(k) }
-                else if step == "life:demo" { model.controller.campus.demoLife() }
-                else if step.hasPrefix("hour:"), let h = Double(step.dropFirst(5)) { model.controller.campus.setHour(h) }
-                else if step == "layer:status" { model.setStatusLayer(true) }
-                else if step == "commands" { model.commandsOpen = true }
-                else if step.hasPrefix("search:") { model.paletteOpen = true; model.paletteSeed = String(step.dropFirst(7)) }
-                else if step.hasPrefix("context:") {
-                    let xy = step.dropFirst(8).split(separator: ";").compactMap { Double($0) }
-                    if xy.count == 2 { WindowShot.mouse("right", x: xy[0], y: xy[1]) }
-                }
-                else if step.hasPrefix("building:") { model.controller.focusBuilding(String(step.dropFirst(9))) }
-                // "tab:<overview|work|ceo|team>": that tab in the open factory's inspector
-                else if step.hasPrefix("tab:"), let id = model.selection.projectID, let t = FactoryOverview.Tab(rawValue: String(step.dropFirst(4))) { model.factoryTabs[id] = t }
-                else if step.hasPrefix("floor:") { model.controller.enterFloor(String(step.dropFirst(6))) }
-                else if step == "orbit" { model.controller.showOrbit(true) }
-                // "decision:<project id>|<D-id>", "workstream:<project id>|<W-id>"
-                else if step.hasPrefix("decision:") || step.hasPrefix("workstream:") {
-                    let parts = step.drop { $0 != ":" }.dropFirst().split(separator: "|").map(String.init)
-                    if parts.count == 2 {
-                        if step.hasPrefix("decision:") { model.controller.select(decision: parts[1], in: parts[0]) }
-                        else { model.controller.select(workstream: parts[1], in: parts[0]) }
-                    }
-                }
-                else if step == "settings" { model.settingsOpen = true }
-                else if step == "settings:projects" { model.settingsAtProjects = true; model.settingsOpen = true }
-                // "settingspage:<privacy|engine|project:<root>|server:<id>>": Settings open on that page
-                else if step.hasPrefix("settingspage:") { model.settingsPage = String(step.dropFirst(13)); model.settingsOpen = true }
-                else if step.hasPrefix("walk:"), let k = Int(step.dropFirst(5)) { model.walkStep = k; if k == 1 { model.controller.focusBuilding("claude") } }
-                else if step.hasPrefix("factory:") { model.setFactory(String(step.dropFirst(8)), on: true) }
-                else if step.hasPrefix("view:") { model.debugViewFile = String(step.dropFirst(5)) }
-                // "runnow:<project folder>": the same as pressing Run now on that factory
-                else if step == "devops:runnow" { model.runDevOpsNow() }
-                // "terminal:demo": a tab with made-up output (screenshots), nothing real runs in it
-                else if step == "terminal:demo" {
-                    let text = "\\033[1;33m✓\\033[0m Pebble Puzzles · CEO run (taken over)\\n\\n\\033[2m> Resuming the conversation where the CEO left it…\\033[0m\\n\\nW-003 timer keeps time after resume: the tester reports the timer resets on resume.\\nNext step: delegate the fix to the developer, then ask the tester again.\\n\\n\\033[1m>\\033[0m "
-                    model.terminals.open(TerminalCommand(title: "Pebble factory: CEO run", executable: "/bin/sh", args: ["-c", "printf '\(text)'; sleep 60"], cwd: nil),
-                                         icon: "person.fill.checkmark")
-                }
-                else if step.hasPrefix("runnow:") { model.runNow(root: String(step.dropFirst(7))) }
-                else if step.hasPrefix("settings:page:") { model.settingsPage = String(step.dropFirst(14)); model.settingsOpen = true }
-                else if step.hasPrefix("settings:scroll:") { model.settingsScrollTo = String(step.dropFirst(16)) }
-                else if step.hasPrefix("settings:test:") { model.debugTestHost = String(step.dropFirst(14)); model.settingsAtForm = true; model.settingsOpen = true }
-                else if step == "office" { model.controller.showOrbit(false) }
-                else if step.hasPrefix("session:") { model.controller.select(session: String(step.dropFirst(8))) }
-                else if step.hasPrefix("zoom:"), let f = Double(step.dropFirst(5)) { model.controller.zoom(CGFloat(f)) }
-                else if step == "engine" { model.controller.focusBuilding("engine") }
-                else if step.hasPrefix("server:") { model.controller.select(server: String(step.dropFirst(7))) }
-                else if step.hasPrefix("walker:") || step.hasPrefix("clickwalker:"), let k = Int(step.drop { $0 != ":" }.dropFirst()),
-                        let p = model.controller.campus.walkerViewPoint(k), let h = model.controller.campus.view?.bounds.height {
-                    WindowShot.mouse(step.hasPrefix("walker:") ? "moved" : "click", x: p.x, y: h - p.y)
-                }
-                else if step.hasPrefix("person:") || step.hasPrefix("clickperson:"), let p = model.controller.personViewPoint(String(step.drop { $0 != ":" }.dropFirst())) {
-                    WindowShot.mouse(step.hasPrefix("person:") ? "moved" : "click", x: p.x, y: p.y)
-                }
-                else if step.hasPrefix("move:") {
-                    let parts = step.split(separator: ":").map(String.init)
-                    if parts.count == 3 { model.controller.debugWalk(parts[1], to: parts[2]) }
-                }
-                else if step.hasPrefix("hover:") || step.hasPrefix("click:") || step.hasPrefix("uiclick:") {
-                    let xy = step.drop { $0 != ":" }.dropFirst().split(separator: ";").compactMap { Double($0) }
-                    if xy.count == 2 { WindowShot.mouse(step.hasPrefix("hover:") ? "moved" : step.hasPrefix("ui") ? "uiclick" : "click", x: xy[0], y: xy[1]) }
-                }
-                else if step.hasPrefix("wait:"), let s = Double(step.dropFirst(5)) { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }
+            else if step.hasPrefix("building:") { model.controller.focusBuilding(String(step.dropFirst(9))) }
+            // "tab:<overview|work|ceo|team>": that tab in the open floor's inspector
+            else if step.hasPrefix("tab:"), let t = FactoryOverview.Tab(rawValue: String(step.dropFirst(4))) {
+                if let id = model.selection.projectID { model.factoryTabs[id] = t } else { model.pendingTab = t }
             }
+            // "group:<rhythm|wakes|autonomy|limits|models|contract>": that group open on the CEO tab
+            else if step.hasPrefix("group:") { model.ceoGroup = String(step.dropFirst(6)) }
+            else if step.hasPrefix("floor:") {
+                let id = String(step.dropFirst(6))
+                model.controller.enterFloor(id)
+                if let t = model.pendingTab { model.factoryTabs[id] = t; model.pendingTab = nil }
+            }
+            else if step == "orbit" { model.controller.showOrbit(true) }
+            // "decision:<project id>|<D-id>", "workstream:<project id>|<W-id>"
+            else if step.hasPrefix("decision:") || step.hasPrefix("workstream:") {
+                let parts = step.drop { $0 != ":" }.dropFirst().split(separator: "|").map(String.init)
+                if parts.count == 2 {
+                    if step.hasPrefix("decision:") { model.controller.select(decision: parts[1], in: parts[0]) }
+                    else { model.controller.select(workstream: parts[1], in: parts[0]) }
+                }
+            }
+            else if step == "settings" { model.settingsOpen = true }
+            else if step == "settings:projects" { model.settingsAtProjects = true; model.settingsOpen = true }
+            // "settingspage:<general|sources|privacy|engine|project:<root>|server:<id>>": Settings open on that page
+            else if step.hasPrefix("settingspage:") { model.settingsPage = String(step.dropFirst(13)); model.settingsOpen = true }
+            else if step.hasPrefix("walk:"), let k = Int(step.dropFirst(5)) { model.walkStep = k; model.walkGoalDone = false; if k == 1 { model.controller.focusBuilding("claude") } }
+            // "walkdone": the open step's goal ticked off
+            else if step == "walkdone" { model.walkGoalDone = true }
+            else if step.hasPrefix("factory:") { model.setFactory(String(step.dropFirst(8)), on: true) }
+            else if step.hasPrefix("view:") { model.debugViewFile = String(step.dropFirst(5)) }
+            // "runnow:<project folder>": the same as pressing Run now on that factory
+            else if step == "devops:runnow" { model.runDevOpsNow() }
+            // "terminal:demo": a tab with made-up output (screenshots), nothing real runs in it
+            else if step == "terminal:demo" {
+                let text = "\\033[1;32m✓\\033[0m Pebble Puzzles · CEO run (taken over)\\n\\033[2m> Resuming the conversation where the CEO left it…\\033[0m\\n\\nW-003 timer keeps time after resume: the tester reports the timer resets on resume.\\nNext step: delegate the fix to the developer, then ask the tester again.\\n\\n\\033[1m>\\033[0m "
+                model.terminals.open(TerminalCommand(title: "Pebble factory: CEO run", executable: "/bin/sh", args: ["-c", "printf '\(text)'; sleep 60"], cwd: nil),
+                                     icon: "person.fill.checkmark")
+            }
+            else if step.hasPrefix("runnow:") { model.runNow(root: String(step.dropFirst(7))) }
+            else if step.hasPrefix("settings:page:") { model.settingsPage = String(step.dropFirst(14)); model.settingsOpen = true }
+            else if step.hasPrefix("settings:scroll:") { model.settingsScrollTo = String(step.dropFirst(16)) }
+            else if step.hasPrefix("settings:test:") { model.debugTestHost = String(step.dropFirst(14)); model.settingsAtForm = true; model.settingsOpen = true }
+            else if step == "office" { model.controller.showOrbit(false) }
+            else if step.hasPrefix("session:") { model.controller.select(session: String(step.dropFirst(8))) }
+            else if step.hasPrefix("zoom:"), let f = Double(step.dropFirst(5)) { model.controller.zoom(CGFloat(f)) }
+            else if step == "engine" { model.controller.focusBuilding("engine") }
+            else if step.hasPrefix("server:") { model.controller.select(server: String(step.dropFirst(7))) }
+            else if step.hasPrefix("walker:") || step.hasPrefix("clickwalker:"), let k = Int(step.drop { $0 != ":" }.dropFirst()),
+                    let p = model.controller.campus.walkerViewPoint(k), let h = model.controller.campus.view?.bounds.height {
+                WindowShot.mouse(step.hasPrefix("walker:") ? "moved" : "click", x: p.x, y: h - p.y)
+            }
+            else if step.hasPrefix("person:") || step.hasPrefix("clickperson:"), let p = model.controller.personViewPoint(String(step.drop { $0 != ":" }.dropFirst())) {
+                WindowShot.mouse(step.hasPrefix("person:") ? "moved" : "click", x: p.x, y: p.y)
+            }
+            else if step.hasPrefix("move:") {
+                let parts = step.split(separator: ":").map(String.init)
+                if parts.count == 3 { model.controller.debugWalk(parts[1], to: parts[2]) }
+            }
+            else if step.hasPrefix("hover:") || step.hasPrefix("click:") || step.hasPrefix("uiclick:") {
+                let xy = step.drop { $0 != ":" }.dropFirst().split(separator: ";").compactMap { Double($0) }
+                if xy.count == 2 { WindowShot.mouse(step.hasPrefix("hover:") ? "moved" : step.hasPrefix("ui") ? "uiclick" : "click", x: xy[0], y: xy[1]) }
+            }
+            // "key:<n|esc|1|2|k>": a key press as from the keyboard (⌘ with "cmd-" in front: "key:cmd-k")
+            else if step.hasPrefix("key:") { WindowShot.key(String(step.dropFirst(4))) }
+            else if step.hasPrefix("wait:"), let s = Double(step.dropFirst(5)) { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }
+        }
     }
 }
 
-// MARK: top bar
-
-/// The lockup opens About: on hover a quiet raised plate appears behind it, a press moves it a pixel.
-private struct LockupButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { LockupBody(configuration: configuration) }
-}
-private struct LockupBody: View {
-    let configuration: ButtonStyleConfiguration
-    @State private var hover = false
-    var body: some View {
-        configuration.label.padding(6)
-            .background(hover ? Color.raised.opacity(0.7) : .clear, in: RoundedRectangle(cornerRadius: 10))
-            .offset(y: configuration.isPressed ? 1 : 0).padding(-6)
-            .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hover = h } }
-    }
-}
-
-/// The shell's measures (tactile-utility spacing): 16 pt to the window edge, 12 pt between things.
+/// The shell's measures (E7): 16 to the window edge, 12 between things, a 48 bar at 16 from the top, side panels 360
+/// on the 80 top line; sheets 560, Settings and Help 760.
 enum Shell {
     static let gutter: CGFloat = 16
     static let gap: CGFloat = 12
-    /// the bar is the window's title bar: as tall as a unified toolbar, so it sits level with the traffic lights
-    static let barHeight: CGFloat = 52
-    /// the traffic lights end here (unified toolbar: 20 pt in, three 14 pt buttons 6 pt apart)
-    static let lightsWidth: CGFloat = 78
+    static let bar: CGFloat = 48
+    /// the side panels' shared top line
+    static let top: CGFloat = 80
+    static let side: CGFloat = 360
+    static let sheet: CGFloat = 560
+    static let wideSheet: CGFloat = 760
+    /// the window's traffic lights sit at the top left of the title bar; the plate starts beside them
+    static let lightsInset: CGFloat = 70
 }
 
-private struct TopBar: View {
+// MARK: keys
+
+/// The HUD's plain keys in one place, so they work whatever panel is open: N (next that waits), Esc (up), ⌘K (search),
+/// ? (Help), ⌘1 (Campus), ⌘2 (Server room), 1 and 2 (answer the open question). A text field, the terminal or an open
+/// sheet keeps them.
+private struct KeyCatcher: View {
     @EnvironmentObject private var model: AppModel
     var body: some View {
+        let free = !(model.typing || model.terminalShown || model.overlayOpen)
         ZStack {
-            HStack(spacing: Shell.gap) {
-                Color.clear.frame(width: Shell.lightsWidth - Shell.gutter, height: 1)          // the traffic lights
-                Breadcrumb(crumb: model.selection.crumb, provider: model.selection.provider)
-                Spacer(minLength: 0)
-                StatusLayerToggle()
-                TerminalToggle(center: model.terminals)
-                // the field guide and every key (D78): a visible way in, not only the ? key
-                Button { model.paletteOpen = false; model.commandsOpen = true } label: {
-                    Text("?").font(.system(size: 14, weight: .bold)).frame(width: 30, height: 30)
-                }.buttonStyle(TactileButtonStyle(kind: .neutral)).help("Field guide and every key (?)")
-                Button { model.settingsOpen = true } label: {
-                    Image(systemName: "gearshape").font(.system(size: 13, weight: .semibold)).frame(width: 30, height: 30)
-                }.buttonStyle(TactileButtonStyle(kind: .neutral)).help("Settings (⌘,)")
-                Button { model.controller.focusBuilding("engine") } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "server.rack").foregroundStyle(Color.muted)
-                        Text("Server room").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color.inkText)
-                        ServerLine(summary: model.world.serverSummary)
-                    }
-                    .padding(.horizontal, 12).frame(height: 30)
-                }.buttonStyle(TactileButtonStyle(kind: .neutral))
-            }
-            // the worlds switch sits on the window's centre axis, whatever is left and right of it (only while Orbit is on, D53)
-            if WorldController.orbitEnabled {
-                LiftedSegments(items: [.init(id: false, title: "Campus"), .init(id: true, title: "Orbit")], selected: model.selection.orbit,
-                               padding: EdgeInsets(top: 2.5, leading: 16, bottom: 2.5, trailing: 16)) {
-                    model.controller.showOrbit($0)
-                }
-                .background {
-                    // ⌘1 and ⌘2 switch worlds
-                    Button("") { model.controller.showOrbit(false) }.keyboardShortcut("1", modifiers: .command).opacity(0)
-                    Button("") { model.controller.showOrbit(true) }.keyboardShortcut("2", modifiers: .command).opacity(0)
-                }
-            }
+            Button("") { model.nextPulse += 1; model.nextPressed += 1; model.controller.nextWaiting() }
+                .keyboardShortcut(free && !model.world.needsYou.isEmpty ? KeyboardShortcut("n", modifiers: []) : nil)
+            Button("") { model.upPulse += 1; model.controller.up() }
+                .keyboardShortcut(free ? KeyboardShortcut(.escape, modifiers: []) : nil)
+            Button("") { model.commandsOpen = false; model.factoryPickerOpen = false; model.paletteOpen.toggle() }.keyboardShortcut("k", modifiers: .command)
+            Button("") { model.paletteOpen = false; model.commandsOpen.toggle() }
+                .keyboardShortcut(model.typing || model.terminalShown || model.paletteOpen ? nil : KeyboardShortcut("/", modifiers: .shift))
+            Button("") { model.controller.showOrbit(false); model.controller.focusBuilding(nil) }.keyboardShortcut("1", modifiers: .command)
+            Button("") { model.controller.showOrbit(false); model.controller.focusBuilding("engine") }.keyboardShortcut("2", modifiers: .command)
+            // the open question's answers (C4): 1 is yes, 2 is no; both still ask once more before anything is written
+            Button("") { guard model.answerable else { return }; model.answerKey = AppModel.AnswerKey(count: model.answerKey.count + 1, yes: true) }
+                .keyboardShortcut(free ? KeyboardShortcut("1", modifiers: []) : nil)
+            Button("") { guard model.answerable else { return }; model.answerKey = AppModel.AnswerKey(count: model.answerKey.count + 1, yes: false) }
+                .keyboardShortcut(free ? KeyboardShortcut("2", modifiers: []) : nil)
         }
-        .padding(.horizontal, Shell.gutter).frame(height: Shell.barHeight)
-        .background(LinearGradient(colors: [Color.ink.opacity(0.9), .clear], startPoint: .top, endPoint: .bottom).allowsHitTesting(false))
+        .opacity(0).accessibilityHidden(true)
     }
 }
 
-/// "not connected", "6 online", or the problems in their colours ("1 warning · 1 down").
-private struct ServerLine: View {
-    let summary: ServerSummary
+// MARK: the location plate
+
+/// Top left (C3): the brand mark and where you are, in the world's words. Every part but the last takes you back up
+/// there; Esc is Up, the one way back.
+private struct LocationPlate: View {
+    @EnvironmentObject private var model: AppModel
+    struct Crumb { let icon: String; let name: String }
     var body: some View {
-        HStack(spacing: 0) {
-            if !summary.connected || (summary.warn == 0 && summary.down == 0) {
-                Text(summary.line.lowercased()).foregroundStyle(summary.connected ? Color.done : Color.muted)
-            } else {
-                if summary.down > 0 { Text("\(summary.down) down").foregroundStyle(Color.stuck) }
-                if summary.warn > 0 && summary.down > 0 { Text(" · ").foregroundStyle(Color.muted) }
-                if summary.warn > 0 { Text("\(summary.warn) warning").foregroundStyle(Color.warn) }
+        let crumbs = Self.crumbs(model.selection, world: model.world, model: model)
+        HStack(spacing: 4) {
+            Button { Brand.showAbout() } label: {
+                BrandMark().frame(width: 26, height: 26).padding(.horizontal, 4).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help("About \(Brand.name): \(Brand.productLine)").accessibilityLabel("About \(Brand.name)")
+            Rectangle().fill(Color.divider).frame(width: 2, height: 28).padding(.horizontal, 6)
+            ForEach(Array(crumbs.enumerated()), id: \.offset) { k, c in
+                if k > 0 { PixelIcon("chev", color: .muted, size: 9).padding(.horizontal, 2) }
+                if k == crumbs.count - 1 {
+                    HStack(spacing: 6) { PixelIcon(c.icon, color: .muted); Text(c.name).font(.s15b).foregroundStyle(Color.inkText).lineLimit(1) }
+                        .padding(.leading, 6)
+                        .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+                } else {
+                    let up = crumbs.count - 1 - k
+                    CrumbButton(icon: c.icon, name: c.name) { for _ in 0..<up { model.controller.up() } }
+                        .help(up == 1 ? "Back to \(c.name) (Esc)" : "Back to \(c.name)")
+                }
             }
         }
-        .font(.system(size: 11.5, weight: .medium).monospacedDigit()).lineLimit(1)
+        .padding(.leading, 6).padding(.trailing, 14)
+        .frame(height: Shell.bar)
+        .spelFrame()
+        .accessibilityElement(children: .contain).accessibilityLabel("Where you are")
+    }
+
+    static func crumbs(_ s: WorldSelection, world: World, model: AppModel) -> [Crumb] {
+        if s.orbit { return s.crumb.map { Crumb(icon: "star", name: $0) } }
+        var c = [Crumb(icon: "campus", name: "Campus")]
+        if s.engineRoom {
+            c.append(Crumb(icon: "server", name: "Server room"))
+            if let id = s.serverID, let sv = world.servers.first(where: { $0.id == id }) { c.append(Crumb(icon: "server", name: sv.name)) }
+            if let d = s.decisionID { c.append(Crumb(icon: "bang", name: d)) }
+            return c
+        }
+        if let p = s.provider { c.append(Crumb(icon: "tower", name: p.displayName)) }
+        if let id = s.projectID, let p = world.project(id: id) { c.append(Crumb(icon: "floor", name: p.name)) }
+        if let (_, session) = model.session(s.sessionID) { c.append(Crumb(icon: "person", name: session.persona.name)) }
+        if let a = s.subAgentID, let sub = world.projects.flatMap(\.sessions).flatMap(\.subAgents).first(where: { $0.id == a }) { c.append(Crumb(icon: "person", name: sub.type)) }
+        if let w = s.workstreamID { c.append(Crumb(icon: "branch", name: w)) }
+        if let d = s.decisionID { c.append(Crumb(icon: "bang", name: d)) }
+        return c
     }
 }
 
+private struct CrumbButton: View {
+    let icon: String, name: String, action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) { PixelIcon(icon, color: .muted); Text(name).font(.s13m).lineLimit(1) }
+                .foregroundStyle(hover ? Color.inkText : Color.muted)
+                .padding(.horizontal, 8).frame(height: 28)
+                .background(RoundedRectangle(cornerRadius: 6).fill(hover ? Color.raised : .clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).onHover { hover = $0 }
+    }
+}
 
+// MARK: the toolbar
 
-private struct Breadcrumb: View {
-    let crumb: [String]; let provider: Provider?
+/// Top right (C8): one toolbar, five buttons of one shape: icon, label and key. Open terminal tabs are a badge on the
+/// terminal's button; the Status layer, when on, is lit white.
+private struct Toolbar: View {
+    @EnvironmentObject private var model: AppModel
     var body: some View {
         HStack(spacing: 6) {
-            ForEach(Array(crumb.enumerated()), id: \.offset) { k, part in
-                if k > 0 { Text("›").foregroundStyle(Color.muted) }
-                Text(part).font(.system(size: 12.5, weight: k == crumb.count - 1 ? .semibold : .regular))
-                    .foregroundStyle(k == 1 && provider != nil ? Color.provider(provider!) : k == crumb.count - 1 ? Color.inkText : Color.muted)
-                    .lineLimit(1)
+            ToolButton(icon: "search", title: "Search", key: "⌘K", help: "Search projects, people, questions and servers (⌘K)") {
+                model.commandsOpen = false; model.paletteOpen.toggle()
+            }
+            ToolButton(icon: "layers", title: "Status", key: "⌘L", on: model.statusLayer,
+                       help: model.statusLayer ? "Hide the Status layer (⌘L)" : "Show the Status layer: status pages and CI on the campus (⌘L)") {
+                model.setStatusLayer(!model.statusLayer)
+            }
+            .keyboardShortcut("l", modifiers: .command)
+            TerminalButton(center: model.terminals)
+            ToolButton(icon: "help", title: "Help", key: "?", help: "Every key, and the field guide (?)") {
+                model.paletteOpen = false; model.commandsOpen.toggle()
+            }
+            ToolButton(icon: "gear", title: "Settings", key: "⌘,", help: "Settings (⌘,)") { model.settingsOpen = true }
+            // the worlds switch, only while Orbit is on (D53)
+            if WorldController.orbitEnabled {
+                LiftedSegments(items: [.init(id: false, title: "Campus"), .init(id: true, title: "Orbit")], selected: model.selection.orbit) {
+                    model.controller.showOrbit($0)
+                }
             }
         }
-        .padding(.horizontal, 12).frame(height: 30).glass(radius: 6)
+        .padding(.horizontal, 7)
+        .frame(height: Shell.bar)
+        .spelFrame()
+        .accessibilityElement(children: .contain).accessibilityLabel("Tools")
+    }
+}
+
+private struct ToolButton: View {
+    let icon: String, title: String, key: String
+    var on = false
+    var badge: Int = 0
+    let help: String
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                PixelIcon(icon, color: on ? .onSignal : .muted)
+                Text(title).font(.s13b)
+                KeyCap(key)
+            }
+            .padding(.leading, 9).padding(.trailing, 8).frame(height: 32)
+        }
+        .buttonStyle(ToolButtonStyle(on: on))
+        .overlay(alignment: .topTrailing) {
+            if badge > 0 {
+                Text("\(badge)").font(.system(size: 11, weight: .heavy).monospacedDigit()).foregroundStyle(Color(hex: 0x0E1830))
+                    .padding(.horizontal, 4).frame(minWidth: 18, minHeight: 18)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.working))
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.panel, lineWidth: 2))
+                    .offset(x: 7, y: -7).allowsHitTesting(false)
+            }
+        }
+        .help(help)
+        .accessibilityLabel(badge > 0 ? "\(title), \(badge) open" : title)
+        .accessibilityValue(on ? "On" : "")
+    }
+}
+
+/// A toolbar button: 32 high, radius 10; lit white when its thing is on.
+private struct ToolButtonStyle: ButtonStyle {
+    var on = false
+    func makeBody(configuration: Configuration) -> some View { ToolButtonBody(configuration: configuration, on: on) }
+}
+private struct ToolButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let on: Bool
+    @State private var hover = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 10)
+        let pressed = configuration.isPressed
+        let top: Color = on ? .lit : hover ? Color(hex: 0x3B3B3B) : Color(hex: 0x333333)
+        let bottom: Color = on ? .lit2 : Color(hex: 0x292929)
+        return configuration.label
+            .foregroundStyle(on ? Color.onSignal : Color.inkText)
+            .background(shape.fill(LinearGradient(colors: [top, bottom], startPoint: .top, endPoint: .bottom)))
+            .overlay(shape.strokeBorder(on ? Color.white : Color.border, lineWidth: 2))
+            .background(shape.fill(on ? Color.litLedge : Color.plinth).offset(y: pressed ? 0 : 3))
+            .offset(y: pressed ? (reduceMotion ? 1 : 3) : 0)
+            .animation(reduceMotion ? nil : pressed ? Motion.pressIn : Motion.springBack, value: pressed)
+            .contentShape(shape)
+            .onHover { hover = $0 }
+    }
+}
+
+/// The terminal's button: its tabs as a badge, ⌘J to show or hide the drawer.
+private struct TerminalButton: View {
+    @ObservedObject var center: TerminalCenter
+    var body: some View {
+        ToolButton(icon: "terminal", title: "Terminal", key: "⌘J", on: center.shown, badge: center.tabs.count,
+                   help: center.shown ? "Hide the terminal (⌘J)" : "Terminal (⌘J)") {
+            withAnimation(.easeOut(duration: 0.2)) { center.toggle() }
+        }
+        .keyboardShortcut("j", modifiers: .command)
     }
 }
 
 // MARK: Needs you, a quest log
 
-private struct NeedsYouPanel: View {
+/// Needs you as a quest log (C2), on every level. On a floor it starts on "This floor", with the rest one click away;
+/// Next (N) goes to the next one wherever it is.
+private struct QuestLog: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var all = false
+
+    /// the place the log can narrow to: this floor, or the Server room
+    private var here: (label: String, match: (NeedsYou) -> Bool)? {
+        let s = model.selection
+        if s.engineRoom { return ("Server room", { $0.group == .serverRoom }) }
+        if let id = s.projectID, id != World.opsID { return ("This floor", { $0.project.id == id }) }
+        return nil
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                // the dot says something waits; with nothing waiting it is not there
-                if !model.world.needsYou.isEmpty { Circle().fill(Color.signal).frame(width: 9, height: 9) }
-                Text("Needs you").font(.system(size: 15, weight: .bold))
-                Spacer()
-                HStack(spacing: 5) { KeyCap("N"); Text("next").font(.system(size: 11, weight: .medium)).foregroundStyle(Color.muted) }
-                    .help("Press N to go to the next one")
+        let items = model.world.needsYou
+        let here = self.here
+        let mine = here.map { h in items.filter(h.match) } ?? items
+        let narrowed = here != nil && !all
+        let shown = narrowed ? mine : items
+        let step = model.walkStep ?? 0
+        let walking = step >= 1 && step != 3 && step <= WalkCard.steps.count
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Socket(size: 36) { PixelIcon("scroll", color: items.isEmpty ? .muted : .signal) }
+                Text("Needs you").font(.s19).foregroundStyle(Color.inkText)
+                Spacer(minLength: 0)
+                Button { model.nextPressed += 1; model.controller.nextWaiting() } label: { SpelLabel("Next", key: "N") }
+                    .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, pulse: model.nextPulse))
+                    .disabled(items.isEmpty)
+                    .help("Go to the next one that waits for you (N)")
             }
-            if model.world.needsYou.isEmpty {
-                Text(Brand.emptyState).font(.system(size: 13)).foregroundStyle(Color.muted).padding(.vertical, 4)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let here, !items.isEmpty {
+                LiftedSegments(items: [.init(id: false, title: "\(here.label) · \(mine.count)"), .init(id: true, title: "All · \(items.count)")],
+                               selected: all, fontSize: 13, padding: EdgeInsets(top: 3, leading: 9, bottom: 3, trailing: 9)) { all = $0 }
+                    .padding(.top, 12)
             }
-            let shown = Array(model.world.needsYou.prefix(6))
-            let groups = Set(shown.map(\.group))
-            ForEach(Array(shown.enumerated()), id: \.element.id) { k, item in
-                // a heading where a group starts, once there is more than one group
-                if groups.count > 1, k == 0 || shown[k - 1].group != item.group {
-                    Text(item.group.label.uppercased()).font(.system(size: 10.5, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-                        .padding(.top, k == 0 ? 0 : 4)
+            if items.isEmpty {
+                Text(Brand.emptyState).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true).padding(.top, 12)
+            } else {
+                ScrollFit {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if narrowed, let here { Eyebrow("On \(here.label.lowercased())") }
+                        ForEach(Array(shown.prefix(16).enumerated()), id: \.element.id) { k, item in
+                            if !narrowed && (k == 0 || shown[k - 1].group != item.group) {
+                                Eyebrow(item.group.label).padding(.top, k == 0 ? 0 : 6)
+                            }
+                            Button { model.controller.open(item) } label: { QuestItem(item: item, selected: isOpen(item)) }
+                                .buttonStyle(CardPressStyle())
+                                // a new one slides in from the edge; an answered one folds away
+                                .transition(reduceMotion ? .identity : .asymmetric(insertion: .move(edge: .leading).combined(with: .opacity),
+                                                                                  removal: .scale(scale: 0.94, anchor: .top).combined(with: .opacity)))
+                        }
+                        if narrowed, let here {
+                            if mine.isEmpty { Text("Nothing waits on \(here.label.lowercased()).").font(.s13).foregroundStyle(Color.muted) }
+                            if items.count > mine.count { moreRow(items.count - mine.count) }
+                        }
+                    }
+                    .padding(.top, 14).padding(.bottom, 4)
                 }
-                Button { model.controller.open(item) } label: { NeedsYouRow(item: item, first: k == 0, number: k + 1) }.buttonStyle(CardPressStyle())
-                    // a new one slides in from the edge; an answered one folds away
-                    .transition(reduceMotion ? .identity : .asymmetric(insertion: .move(edge: .leading).combined(with: .opacity),
-                                                                      removal: .scale(scale: 0.94, anchor: .top).combined(with: .opacity)))
             }
         }
-        .padding(14).glass(radius: 12)
+        .padding(16)
+        .spelFrame()
+        // while the walk runs, the log waits for it (D9); its own step (Needs you) lights it again
+        .overlay {
+            if walking {
+                RoundedRectangle(cornerRadius: 10).fill(Color.ink.opacity(0.62))
+                    .overlay(alignment: .top) { Tag("Waits until the walk is done").padding(.top, 52) }
+                    .allowsHitTesting(false)
+            }
+        }
         .animation(reduceMotion ? nil : Motion.arrive, value: model.world.needsYou.map(\.id))
+        .onChange(of: model.selection.projectID) { _, _ in all = false }
+        .onChange(of: model.selection.engineRoom) { _, _ in all = false }
+        .accessibilityElement(children: .contain).accessibilityLabel("Needs you")
+    }
+
+    private func moreRow(_ n: Int) -> some View {
+        Button { all = true } label: {
+            HStack(spacing: 6) {
+                PixelIcon("chevd", color: .muted, size: 9)
+                Text("\(n) more \(model.selection.engineRoom ? "elsewhere" : "on other floors")").font(.s13m)
+            }
+            .foregroundStyle(Color.muted).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10).frame(height: 30)
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.border, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])))
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain)
+    }
+
+    private func isOpen(_ item: NeedsYou) -> Bool {
+        let s = model.selection
+        switch item {
+        case .decision(let p, let d): return s.decisionID == d.id && s.projectID == p.id
+        case .session(_, let x): return s.sessionID == x.id
+        }
     }
 }
 
-/// One line of the quest log: a session that waits (its person and age), or a factory's question (its kind and age).
-private struct NeedsYouRow: View {
-    @EnvironmentObject private var model: AppModel
-    let item: NeedsYou; let first: Bool; let number: Int
+/// One quest: the marker, what it asks, and where and when, quietly.
+private struct QuestItem: View {
+    let item: NeedsYou
+    let selected: Bool
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Text("\(number)").font(.system(size: 11, weight: .bold).monospacedDigit())
-                .foregroundStyle(first ? Color.onSignal : Color.inkText)
-                .frame(minWidth: 20, minHeight: 20)
-                .background(first ? Color.signal : Color.divider, in: RoundedRectangle(cornerRadius: 4))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title).font(.system(size: 13.5, weight: .bold)).lineLimit(2).multilineTextAlignment(.leading)
-                // what a waiting session wants: the gist of its last words
+            QuestMarker(glyph: glyph)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title).font(.s15).foregroundStyle(Color.inkText).lineLimit(2).multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                 if case .session(_, let s) = item, let gist = s.lastSaidGist {
-                    Text(gist).font(.system(size: 12)).foregroundStyle(Color.inkText.opacity(0.88)).lineLimit(2)
-                        .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                    Text(gist).font(.s13).foregroundStyle(Color.muted).lineLimit(2).multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                // the project gives way first (cut at its end), then nothing: who or what, and the age, always show
-                HStack(spacing: 0) {
-                    if isQuestion { Image(systemName: "questionmark.bubble").font(.system(size: 11, weight: .semibold)).padding(.trailing, 5) }
-                    if item.project.logo != nil { ProjectLogoView(path: item.project.logo, size: 13).padding(.trailing, 5) }
+                HStack(spacing: 5) {
+                    PixelIcon(metaIcon, color: .muted, size: 9)
                     Text(item.project.name).lineLimit(1).truncationMode(.tail)
-                    Text(" · \(detail) · \(item.since.ago)").lineLimit(1).fixedSize().layoutPriority(1)
+                    Text("· \(detail) · \(item.since.ago)").lineLimit(1).fixedSize().layoutPriority(1)
                 }
-                .font(.system(size: 12)).foregroundStyle(first ? Color.inkText : Color.muted)
+                .font(.s11n).foregroundStyle(Color.muted).padding(.top, 2)
             }
             Spacer(minLength: 0)
         }
-        .padding(10)
-        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(first ? Color.signal : Color.divider))
+        .padding(.leading, 8).padding(.trailing, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.surface))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? Color.selection : Color.divider, lineWidth: 2))
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.plinth).offset(y: 2))
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
     }
-    private var isQuestion: Bool { if case .decision = item { return true }; return false }
+    private var glyph: String {
+        switch item { case .session: "help"; case .decision(let p, _): p.id == World.opsID ? "server" : "bang" }
+    }
+    private var metaIcon: String {
+        switch item { case .session: "chat"; case .decision(let p, _): p.id == World.opsID ? "server" : "floor" }
+    }
     private var detail: String {
         switch item {
         case .session(_, let s): s.persona.name
@@ -401,434 +602,48 @@ private struct NeedsYouRow: View {
     }
 }
 
-// MARK: the selection, as character cards
-
-private struct InspectorPanel: View {
-    @EnvironmentObject private var model: AppModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
+/// As tall as its content when that fits; otherwise it scrolls in the room it has, and says that there is more.
+struct ScrollFit<Content: View>: View {
+    @ViewBuilder var content: () -> Content
     var body: some View {
-        let sel = model.selection
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(eyebrow(sel)).font(.system(size: 11, weight: .semibold)).tracking(0.9)
-                        .foregroundStyle(sel.provider.map(Color.provider) ?? Color.muted)
-                    HStack(spacing: 9) {
-                        // a project shows its own logo by its name (D55)
-                        if sel.decisionID == nil, sel.workstreamID == nil, sel.sessionID == nil, let id = sel.projectID, let p = model.world.project(id: id) {
-                            ProjectLogoView(path: p.logo, size: 26)
-                        }
-                        Text(title(sel)).font(.system(size: sel.decisionID != nil ? 19 : 24, weight: .bold)).lineLimit(sel.decisionID != nil || sel.workstreamID != nil ? 4 : 2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+        ViewThatFits(in: .vertical) {
+            content()
+            ScrollView { content() }.scrollIndicators(.automatic)
+                .mask(VStack(spacing: 0) { Color.black; LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 24) })
+                .overlay(alignment: .bottom) {
+                    HStack(spacing: 5) { PixelIcon("chevd", color: .muted, size: 9); Text("More · scroll").font(.s11n) }
+                        .foregroundStyle(Color.muted).padding(.horizontal, 8).frame(height: 20)
+                        .background(Capsule().fill(Color.panel)).allowsHitTesting(false)
                 }
-                Spacer()
-                Button { model.controller.up() } label: {
-                    HStack(spacing: 5) { KeyCap("esc"); Image(systemName: "xmark").font(.system(size: 11, weight: .bold)) }.padding(.horizontal, 6).frame(height: 26)
-                }.buttonStyle(TactileButtonStyle(kind: .neutral)).help(sel.decisionID != nil || sel.workstreamID != nil ? "Back to the factory (Esc)" : "Up one level (Esc)")
-            }
-            // a factory says a lot: it scrolls when the window is short, and stays as small as it is otherwise
-            ViewThatFits(in: .vertical) {
-                VStack(alignment: .leading, spacing: 10) { content(sel) }
-                ScrollView { VStack(alignment: .leading, spacing: 10) { content(sel) }.padding(.bottom, 18) }.scrollIndicators(.never)
-                    .mask(VStack(spacing: 0) { Color.black; LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 22) })
-            }
-            .id(contentKey(sel))
-            .transition(reduceMotion ? .identity : .asymmetric(insertion: .opacity.combined(with: .offset(y: 8)), removal: .opacity))
-        }
-        .padding(16).glass(radius: 12)
-        .animation(reduceMotion ? nil : Motion.arrive, value: contentKey(sel))
-    }
-
-    /// which card the inspector shows: a new one fades in, the old one out
-    private func contentKey(_ s: WorldSelection) -> String {
-        [s.engineRoom ? "engine" : "", s.projectID ?? "", s.sessionID ?? "", s.subAgentID ?? "", s.decisionID ?? "", s.workstreamID ?? ""].joined(separator: "|")
-    }
-
-    private func eyebrow(_ s: WorldSelection) -> String {
-        if s.engineRoom, s.decisionID == nil, let id = s.serverID, let sv = model.world.servers.first(where: { $0.id == id }) { return "SERVER ROOM · \(sv.kind.label.uppercased())" }
-        if s.engineRoom && s.decisionID == nil { return "SERVER ROOM" }
-        if let id = s.decisionID, let pid = s.projectID, let (p, d) = model.world.decision(project: pid, id) {
-            return "\(d.id) · \(p.name.uppercased()) · \(d.kind.uppercased())"
-        }
-        if let id = s.workstreamID, let pid = s.projectID, let p = model.world.project(id: pid), let w = p.factory?.workstreams.first(where: { $0.id == id }) {
-            return "\(w.id) · \(p.name.uppercased()) · \(w.type.uppercased())"
-        }
-        if s.subAgentID != nil { return "SUB-AGENT" }
-        if s.sessionID != nil { return "SESSION" }
-        if let id = s.projectID, let p = model.world.project(id: id), let b = model.world.building(p.provider), let k = b.projects.firstIndex(where: { $0.id == id }) {
-            let kind = p.factory != nil ? "FACTORY" : model.selection.orbit ? "SOLAR SYSTEM" : "FLOOR \(k + 1)"
-            return "\(p.provider.displayName.uppercased()) · \(kind)"
-        }
-        return model.selection.orbit ? "GALAXY" : "BUILDING"
-    }
-
-    private func title(_ s: WorldSelection) -> String {
-        if s.engineRoom, s.decisionID == nil, let id = s.serverID, let sv = model.world.servers.first(where: { $0.id == id }) { return sv.name }
-        if s.engineRoom && s.decisionID == nil { return "Servers" }
-        if let id = s.decisionID, let pid = s.projectID, let (_, d) = model.world.decision(project: pid, id) { return d.title }
-        if let id = s.workstreamID, let pid = s.projectID, let w = model.world.project(id: pid)?.factory?.workstreams.first(where: { $0.id == id }) { return w.title }
-        if let a = s.subAgentID, let sub = model.world.projects.flatMap(\.sessions).flatMap(\.subAgents).first(where: { $0.id == a }) { return sub.type }
-        if let (_, session) = model.session(s.sessionID) { return session.title }
-        if let id = s.projectID, let p = model.world.project(id: id) { return p.name }
-        return s.provider?.displayName ?? ""
-    }
-
-    @ViewBuilder private func content(_ s: WorldSelection) -> some View {
-        if s.engineRoom, s.decisionID == nil, let id = s.serverID, let server = model.world.servers.first(where: { $0.id == id }) {
-            ServerDetail(server: server)
-        } else if s.engineRoom && s.decisionID == nil {
-            if model.projectSettings.devops.enabled { OpsCard() }
-            ServicesCard()
-            if model.world.servers.isEmpty {
-                Text("No servers set up yet. Add yours in the settings: they are checked over SSH with your own keys, without a password.")
-                    .font(.system(size: 13)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
-                Button { model.settingsAtForm = true; model.settingsOpen = true } label: {
-                    Label("Set up servers", systemImage: "gearshape").font(.system(size: 12.5, weight: .bold))
-                        .padding(.horizontal, 12).padding(.vertical, 7)
-                }.buttonStyle(TactileButtonStyle(kind: .primary)).padding(.bottom, 3)
-            } else {
-                ServerLine(summary: model.world.serverSummary)
-                VStack(spacing: 6) {
-                    ForEach(model.world.racks) { server in
-                        Button { model.controller.select(server: server.id) } label: { ServerRow(server: server, picked: server.id == s.serverID).contentShape(Rectangle()) }
-                            .buttonStyle(CardPressStyle())
-                    }
-                }
-            }
-        } else if let a = s.subAgentID, let (_, owner) = model.session(s.sessionID), let sub = owner.subAgents.first(where: { $0.id == a }) {
-            Text(sub.summary.isEmpty ? "No description" : sub.summary).font(.system(size: 13)).foregroundStyle(Color.inkText)
-            Label(sub.finished ? "Finished" : "Running", systemImage: sub.finished ? "checkmark.circle" : "circle.dotted")
-                .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(sub.finished ? Color.done : Color.working)
-            Text("Helper of \(owner.persona.name) · \(owner.title)").font(.system(size: 12)).foregroundStyle(Color.muted)
-            Text("\(sub.cast.role.label) · \(sub.persona.name)").font(.system(size: 12)).foregroundStyle(Color.muted)
-        } else if let (_, session) = model.session(s.sessionID) {
-            SessionCard(session: session, expanded: true, inInspector: true)
-            VStack(alignment: .leading, spacing: 5) {
-                Text("LATELY").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-                ForEach(Array(session.activities.suffix(6).reversed().enumerated()), id: \.offset) { _, a in
-                    HStack(spacing: 8) {
-                        Circle().fill(a.failed ? Color.stuck : Color.border).frame(width: 6, height: 6)
-                        Text(a.text.prefix(1).uppercased() + a.text.dropFirst()).font(.system(size: 12)).foregroundStyle(a.failed ? Color.stuck : Color.inkText).lineLimit(1)
-                        Spacer(minLength: 4)
-                        Text(a.at.ago).font(.system(size: 11)).foregroundStyle(Color.muted)
-                    }
-                }
-            }
-        } else if let id = s.decisionID, let pid = s.projectID, let (p, d) = model.world.decision(project: pid, id) {
-            DecisionCard(project: p, decision: d)
-        } else if let id = s.workstreamID, let pid = s.projectID, let p = model.world.project(id: pid), let w = p.factory?.workstreams.first(where: { $0.id == id }) {
-            WorkstreamCard(project: p, workstream: w)
-        } else if let id = s.projectID, let p = model.world.project(id: id) {
-            if !p.isChat { FactorySwitch(project: p) }
-            if let c = p.cost { CostLine(cost: c) }
-            if let f = p.factory { FactoryOverview(project: p, factory: f).id(p.id) } else {
-            if !p.isChat { Text(p.root.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Color.muted).lineLimit(1) }
-            if !p.sessions.isEmpty { StateBar(sessions: p.sessions, now: model.world.now) }
-            else if p.factory != nil { Text("No session in the last 8 hours.").font(.system(size: 12)).foregroundStyle(Color.muted) }
-            ForEach(p.sessions) { session in
-                Button { model.controller.select(session: session.id) } label: { SessionCard(session: session, expanded: false) }.buttonStyle(CardPressStyle())
-            }
-            }
-        } else if let prov = s.provider, let b = model.world.building(prov) {
-            StateBar(sessions: b.projects.flatMap(\.sessions), now: model.world.now)
-            if b.projects.isEmpty { Text("No sessions in the last 8 hours.").font(.system(size: 13)).foregroundStyle(Color.muted) }
-            ForEach(Array(b.projects.enumerated().reversed()), id: \.element.id) { k, p in
-                Button { model.controller.enterFloor(p.id) } label: {
-                    HStack(spacing: 10) {
-                        Text("\(k + 1)").font(.system(size: 11, weight: .bold).monospacedDigit()).foregroundStyle(Color.muted).frame(width: 16)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(p.name).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
-                            // a factory says how its CEO stands, so a CEO that does not wake is seen from the building
-                            if p.factory != nil, let line = model.factoryLine(p) {
-                                Text(line.text).font(.system(size: 11)).foregroundStyle(line.warn ? Color.warn : Color.muted).lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        HStack(spacing: 3) { ForEach(p.sessions.prefix(8)) { Rectangle().fill(Color.state($0.state(now: model.world.now))).frame(width: 6, height: 6) } }
-                            .help("One per session, coloured by what it is doing")
-                        Text(p.cost.map { $0.today > 0 ? ProjectCost.format($0.today) : "" } ?? "").font(.system(size: 11.5).monospacedDigit()).foregroundStyle(Color.muted)
-                            .frame(width: 52, alignment: .trailing).help("Today at API prices (an estimate)")
-                    }
-                    .padding(.horizontal, 10).padding(.vertical, 9).background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.divider)).contentShape(Rectangle())
-                }.buttonStyle(CardPressStyle())
-            }
         }
     }
 }
 
-/// What a floor's work would have cost at API list prices (D61): today, the last 7 days and the last 30. An estimate,
-/// also for work under a subscription; tokens of a model without a known price are said, never counted as free.
-struct CostLine: View {
-    let cost: ProjectCost
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("API PRICE").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-                Text(ProjectCost.format(cost.today)).font(.system(size: 12.5, weight: .semibold, design: .monospaced))
-                Text("today").font(.system(size: 11.5)).foregroundStyle(Color.muted)
-                if cost.unpricedTokens > 0 {
-                    Image(systemName: "questionmark.circle").font(.system(size: 11)).foregroundStyle(Color.muted)
-                        .help("\(cost.unpricedTokens.formatted()) tokens of a model without a known price are not in these sums")
-                }
-            }
-            Text("\(ProjectCost.format(cost.week)) last 7 days · \(ProjectCost.format(cost.month)) last 30 days")
-                .font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(1)
-        }
-        .help("What these sessions would have cost through the API, at list prices of \(ApiPrices.asOf). An estimate, not an invoice: under a subscription you pay the plan.")
-    }
-}
+// MARK: the bottom bar
 
-/// One server, deploy or backup: its state as a light, its name and kind.
-private struct ServerRow: View {
-    let server: Server
-    /// picked in Orbit: the row lights up in the selection colour
-    var picked = false
-    var body: some View {
-        HStack(spacing: 10) {
-            Circle().fill(color).frame(width: 8, height: 8).shadow(color: color.opacity(0.7), radius: 4)
-            Image(systemName: server.kind == .server ? "server.rack" : server.kind == .deploy ? "shippingbox" : "externaldrive")
-                .font(.system(size: 11)).foregroundStyle(Color.muted).frame(width: 16)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(server.name).font(.system(size: 13, weight: .semibold, design: .monospaced)).lineLimit(1).help(server.kind.label)
-                if let d = server.detail {
-                    Text(d).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(server.state == .ok ? Color.muted : color).lineLimit(1)
-                }
-            }
-            Spacer(minLength: 6)
-            // a problem says so in words; OK is the green light alone, so what the check saw has the room
-            if server.state != .ok { Text(server.state.label).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(color).lineLimit(1) }
-        }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(picked ? Color.inkText : server.state == .ok ? Color.divider : color.opacity(0.35), lineWidth: picked ? 1.5 : 1))
-    }
-    private var color: Color { server.state == .down ? .stuck : server.state == .warn ? .warn : .done }
-}
-
-struct SessionCard: View {
-    @EnvironmentObject private var model: AppModel
-    let session: Session; let expanded: Bool
-    /// in the inspector the header already has the title
-    var inInspector = false
-    var body: some View {
-        let st = session.state(now: model.world.now), persona = session.persona
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 12) {
-                Avatar(cg: model.controller.portrait(model.cast(of: session))).frame(width: 40, height: 40)
-                VStack(alignment: .leading, spacing: 3) {
-                    if !inInspector { Text(session.title).font(.system(size: 14, weight: .bold)).lineLimit(2).multilineTextAlignment(.leading) }
-                    Text("\(persona.name) · \(model.cast(of: session).role.label) · \(session.room(now: model.world.now).name)\(session.wentBack(now: model.world.now) ? " ↩" : "")")
-                        .font(.system(size: 12)).foregroundStyle(Color.muted).lineLimit(1)
-                    Text(stateLine(st)).font(.system(size: 12.5, weight: .bold)).foregroundStyle(Color.state(st)).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            if expanded || !session.subAgents.isEmpty {
-                ViewThatFits(in: .horizontal) {
-                    ForEach([4, 3, 2, 1], id: \.self) { n in
-                        HStack(spacing: 6) {
-                            ForEach(session.subAgents.prefix(n)) { a in
-                                Button { model.controller.select(session: session.id, subAgent: a.id) } label: {
-                                    Text("\(a.type)\(a.finished ? " · done" : "")").font(.system(size: 10.5, design: .monospaced)).lineLimit(1).fixedSize()
-                                        .foregroundStyle(a.finished ? Color.muted : Color.inkText).padding(.horizontal, 8).padding(.vertical, 3)
-                                }.buttonStyle(TactileButtonStyle(kind: .neutral)).padding(.bottom, 2)
-                            }
-                            if session.subAgents.count > n {
-                                Text("+\(session.subAgents.count - n)").font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Color.muted).fixedSize()
-                                    .padding(.horizontal, 8).padding(.vertical, 3).overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.divider))
-                            }
-                        }
-                    }
-                }
-            }
-            if expanded, let said = session.lastSaid?.trimmingCharacters(in: .whitespacesAndNewlines), !said.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(st == .waiting ? "IT ASKS" : "LAST SAID").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-                    Text(said.count > 1200 ? "…" + said.suffix(1199) : said).font(.system(size: 12.5)).lineLimit(14)
-                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                }
-                .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.surface, in: RoundedRectangle(cornerRadius: 6))
-            }
-            if expanded {
-                HStack(spacing: 8) {
-                    // take over in the app's terminal (D57): the conversation goes on where the agent left it
-                    Button { model.takeOver(session) } label: {
-                        Label("Take over", systemImage: "terminal").font(.system(size: 12.5, weight: .bold))
-                            .padding(.horizontal, 12).padding(.vertical, 7)
-                    }.buttonStyle(TactileButtonStyle(kind: .neutral))
-                    .help(session.heartbeatRun == true ? "Stop the CEO's run and continue it yourself in the terminal" : "Continue this conversation in the terminal")
-                    Button {
-                        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(session.resumeCommand, forType: .string)
-                    } label: {
-                        Image(systemName: "doc.on.doc").font(.system(size: 12, weight: .semibold)).frame(width: 30, height: 28)
-                    }.buttonStyle(TactileButtonStyle(kind: .neutral)).help("Copy: \(session.resumeCommand)")
-                }.padding(.bottom, 3)
-            }
-        }
-        .padding(12)
-        .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(st == .waiting ? Color.signal : Color.divider))
-        .contentShape(Rectangle())
-    }
-
-    private func lower(_ s: String) -> String { s.prefix(1).lowercased() + s.dropFirst() }
-
-    private func stateLine(_ st: SessionState) -> String {
-        switch st {
-        case .waiting: "Waiting for you · \(session.lastAt.ago)"
-        case .working: "Working · \(lower(session.lastAction))"
-        case .stuck: "Stuck · \(lower(session.lastAction))"
-        case .done: "Done · \(session.lastAt.ago)"
-        }
-    }
-}
-
-struct Avatar: View {
-    let cg: CGImage?
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 10).fill(Color.raised)
-            if let cg {
-                Image(decorative: cg, scale: 1).resizable().scaledToFit().padding(.top, 4).frame(maxHeight: .infinity, alignment: .bottom)
-            }
-        }
-    }
-}
-
-struct StateBar: View {
-    let sessions: [Session]; let now: Date
-    var body: some View {
-        let counts = SessionState.allCases.map { st in (st, sessions.filter { $0.state(now: now) == st }.count) }.filter { $0.1 > 0 }
-        GeometryReader { g in
-            HStack(spacing: 0) {
-                ForEach(counts, id: \.0) { st, n in Rectangle().fill(Color.state(st)).frame(width: g.size.width * CGFloat(n) / CGFloat(max(sessions.count, 1))) }
-            }
-        }
-        .frame(height: 8).background(Color.raised).clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-}
-
-// MARK: bottom bar
-
+/// Up and zoom on the window's centre axis (C3): Up with its key is the one way back; the level segments are gone.
 private struct BottomBar: View {
     @EnvironmentObject private var model: AppModel
-    /// every control down here is this tall, so their faces and ledges share one line
-    static let height: CGFloat = 40
-    /// a keyboard shortcut presses its key visibly, as a click does
-    @State private var nextPulse = 0
-    @State private var upPulse = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        ZStack(alignment: .bottom) {
-            HStack(alignment: .bottom, spacing: Shell.gap) {
-                // the levels you are below take you up there; the ones below you only say where you are
-                let cur = model.selection.level
-                LiftedSegments(items: Level.allCases.map { l in
-                    .init(id: l, title: l.name, enabled: l.rawValue < cur.rawValue, help: l.rawValue < cur.rawValue ? "Up to \(l.name)" : nil)
-                }, selected: cur, fontSize: 11, padding: EdgeInsets(top: 9, leading: 10, bottom: 9, trailing: 10)) { l in
-                    for _ in 0..<max(0, cur.rawValue - l.rawValue) { model.controller.up() }
-                }
-                Spacer(minLength: 0)
-                let n = model.world.needsYou.count
-                // the way to the next Yes: a lifted yellow key with the mark; nothing waiting is a quiet, flat key
-                Button { model.nextPressed += 1; model.controller.nextWaiting() } label: {
-                    HStack(spacing: 9) {
-                        if n > 0 { BrandMark(face: .onSignal, ledge: false).frame(width: 16, height: 16) }
-                        Text(Brand.counter(n)).font(.system(size: 15, weight: .bold))
-                            .contentTransition(reduceMotion ? .identity : .numericText(value: Double(n))).animation(reduceMotion ? nil : Motion.slide, value: n)
-                        if n > 0 { KeyCap("N", onYellow: true) }
-                    }
-                    .padding(.horizontal, 18).frame(height: Self.height)
-
-                }
-                .buttonStyle(TactileButtonStyle(kind: n == 0 ? .neutral : .primary, pulse: nextPulse)).disabled(n == 0)
-                .background {
-                    Button("") { nextPulse += 1; model.nextPressed += 1; model.controller.nextWaiting() }.disabled(n == 0).opacity(0)
-                        .keyboardShortcut(model.typing || model.terminalShown || model.overlayOpen ? nil : KeyboardShortcut("n", modifiers: []))
-                    // D72: ⌘K searches everything, ? lists every command
-                    Button("") { model.commandsOpen = false; model.paletteOpen.toggle() }.opacity(0).keyboardShortcut("k", modifiers: .command)
-                    Button("") { model.paletteOpen = false; model.commandsOpen.toggle() }.opacity(0)
-                        .keyboardShortcut(model.typing || model.terminalShown || model.paletteOpen ? nil : KeyboardShortcut("/", modifiers: .shift))
-                }
-                // something new waits: the key presses itself once, like a key pressed for you
-                .onChange(of: n) { old, new in if new > old { nextPulse += 1 } }
-            }
-            // up and zoom on the window's centre axis
-            HStack(spacing: 8) {
-                Button { model.controller.up() } label: {
-                    HStack(spacing: 7) { Text("↑ Up").font(.system(size: 13, weight: .bold)); KeyCap("esc") }.padding(.horizontal, 12).frame(height: Self.height)
-                }
-                    .buttonStyle(TactileButtonStyle(kind: .neutral, pulse: upPulse)).help("Up one level (Esc)")
-                    .disabled(model.selection.level == .all && !model.selection.engineRoom)
-                    .background {
-                        Button("") { upPulse += 1; model.controller.up() }.opacity(0)
-                            .keyboardShortcut(model.typing || model.terminalShown || model.overlayOpen ? nil : KeyboardShortcut(.escape, modifiers: []))
-                    }
-                Button { model.controller.zoom(1.25) } label: { Text("−").font(.system(size: 17, weight: .semibold)).frame(width: Self.height, height: Self.height) }
-                    .buttonStyle(HUDButton()).help("Zoom out (−)")
-                Button { model.controller.zoom(0.8) } label: { Text("+").font(.system(size: 17, weight: .semibold)).frame(width: Self.height, height: Self.height) }
-                    .buttonStyle(HUDButton()).help("Zoom in (+)")
-            }
+        HStack(spacing: 8) {
+            Button { model.controller.up() } label: { SpelLabel("Up", icon: "up", key: "esc", iconColor: .inkText) }
+                .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, pulse: model.upPulse))
+                .help("Up one level (Esc)")
+                .disabled(model.selection.level == .all && !model.selection.engineRoom)
+            Button { model.controller.zoom(1.25) } label: { PixelIcon("minus", color: .inkText) }
+                .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, square: true)).help("Zoom out (−)").accessibilityLabel("Zoom out")
+            Button { model.controller.zoom(0.8) } label: { PixelIcon("plus", color: .inkText) }
+                .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, square: true)).help("Zoom in (+)").accessibilityLabel("Zoom in")
         }
-        .padding(.bottom, 3)     // room for the ledges
+        .padding(.horizontal, 8).frame(height: Shell.bar)
+        .spelFrame()
     }
 }
 
-/// Up and zoom: neutral Tuinstra buttons.
-private struct HUDButton: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { TactileButtonStyle(kind: .neutral).makeBody(configuration: configuration) }
-}
-
-// MARK: style
-
-extension View {
-    /// A HUD panel over the world: Tuinstra charcoal surface over a little material, a divider edge. Panels and sheets
-    /// round at 12, controls at 6 (tactile-utility).
-    func glass(radius: CGFloat, tint: Color = .surface) -> some View {
-        background(RoundedRectangle(cornerRadius: radius).fill(.ultraThinMaterial))
-            .background(RoundedRectangle(cornerRadius: radius).fill(tint.opacity(0.86)))
-            .clipShape(RoundedRectangle(cornerRadius: radius))
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Color.divider, lineWidth: 1))
-            .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
-    }
-}
-
-extension Color {
-    init(hex: UInt32) { self.init(red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255) }
-    // Tuinstra Dark (tactile-utility): neutral charcoal, equal RGB channels, no blue or olive cast
-    static let ink = Color(hex: 0x121212)          // page / behind the world
-    static let surface = Color(hex: 0x1A1A1A)      // panels
-    static let raised = Color(hex: 0x242424)       // cards, neutral buttons, selected surface
-    static let divider = Color(hex: 0x3A3A3A)      // quiet separators
-    static let border = Color(hex: 0x858585)       // identifying control edge
-    static let inkText = Color(hex: 0xF3F3F3)      // main text
-    // two text levels only (D45): main and secondary; quiet metadata is secondary at a smaller size
-    static let muted = Color(hex: 0xAEAEAE)        // secondary text
-    // Tuinstra yellow: the primary action (Yes) and what waits for you; ink on yellow; the yellow-brown ledge
-    static let signal = Color(hex: 0xFFD83D)
-    static let onSignal = Color(hex: 0x10100E)
-    static let ledge = Color(hex: 0x675412)
-    static let neutralLedge = Color(hex: 0x080808)
-    static let dangerLedge = Color(hex: 0x6E1A1A)  // under a destructive (red) confirm
-    /// a server's warning: amber, always with the word (yellow is the primary action and what waits for you)
-    static let warn = Color(hex: 0xFF9F43)
-    static let working = Color(hex: 0x8ab4ff)
-    static let stuck = Color(hex: 0xff4a4a)
-    static let done = Color(hex: 0x5fd08f)
-    /// selection and hover in the worlds (D24)
-    static let selection = Color(hex: 0x4fe0f5)
-    static func provider(_ p: Provider) -> Color { p == .claude ? Color(hex: 0xe8916b) : Color(hex: 0x6fd3b8) }
-    static func state(_ s: SessionState) -> Color {
-        switch s { case .working: .working; case .waiting: .signal; case .stuck: .stuck; case .done: .done }
-    }
-}
+// MARK: shared bits
 
 extension Date {
-    /// "14 min ago", "just now"
+    /// "14 min. ago", "just now"
     var ago: String {
         let s = Date().timeIntervalSince(self)
         if s < 45 { return "just now" }
@@ -837,66 +652,27 @@ extension Date {
     }
 }
 
-/// The hover title: a small dark card beside the pointer, its title bold and one line under it; it stays inside the
+/// The hover title: a small frame beside the pointer, its title bold and one line under it; it stays inside the
 /// window and never takes a click.
 private struct HoverTip: View {
     let title: HoverTitle
     let bounds: CGSize
     var body: some View {
-        let w: CGFloat = 240
+        let w: CGFloat = 260
         // worked out step by step: as one expression it takes the CI compiler too long to type-check
         // beside the pointer, never on the plaques: over a tower it sits to the left (the plaques hang to the right)
         let beside: CGFloat = title.left ? title.at.x - 16 - w / 2 : title.at.x + 16 + w / 2
         let x: CGFloat = min(max(beside, w / 2 + 8), bounds.width - w / 2 - 8)
         let y: CGFloat = min(max(title.at.y + (title.left ? 0 : 30), 24), bounds.height - 24)
         VStack(alignment: .leading, spacing: 2) {
-            Text(title.title).font(.system(size: 12.5, weight: .bold)).lineLimit(1)
-            if !title.line.isEmpty { Text(title.line).font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(2) }
+            Text(title.title).font(.s13b).foregroundStyle(Color.inkText).lineLimit(1)
+            if !title.line.isEmpty { Text(title.line).font(.s11n).foregroundStyle(Color.muted).lineLimit(2) }
         }
-        .padding(.horizontal, 10).padding(.vertical, 7)
-        .background(Color.surface.opacity(0.96), in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.divider))
-        .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .spelFrame()
         .fixedSize()
         .frame(width: w, alignment: title.left ? .trailing : .leading)
         .position(x: x, y: y)
-    }
-}
-
-/// The terminal's key in the top bar: how many tabs it has, ⌘J to show or hide it.
-private struct TerminalToggle: View {
-    @ObservedObject var center: TerminalCenter
-    var body: some View {
-        Button { withAnimation(.easeOut(duration: 0.2)) { center.toggle() } } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "terminal").font(.system(size: 12.5, weight: .semibold))
-                // the count sits in a fixed slot, so the bar does not shift when a tab opens
-                Text(center.tabs.isEmpty ? "" : "\(center.tabs.count)").font(.system(size: 12, weight: .bold).monospacedDigit()).frame(width: 10)
-                KeyCap("⌘J")
-            }
-            .padding(.horizontal, 9).frame(height: 30)
-        }
-        .buttonStyle(TactileButtonStyle(kind: .neutral)).help("Terminal (⌘J)")
-        .keyboardShortcut("j", modifiers: .command)
-    }
-}
-
-/// The Status layer's switch (D69): the outside on the campus, or the calm campus.
-private struct StatusLayerToggle: View {
-    @EnvironmentObject private var model: AppModel
-    var body: some View {
-        let on = model.statusLayer
-        Button { model.setStatusLayer(!on) } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "square.3.layers.3d").font(.system(size: 12.5, weight: .semibold))
-                Text("Status").font(.system(size: 12.5, weight: .semibold)).lineLimit(1).fixedSize()
-                KeyCap("⌘L")
-            }
-            .padding(.horizontal, 9).frame(height: 30)
-        }
-        .buttonStyle(TactileButtonStyle(kind: on ? .primary : .neutral))
-        .help(on ? "Hide the Status layer (⌘L)" : "Show the Status layer: status pages and CI on the campus (⌘L)")
-        .keyboardShortcut("l", modifiers: .command)
     }
 }
 
@@ -905,15 +681,23 @@ struct ServicesCard: View {
     @EnvironmentObject private var model: AppModel
     var body: some View {
         let now = model.world.now, red = model.world.projects.filter { $0.github?.ciFailing == true }
-        VStack(alignment: .leading, spacing: 6) {
-            Text("SERVICES").font(.system(size: 11, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-            ForEach(model.world.services) { s in ServiceRow(name: s.name, state: s.shown(now: now), detail: Self.detail(s, now: now), checked: s.checkedAt.map { "Checked " + $0.ago }, page: s.page) }
-            ForEach(red, id: \.id) { p in ServiceRow(name: p.name, state: .down, detail: "CI on main is red: " + (p.github?.failing.joined(separator: ", ") ?? ""), checked: p.github.map { "Checked " + $0.checkedAt.ago }, page: nil) }
-            if model.world.services.isEmpty && red.isEmpty {
-                Text("No status pages watched. Add them in Settings › General.").font(.system(size: 12)).foregroundStyle(Color.muted)
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHead("Services", icon: "layers")
+            VStack(spacing: 0) {
+                ForEach(Array(model.world.services.enumerated()), id: \.element.id) { k, s in
+                    if k > 0 { RowDivider() }
+                    ServiceRow(name: s.name, state: s.shown(now: now), detail: Self.detail(s, now: now), checked: s.checkedAt.map { "Checked " + $0.ago }, page: s.page)
+                }
+                ForEach(red, id: \.id) { p in
+                    RowDivider()
+                    ServiceRow(name: p.name, state: .down, detail: "CI on main is red: " + (p.github?.failing.joined(separator: ", ") ?? ""), checked: p.github.map { "Checked " + $0.checkedAt.ago }, page: nil)
+                }
+                if model.world.services.isEmpty && red.isEmpty {
+                    Text("No status pages watched. Add them in Settings › Sources.").font(.s13).foregroundStyle(Color.muted).padding(12)
+                }
             }
+            .spelCard(pad: 0)
         }
-        .padding(.bottom, 4)
     }
     static func detail(_ s: ServiceStatus, now: Date) -> String {
         guard s.checkedAt != nil else { return "Not read yet" }
@@ -925,31 +709,35 @@ struct ServicesCard: View {
 private struct ServiceRow: View {
     let name: String, state: ServiceStatus.State, detail: String, checked: String?, page: String?
     var body: some View {
-        HStack(spacing: 9) {
-            Rectangle().fill(colour).frame(width: 9, height: 9).overlay(Rectangle().stroke(Color.ink, lineWidth: 1))
+        HStack(spacing: 10) {
+            StateLight(state: state == .ok ? .ok : state == .degraded ? .warn : state == .down ? .down : .unknown)
             VStack(alignment: .leading, spacing: 1) {
-                Text(name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
-                Text(detail).font(.system(size: 11.5)).foregroundStyle(Color.muted).lineLimit(1)
-                if let checked { Text(checked).font(.system(size: 11)).foregroundStyle(Color.muted.opacity(0.8)).lineLimit(1) }
+                Text(name).font(.s13m).foregroundStyle(Color.inkText).lineLimit(1)
+                Text([detail, checked].compactMap { $0 }.joined(separator: " · ")).font(.s11n).foregroundStyle(Color.muted).lineLimit(1)
             }
             Spacer(minLength: 0)
             if let page, let u = URL(string: page) {
-                Link(destination: u) { Image(systemName: "arrow.up.right.square").font(.system(size: 12)) }.foregroundStyle(Color.muted).help("Open the status page")
+                Link(destination: u) { PixelIcon("chev", color: .muted, size: 9).frame(width: 20, height: 20) }.help("Open the status page").accessibilityLabel("Open the status page of \(name)")
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 7)
-        .background(Color.raised, in: RoundedRectangle(cornerRadius: 6))
-    }
-    private var colour: Color {
-        switch state {
-        case .ok: return Color(hex: 0x7DFF99)
-        case .degraded: return Color.warn
-        case .down: return Color(hex: 0xFF4A4A)
-        case .unknown: return Color(hex: 0x8C8C8C)
-        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
     }
 }
 
+/// A state as shape and colour, never colour alone: a green dot, an amber triangle, a red square, a grey ring.
+struct StateLight: View {
+    enum S { case ok, warn, down, unknown, busy }
+    let state: S
+    var body: some View {
+        switch state {
+        case .ok: PixelIcon("dot", color: .done, size: 9).accessibilityLabel("OK")
+        case .warn: PixelIcon("warn", color: .warn, size: 9).accessibilityLabel("Warning")
+        case .down: PixelIcon("sq", color: .stuck, size: 9).accessibilityLabel("Down")
+        case .busy: PixelIcon("dot", color: .working, size: 9).accessibilityLabel("Busy")
+        case .unknown: PixelIcon("ring", color: .muted, size: 9).accessibilityLabel("Unknown")
+        }
+    }
+}
 
 // MARK: the first walk and the field notes (D78)
 
@@ -959,108 +747,235 @@ struct FieldNoteBanner: View {
     var body: some View {
         if let n = model.fieldNote {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "sparkles").font(.system(size: 13, weight: .bold)).foregroundStyle(Color.signal)
+                Socket(size: 36) { PixelIcon("star", color: .inkText) }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("New on the campus: " + n.title).font(.system(size: 13, weight: .bold))
-                    Text(n.line).font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
-                    Text("Kept in the field guide (?)").font(.system(size: 11)).foregroundStyle(Color.muted)
+                    Text("New on the campus: " + n.title).font(.s15).foregroundStyle(Color.inkText)
+                    Text(n.line).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                    Text("Kept in the field guide (Help › Field guide)").font(.s11n).foregroundStyle(Color.muted)
                 }
-                Button { model.fieldNote = nil } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).frame(width: 20, height: 20) }
-                    .buttonStyle(.plain).foregroundStyle(Color.muted).help("Close")
+                Spacer(minLength: 0)
+                CloseButton(action: { model.fieldNote = nil }, help: "Close")
             }
-            .padding(12).frame(maxWidth: 440, alignment: .leading).glass(radius: 12)
+            .padding(12).frame(width: 460, alignment: .leading).spelFrame()
             .transition(.move(edge: .top).combined(with: .opacity))
             .accessibilityElement(children: .combine)
         }
     }
 }
 
-/// The guided first walk (D78): a quest on the campus, not a dialog. Each step ticks off by itself when you do it.
+/// The guided first walk (D78, D8, D9): offered once, on the campus, without yellow; it goes away as soon as you open
+/// something yourself. Each step has one goal: while it is open there is no Next; when you do it, it ticks off and
+/// one button takes you on.
 struct WalkCard: View {
     @EnvironmentObject private var model: AppModel
     static let steps: [(title: String, text: String, goal: String)] = [
-        ("Your campus", "Every Claude Code and Codex chat on this Mac from the last 8 hours lives here: one tower per tool, one floor per project.", "Open a floor: click it, or scroll in"),
-        ("People are your chats", "The room someone is in is what that chat does now: research, development, testing, waiting at the front desk for you.", "Click someone to see their last step"),
-        ("Needs you", "Chats that stopped to ask you something, and factories' questions, line up here. N takes you to the next one.", "Press N"),
-        ("Everything explains itself", "Hover anything that moves to see why it moves. The field guide behind ? keeps what you have seen, with every key.", "Open the field guide: press ?"),
+        ("Your campus", "Every Claude Code and Codex chat from the last 8 hours lives here. One tower per tool: Claude and ChatGPT (Codex). One floor per project.", "Open a floor: click one, or scroll in"),
+        ("People are your chats", "The room someone is in is what that chat does now: research, development, testing, or waiting at the front desk for you.", "Click someone to see their last step"),
+        ("Needs you", "Chats that stopped to ask you something, and the factories' questions, line up on the left. N takes you to the next one.", "Press N"),
+        ("Everything explains itself", "Hover anything that moves to see why it moves. Help keeps every key and a field guide of what you have seen.", "Open Help: press ?"),
     ]
+    static let guideKey = CastKey(role: .lead, seed: "walk-guide-sol")
+
     var body: some View {
         let step = model.walkStep ?? 0
-        VStack(alignment: .leading, spacing: 8) {
-            if step == 0 {
-                HStack(spacing: 10) {
-                    BrandMark(face: .signal, ledge: false).frame(width: 18, height: 18)
-                    Text("New here? A one-minute walk round your campus.").font(.system(size: 13, weight: .semibold))
-                    Spacer(minLength: 8)
-                    Button { start() } label: { Text("Take the walk") }
-                        .buttonStyle(TactileButtonStyle(kind: .primary, inset: EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)))
-                    Button { model.endWalk() } label: { Text("Later") }
-                        .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)))
+        Group {
+            if step == 0 { offer }
+            else if step <= Self.steps.count { stepCard(step) }
+            else { finish }
+        }
+        // each step's goal ticks off by itself when you do what it says
+        .onChange(of: model.selection.level) { _, l in
+            if model.walkStep == 0, l != .all { model.endWalk() }
+            if model.walkStep == 1, l.rawValue >= Level.project.rawValue { model.walkGoalDone = true }
+        }
+        .onChange(of: model.selection.engineRoom) { _, on in if model.walkStep == 0, on { model.endWalk() } }
+        .onChange(of: model.selection.sessionID) { _, s in if model.walkStep == 2, s != nil { model.walkGoalDone = true } }
+        .onChange(of: model.nextPressed) { _, _ in if model.walkStep == 3 { model.walkGoalDone = true } }
+        .onChange(of: model.commandsOpen) { _, on in if model.walkStep == 4, on { model.walkGoalDone = true } }
+    }
+
+    private var guide: some View {
+        Portrait(image: model.controller.portrait(WalkCard.guideKey), role: .lead, size: 48)
+            .task { await model.controller.ensurePortraits([WalkCard.guideKey]) }
+    }
+
+    /// the offer, once: quiet, no yellow (D9)
+    private var offer: some View {
+        HStack(spacing: 12) {
+            guide
+            Text("New here? Sol walks you round in a minute.").font(.s15b).foregroundStyle(Color.inkText)
+            Spacer(minLength: 8)
+            Button { start() } label: { Text("Take the walk") }.buttonStyle(SpelButtonStyle(kind: .secondary))
+            Button { model.endWalk() } label: { Text("Not now") }.buttonStyle(SpelButtonStyle(kind: .ghost))
+                .help("You can start it later from Help (?)")
+        }
+        .padding(12).frame(width: Shell.sheet + 40).spelFrame()
+    }
+
+    private func stepCard(_ step: Int) -> some View {
+        let s = Self.steps[step - 1]
+        // step 3 with nothing waiting has nothing to press: it is done as it stands
+        let done = model.walkGoalDone || (step == 3 && model.world.needsYou.isEmpty)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                guide
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Eyebrow("Step \(step) of \(Self.steps.count)")
+                        Pips(count: Self.steps.count, current: done ? -1 : step - 1, done: done ? step : step - 1)
+                    }
+                    Text(s.title).font(.s19).foregroundStyle(Color.inkText)
                 }
-            } else if step <= Self.steps.count {
-                let s = Self.steps[step - 1]
-                HStack(spacing: 6) {
-                    Text("YOUR CAMPUS · \(step - 1) OF \(Self.steps.count)").font(.system(size: 10.5, weight: .semibold)).tracking(0.9).foregroundStyle(Color.muted)
-                    HStack(spacing: 4) { ForEach(1...Self.steps.count, id: \.self) { k in
-                        RoundedRectangle(cornerRadius: 2).fill(k < step ? Color.signal : k == step ? Color.inkText : Color.divider).frame(width: 14, height: 4)
-                    } }
-                    Spacer(minLength: 0)
-                    Button("Skip the walk") { model.endWalk() }.buttonStyle(.plain).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color.muted)
+                Spacer(minLength: 0)
+            }
+            Text(s.text).font(.s13).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
+            goalRow(step, s.goal, done: done)
+            HStack(spacing: 10) {
+                if done {
+                    let next = step < Self.steps.count ? "Next: " + Self.steps[step].title.lowercased() : "Finish the walk"
+                    Button { model.walkGoalDone = false; model.walkStep = step + 1 } label: { SpelLabel(next, key: "↩", onYellow: true) }
+                        .buttonStyle(SpelButtonStyle(kind: .primary)).keyboardShortcut(.return, modifiers: [])
+                } else {
+                    Text("The walk goes on as soon as you do it.").font(.s13).foregroundStyle(Color.muted)
                 }
-                Text(s.title).font(.system(size: 15, weight: .bold))
-                Text(s.text).font(.system(size: 12.5)).foregroundStyle(Color.inkText.opacity(0.9)).fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
-                    Image(systemName: "circle.dashed").font(.system(size: 12, weight: .bold)).foregroundStyle(Color.signal)
-                    Text(step == 3 && model.world.needsYou.isEmpty ? "Nothing waits for you now: when a chat asks, it shows here" : s.goal)
-                        .font(.system(size: 12.5, weight: .semibold))
-                    Spacer(minLength: 0)
-                    Button { model.walkStep = step + 1 } label: { Text("Next") }
-                        .buttonStyle(TactileButtonStyle(kind: .neutral, inset: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)))
-                }
+                Spacer(minLength: 0)
+                Button { model.endWalk() } label: { Text("Skip the walk") }.buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
+            }
+        }
+        .padding(16).frame(width: Shell.sheet).spelFrame()
+        .accessibilityElement(children: .contain)
+    }
+
+    private func goalRow(_ step: Int, _ goal: String, done: Bool) -> some View {
+        HStack(spacing: 10) {
+            if done {
+                RoundedRectangle(cornerRadius: 4).fill(Color.done).overlay(PixelIcon("check", color: Color(hex: 0x0B2A1A), size: 9)).frame(width: 18, height: 18)
             } else {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.seal.fill").foregroundStyle(Color.signal)
-                    Text("That is your campus. Two things you can add:").font(.system(size: 13.5, weight: .bold))
-                    Spacer(minLength: 0)
-                    Button("Done") { model.endWalk() }.buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.muted)
+                RoundedRectangle(cornerRadius: 4).strokeBorder(Color.muted, style: StrokeStyle(lineWidth: 2, dash: [3, 2])).frame(width: 18, height: 18)
+            }
+            Text(step == 3 && model.world.needsYou.isEmpty ? "Nothing waits for you now: when a chat asks, it shows there" : goal)
+                .font(.s13m).foregroundStyle(Color.inkText)
+            Spacer(minLength: 0)
+            Text(done ? "Done" : "Your move").font(.s13m).foregroundStyle(done ? Color.done : Color.muted)
+        }
+        .spelWell(pad: 10)
+    }
+
+    /// the end: two things you can add; Start a factory asks which project first (D1)
+    private var finish: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                guide
+                VStack(alignment: .leading, spacing: 2) {
+                    Eyebrow("The walk is done")
+                    Text("That is your campus").font(.s19).foregroundStyle(Color.inkText)
                 }
-                HStack(spacing: 10) {
-                    quest("building.2", "Start a factory", "An AI CEO works on one project on a schedule, and asks you here.") {
-                        model.endWalk(); model.settingsAtProjects = true; model.settingsOpen = true
-                    }
-                    quest("server.rack", "Connect a server", "The Server room watches it over SSH, with your own keys.") {
-                        model.endWalk(); model.settingsPage = "engine"; model.settingsOpen = true
-                    }
+                Spacer(minLength: 0)
+                CloseButton(action: { model.endWalk() }, help: "Done")
+            }
+            Text("Two things you can add when you like:").font(.s13).foregroundStyle(Color.muted)
+            HStack(spacing: 10) {
+                quest("floor", "Start a factory", "An AI CEO works on one project on a schedule, and asks you here.") {
+                    model.endWalk(); model.factoryPickerOpen = true
+                }
+                quest("server", "Connect a server", "The Server room watches it over SSH, with your own keys.") {
+                    model.endWalk(); model.settingsAtForm = true; model.settingsOpen = true
                 }
             }
         }
-        .padding(14).frame(width: step == 0 ? 560 : 520, alignment: .leading).glass(radius: 12)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.signal.opacity(step == 0 ? 0.8 : 0.35)))
-        // each step ticks off by itself when you do what it says
-        .onChange(of: model.selection.level) { _, l in if model.walkStep == 1, l.rawValue >= Level.project.rawValue { model.walkStep = 2 } }
-        .onChange(of: model.selection.sessionID) { _, s in if model.walkStep == 2, s != nil { model.walkStep = 3 } }
-        .onChange(of: model.nextPressed) { _, _ in if model.walkStep == 3 { model.walkStep = 4 } }
-        .onChange(of: model.commandsOpen) { _, on in if model.walkStep == 4, on { model.walkStep = 5 } }
+        .padding(16).frame(width: Shell.sheet).spelFrame()
     }
 
     private func start() {
-        model.walkStep = 1
+        model.walkStep = 1; model.walkGoalDone = false
         if let b = model.world.buildings.first(where: { !$0.projects.isEmpty }) { model.controller.focusBuilding(b.provider.rawValue) }
     }
 
     private func quest(_ icon: String, _ title: String, _ text: String, _ go: @escaping () -> Void) -> some View {
         Button(action: go) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: icon).font(.system(size: 15, weight: .semibold)).frame(width: 22)
+                PixelIcon(icon, color: .inkText)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 13, weight: .bold))
-                    Text(text).font(.system(size: 11.5)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                    Text(title).font(.s15).foregroundStyle(Color.inkText)
+                    Text(text).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true).multilineTextAlignment(.leading)
                 }
                 Spacer(minLength: 0)
+                PixelIcon("chev", color: .muted, size: 9).padding(.top, 4)
             }
-            .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.raised, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.divider)).contentShape(Rectangle())
+            .spelCard()
+            .contentShape(Rectangle())
         }.buttonStyle(CardPressStyle())
+    }
+}
+
+/// The walk's last quest (D1): which project gets a CEO? Then you land on that floor, where the Factory switch is
+/// step 2 of 2. No Settings, no team steppers: the team comes once the factory runs.
+struct FactoryPicker: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var picked: String?
+    private struct Floor: Identifiable { let project: Project; let provider: Provider; let number: Int; var id: String { project.id } }
+    private var floors: [Floor] {
+        model.world.buildings.flatMap { b in b.projects.enumerated().map { Floor(project: $0.element, provider: b.provider, number: $0.offset + 1) } }
+            .filter { !$0.project.isChat }
+    }
+    var body: some View {
+        let floors = self.floors
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Portrait(image: model.controller.portrait(WalkCard.guideKey), role: .lead, size: 48)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) { Eyebrow("Quest · step 1 of 2"); Pips(count: 2, current: 0) }
+                    Text("Start a factory").font(.s19).foregroundStyle(Color.inkText)
+                }
+                Spacer(minLength: 0)
+                CloseButton(action: { model.factoryPickerOpen = false })
+            }
+            Text("Which project should get a CEO? It works on that floor; you answer its questions.").font(.s13).foregroundStyle(Color.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            ScrollFit {
+                VStack(spacing: 8) { ForEach(floors) { f in row(f) } }.padding(.bottom, 4)
+            }
+            HStack(spacing: 10) {
+                let name = floors.first { $0.id == picked }?.project.name
+                Button { go() } label: { SpelLabel(name.map { "Go to \($0)" } ?? "Pick a project", key: "↩", onYellow: name != nil) }
+                    .buttonStyle(SpelButtonStyle(kind: .primary)).disabled(picked == nil).keyboardShortcut(.return, modifiers: [])
+                Button { model.factoryPickerOpen = false } label: { Text("Later") }.buttonStyle(SpelButtonStyle(kind: .secondary))
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(16).frame(width: Shell.sheet).spelFrame()
+        .onExitCommand { model.factoryPickerOpen = false }
+        .onAppear { picked = floors.first { !model.isFactory($0.project) }?.id }
+    }
+
+    private func row(_ f: Floor) -> some View {
+        let p = f.project, factory = model.isFactory(p), chats = p.sessions.count
+        return Button { picked = p.id } label: {
+            HStack(spacing: 12) {
+                Socket(size: 36) {
+                    if p.logo != nil { ProjectLogoView(path: p.logo, size: 22) } else { PixelIcon("floor", color: .muted) }
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(p.name).font(.s15).foregroundStyle(factory ? Color.muted : Color.inkText)
+                    Text("\(f.provider.displayName) · floor \(f.number) · \(chats == 0 ? "quiet" : "\(chats) chat\(chats == 1 ? "" : "s") today")")
+                        .font(.s13).foregroundStyle(Color.muted)
+                }
+                Spacer(minLength: 0)
+                if factory { Tag(factory ? "Factory already" : "", tone: .done) }
+                else if picked == p.id { PixelIcon("check", color: .selection) }
+            }
+            .spelCard(selected: picked == p.id, pad: 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(CardPressStyle()).disabled(factory)
+        .accessibilityAddTraits(picked == p.id ? .isSelected : [])
+    }
+
+    private func go() {
+        guard let id = picked, let p = model.world.project(id: id) else { return }
+        model.factoryPickerOpen = false
+        model.factoryQuest = p.root
+        model.factoryTabs[p.id] = .overview
+        model.controller.enterFloor(id)
     }
 }
