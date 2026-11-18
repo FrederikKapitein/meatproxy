@@ -131,7 +131,20 @@ public final class ArtEngine: NSObject, WKURLSchemeHandler {
     public func cachedFigure(_ cast: CastKey) -> Figure? { figures[cast.key] }
 
     /// A name tag, an emote bubble or the stuck cloud: small images centred on their anchor.
-    public func tag(_ text: String, state: String) async -> Overlay? { await overlay("tag|\(state)|\(text)", "return await window.sf.tag(o)", ["text": text, "state": state]) }
+    public func tag(_ text: String, state: String) async -> Overlay? { await tag(text, sub: "", state: state) }
+    /// A name plate (Spel+, B2 B3 B6 B7): the name, a quiet second line, the role's colour; state work, wait, stuck, done
+    /// or back; badge, the colour of a diamond a helper shares with its person (nil: none). Its rect: the tip at (0, 0).
+    public func tag(_ text: String, sub: String, state: String, role: String = "#6a6478", badge: String? = nil) async -> Overlay? {
+        var o: [String: Any] = ["text": text, "sub": sub, "state": state, "role": role]
+        if let badge { o["badge"] = badge }
+        return await overlay("tag|\(state)|\(text)|\(sub)|\(role)|\(badge ?? "")", "return await window.sf.tag(o)", o)
+    }
+    /// The one board on the Planning wall (B1): a card per workstream in its phase's column. A flat board laid on the
+    /// wall's plane; its rect is relative to the board's top-left corner on the wall.
+    public func board(_ cards: [[String: Any]]) async -> Overlay? {
+        let key = "board|" + cards.map { "\($0["id"] ?? "")\($0["phase"] ?? "")\($0["wait"] ?? "")\($0["back"] ?? "")\($0["title"] ?? "")" }.joined(separator: ",")
+        return await overlay(key, "return await window.sf.board(o)", ["cards": cards])
+    }
     public func emote(_ kind: String) async -> Overlay? { await overlay("emote|\(kind)", "return await window.sf.emote(o)", ["kind": kind]) }
     public func cloud() async -> Overlay? { await overlay("cloud", "return await window.sf.cloud(o)", [:]) }
     private var overlays: [String: Overlay] = [:]
@@ -197,10 +210,14 @@ public struct ArtImage {
 public struct Overlay { public var image: CGImage, rect: CGRect }
 
 /// One sign (a room sign, a plaque, a roof board) on its own image, named after what it hangs on.
-public struct SignPart { public var id: String, image: ArtImage }
+public struct SignPart {
+    public var id: String, image: ArtImage
+    /// what it hangs on, as a depth key (a plaque on a wall sorts with the wall); nil: over everything
+    public var key: CGFloat? = nil
+}
 
 func signParts(_ a: Any?) -> [SignPart] {
-    ((a as? [[String: Any]]) ?? []).compactMap { d in ArtImage(d).map { SignPart(id: d["id"] as? String ?? "", image: $0) } }
+    ((a as? [[String: Any]]) ?? []).compactMap { d in ArtImage(d).map { SignPart(id: d["id"] as? String ?? "", image: $0, key: d["key"] is NSNumber ? num(d["key"]) : nil) } }
 }
 
 /// One object of a scene, cut from an atlas page: a sprite sorted by its depth key.

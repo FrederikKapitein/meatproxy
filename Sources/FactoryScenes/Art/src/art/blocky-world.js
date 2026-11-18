@@ -23,10 +23,10 @@
     {id: "crash", n: 6, name: "TESTING", i: 17, j: 11, w: 7, d: 5, floor: ["#9ee0c4", "#86ccb0"]},
     {id: "mail", n: 7, name: "PULL REQUESTS", i: 9, j: 11, w: 5, d: 5, floor: ["#b2aaa4", "#a29a94"]},
     {id: "launch", n: 8, name: "DEPLOY", i: 3, j: 11, w: 6, d: 5, floor: ["#5c6a8a", "#52607e"]},
-    {id: "porch", n: 11, name: "LOUNGE", i: 0, j: 9, w: 3, d: 7, floor: ["#dba664", "#c9944f"]}
+    {id: "porch", n: 11, name: "LOUNGE", i: 0, j: 5, w: 3, d: 11, floor: ["#dba664", "#c9944f"]}
   ];
   const HALL = {i: 3, j: 5, w: 15, d: 6}, CENTER = [10.5, 8];
-  const GARDENS = [{i: 0, j: 5, w: 3, d: 4}, {i: 21, j: 0, w: 3, d: 3}], VOID = {i: 14, j: 11, w: 3, d: 5};
+  const GARDENS = [{i: 21, j: 0, w: 3, d: 3}], VOID = {i: 14, j: 11, w: 3, d: 5};
   const DIAL = {rx: [2.15, 4.55], ry: [2.0, 2.75], phases: [
     {name: "PLAN", col: "#f2a65a", a0: -165, a1: -58}, {name: "BUILD", col: "#5b8cf0", a0: -58, a1: 14}, {name: "TEST", col: "#3fd0a0", a0: 14, a1: 52},
     {name: "SHIP", col: "#b07cf0", a0: 52, a1: 138}, {name: "DONE", col: "#e98aa8", a0: 138, a1: 195}]};
@@ -117,8 +117,7 @@
     for (let b = 0; b < 4.9; b += .25) for (let z = 8; z < 44; z += 9) leftDeco.push([-(b + .25) * T + .4, z, -b * T - .4, z + 6.5 - ((b * 5 + z) % 3), ["#5b8cf0", "#3fae6a", "#e05a5a", "#f2b34a", "#b07cf0"][Math.floor((b * 11 + z) % 5)]]);
     // the left wall's front is its +x face ("right"), whose u runs along -y
     bx(back, -.25, 0, 0, 0, 5, WALL, WC, {right: leftDeco.filter(d => d[0] >= -5 * T)});
-    bx(back, -.25, 5, 0, 0, 9, 6, WC);
-    bx(back, -.25, 9, 0, 0, 16, WALL, WC, {right: leftDeco.filter(d => d[0] < -9 * T)});
+    bx(back, -.25, 5, 0, 0, 16, WALL, WC, {right: leftDeco.filter(d => d[0] < -5 * T)});
     under += back.svg();
 
     /* ---------- walls inside: solid below, glass above, one tile at a time; doors are gaps ---------- */
@@ -141,7 +140,7 @@
     run(4, 0, 4, 5, ...RW); run(8, 0, 8, 5, ...RW); run(14, 0, 14, 5, ...RW);
     run(21, 0, 21, 3, ...GW); run(21, 3, 21, 5, ...RW, [4]); run(21, 3, 24, 3, ...GW);
     run(18, 5, 24, 5, ...RW); run(18, 11, 24, 11, ...RW);
-    run(0, 5, 3, 5, ...GW); run(0, 9, 3, 9, ...GW);
+    run(0, 5, 3, 5, ...GW);
     run(3, 11, 3, 16, ...RW); run(9, 11, 9, 16, ...RW); run(17, 11, 17, 16, ...RW);
     run(3, 5, 18, 5, ...HW, [3.5, 6, 11, 16.5]); run(18, 5, 18, 11, ...HW, [8]);
     run(3, 11, 14, 11, ...HW, [6, 11.5]); run(3, 5, 3, 9, ...GW); run(3, 9, 3, 11, ...HW, [10]);
@@ -195,9 +194,7 @@
     prop(21.3, 4.45, 22.3, 4.75, 18, "#3b3f63", {front: [0, 1, 2, 3, 4, 5].map(k => [21.4 * T + k * 2.5, 6 + (k % 2) * 5, 21.4 * T + k * 2.5 + 1.6, 7.6 + (k % 2) * 5, ["!#7cff9a", "!#ff9a4a", "!#8ab4ff", "!#ff6ad5", "!#7cff9a", "!#ff9a4a"][k]])});
     // gardens: a tree each, flowers, a pond, a bench
     const tree = (i, j, s = 1) => obj(i + j + .6, sc => { bx(sc, i - .12, j - .12, 0, i + .12, j + .12, 18 * s, "#7a4a2e"); bx(sc, i - .7 * s, j - .7 * s, 14 * s, i + .7 * s, j + .7 * s, 28 * s, "#3fae6a"); bx(sc, i - .45 * s, j - .45 * s, 28 * s, i + .45 * s, j + .45 * s, 36 * s, "#5fd08a"); bx(sc, i + .2 * s, j - .9 * s, 18 * s, i + .9 * s, j - .2 * s, 26 * s, "#4fc07a"); }, {i0: i - .7 * s, j0: j - .7 * s, i1: i + .7 * s, j1: j + .7 * s});
-    tree(1.2, 6.2, 1.05); tree(22.6, 1.3, 1.1);
-    bx(base, 1.2, 7, 0, 2.6, 7.8, .5, "#4fb0e0", {top: [[1.4 * T, 7.1 * T, 1.9 * T, 7.3 * T, "#bfeaff"]]});
-    prop(.4, 8.1, 2.2, 8.5, 4, "#9a6a3a");
+    tree(22.6, 1.3, 1.1);
     // 5 Boiler room: the tank with its terminal, pipes, the valve, barrels of goo
     prop(19.1, 5.4, 21.5, 6.8, 28, "#7a8aa8", {front: [[19.4 * T, 8, 20.9 * T, 18, "#0e2a1e"], [19.6 * T, 14, 20.4 * T, 15.2, "!#7cff9a"], [19.6 * T, 11, 20.1 * T, 12.2, "!#7cff9a"], [21 * T, 18, 21.35 * T, 24, "#fdfbf4"]]});
     prop(22.5, 5.4, 22.8, 5.7, 44, "#9aa7c8"); prop(23.1, 5.4, 23.4, 5.7, 44, "#c9a46a"); prop(22.5, 5.7, 22.8, 8.8, 20, "#9aa7c8", {}, null, 17);
@@ -234,19 +231,23 @@
       bx(sc, 7.15, 17.5, 0, 7.35, 17.7, 10, "#e05a5a"); bx(sc, 7.85, 17.5, 0, 8.05, 17.7, 10, "#e05a5a"); bx(sc, 7.5, 17.85, 0, 7.7, 18.05, 10, "#e05a5a");
     });
     const bridge = [];
-    for (let k = 0; k < 9; k++) { const i0 = 3.6 - k * .55, j0 = 18 + k * .32; bx(base, i0 - .5, j0, -3 - Math.sin(k / 8 * Math.PI) * 2, i0, j0 + .6, -2 - Math.sin(k / 8 * Math.PI) * 2, "#c9a46a"); if (k % 2) bridge.push([i0 - .25, j0 + .3]); }
-    // 11 Back porch: a sofa under the big window, the coffee machine, the jigsaw, the arcade, a beanbag
-    prop(.3, 11.1, 1.3, 14, 6, "#2fb0b0", {}, sc => { bx(sc, .3, 11.1, 6, .65, 14, 14, "#269a9a"); bx(sc, .3, 11.1, 6, 1.3, 11.45, 10, "#269a9a"); bx(sc, .3, 13.65, 6, 1.3, 14, 10, "#269a9a"); bx(sc, .7, 11.6, 6, 1.2, 12.2, 8, "#ffd0a0"); });
-    prop(.3, 9.3, 1.2, 10.4, 18, "#5d6178", {right: [[-10.2 * T, 9, -9.5 * T, 13, "!#7cff9a"]]});
-    prop(1.5, 13.8, 2.7, 15, 6, "#9a6a3a", {top: Array.from({length: 9}, (_, k) => [(1.6 + (k % 3) * .35) * T, (13.9 + Math.floor(k / 3) * .35) * T, (1.6 + (k % 3) * .35) * T + 4.6, (13.9 + Math.floor(k / 3) * .35) * T + 4.6, ["#c9a0dc", "#9fc2ff", "#ffb0c8"][k % 3]])});
-    prop(.3, 15, 1.2, 15.9, 24, "#8a5cf0", {right: [[-15.8 * T, 12, -15.1 * T, 19, "!#ff6ad5"], [-15.7 * T, 8, -15.2 * T, 10, "#f2c23a"]]});
-    prop(1.8, 10.7, 2.6, 11.5, 6, "#e05a86");
-    lamp(2.6, 9.6);
+    // 11 the Lounge, a break room (B2): the coffee bar on the back wall, a snack fridge, the ping-pong table, the arcade,
+    // a beanbag; everyone stands or sits clear of it all, so nobody is cut off by a piece of furniture
+    prop(.3, 5.15, 2.6, 5.85, 12, "#c96a4a", {front: [[.4 * T, 2, 2.5 * T, 10, "#a8543a"]], top: [[.35 * T, 5.2 * T, 2.55 * T, 5.8 * T, "#efe2c8"]]}, sc => {
+      bx(sc, .5, 5.25, 12, 1.2, 5.7, 21, "#2a2433", {front: [[.6 * T, 15, 1.1 * T, 19, "!#ff9a4a"], [.7 * T, 13, .9 * T, 14, "!#7cff9a"]]});
+      bx(sc, 1.7, 5.3, 12, 2.0, 5.6, 14.5, "#f4f1ea"); bx(sc, 2.15, 5.3, 12, 2.45, 5.6, 14.5, "#e05a5a");
+    });
+    prop(.15, 7.0, .95, 8.0, 24, "#e8e4f2", {right: [[-7.9 * T, 2, -7.1 * T, 22, "#bcd8f0"], [-7.8 * T, 14, -7.2 * T, 17, "!#ff6ad5"], [-7.8 * T, 8, -7.2 * T, 11, "!#7cff9a"]]});
+    prop(.75, 9.4, 2.15, 11.8, 9, "#2f8a5a", {top: [[.75 * T, 10.57 * T, 2.15 * T, 10.63 * T, "#f4f1ea"], [1.42 * T, 9.4 * T, 1.48 * T, 11.8 * T, "#f4f1ea"], [.8 * T, 9.45 * T, 2.1 * T, 9.5 * T, "#f4f1ea"], [.8 * T, 11.7 * T, 2.1 * T, 11.75 * T, "#f4f1ea"]]},
+      sc => { bx(sc, .73, 10.57, 9, 2.17, 10.63, 11.6, "#f4f1ea"); bx(sc, 1.6, 10.2, 13, 1.7, 10.3, 13.1, "#ffffff"); });
+    prop(.25, 14.7, 1.15, 15.7, 26, "#8a5cf0", {right: [[-15.5 * T, 13, -14.9 * T, 20, "!#ff6ad5"], [-15.4 * T, 9, -15.0 * T, 11, "#f2c23a"], [-15.6 * T, 21, -14.8 * T, 24, "!#FFD83D"]]});
+    prop(1.7, 13.2, 2.8, 14.0, 5, "#e05a86", {top: [[1.85 * T, 13.35 * T, 2.65 * T, 13.85 * T, "#f07aa0"]]});
+    lamp(2.65, 8.2);
     // 10 the counter: a ring of desk round an empty chair, the bell, the ticket machine
     const CT = {base: "#c98a4e", top: "#efe2c8"};
     prop(9.3, 6.8, 11.7, 7.4, 11, CT); prop(9.3, 7.4, 9.9, 8.6, 11, CT); prop(11.1, 7.4, 11.7, 8.6, 11, CT);
     chair(10.5, 8.05, "#8a5cf0", "down");
-    prop(9.3, 8.6, 11.7, 9.2, 11, CT, {front: [[9.6 * T, 3, 11.4 * T, 8, "#20182c"], [9.75 * T, 4.5, 11.25 * T, 6.5, "!#FFD83D"]]}, sc => bx(sc, 11.1, 8.75, 11, 11.4, 9.05, 13, "#c9a46a"));
+    prop(9.3, 8.6, 11.7, 9.2, 11, CT, {front: [[9.6 * T, 3, 11.4 * T, 8, "#20182c"]]}, sc => bx(sc, 11.1, 8.75, 11, 11.4, 9.05, 13, "#c9a46a"));
     obj(9.9 + 8.9 + .3, sc => { bx(sc, 9.5, 8.7, 11, 10.3, 9.05, 14, "#f2efe6"); bx(sc, 10.1, 8.75, 14, 10.4, 9.05, 17, "#f2efe6", {front: [[10.15 * T, 15, 10.22 * T, 15.6, "!#2a1a2e"], [10.3 * T, 15, 10.37 * T, 15.6, "!#2a1a2e"]]}); });
     prop(12.4, 9.5, 12.85, 9.9, 16, "#e05a86", {front: [[12.5 * T, 12, 12.75 * T, 14, "#fdfbf4"]]});
     // plants and lamps in the hall
@@ -256,21 +257,43 @@
     /* ---------- signs: on top of the back walls, or hanging under the slab ---------- */
     // one plain word per room, no numbers: the floor has no order to follow
     const labels = [];   // where the signs hang, so the app can keep speech bubbles off them
-    const sign = (x, y, r, hl) => { const w = r.name.length * 8.6 + 16; labels.push([x - w / 2, y - 11, w, 17]); return `<g><rect x="${f(x - w / 2)}" y="${f(y - 11)}" width="${f(w)}" height="17" fill="${hl ? "#FFD83D" : "#fff3d6"}" stroke="#2a1a2e" stroke-width="2"/><text x="${f(x)}" y="${f(y + 2.4)}" font-family="${FONT}" font-size="10.5" text-anchor="middle" fill="#2a1a2e">${r.name}</text></g>`; };
-    const SIGN = {stacks: P(2, 0, WALL + 12), landing: P(5.8, 0, WALL + 12), war: P(11, 0, WALL + 12), workshop: P(17.4, 0, WALL + 12), switch: P(22.6, 0, 22), porch: P(0, 12.5, WALL + 12),
-      boiler: P(24, 8, -26), crash: P(20.5, 16, -26), mail: P(11.5, 16, -26), launch: P(6.5, 19.8, -22)};
-    // every sign also on its own (topParts), so the app can paint each one sharp
-    const topParts = [], tp = (id, markup) => { topParts.push({id, markup}); top += markup; };
-    for (const r of ROOMS) tp("room:" + r.id, sign(...SIGN[r.id], r));
-    // the hall's front desk: a quiet sign; yellow stays for what really waits for you (D73)
-    tp("needsYou", sign(...P(10.5, 8, 74), {name: "FRONT DESK"}, false));
+    // a plaque on a face: front (the plane of constant j, running along i) or right (constant i, along j); a, the middle
+    // along the face; at, the face's plane; z, its middle's height. key: what it is sorted with (behind the people)
+    const signFont = (window.BlockyWorld && window.BlockyWorld.signFont) || FONT;
+    const plaque = (id, face, a, at, z, name, o = {}) => {
+      const s2 = o.s || 5, w = (window.WorldKit ? window.WorldKit.measure(name, s2, signFont, 900) : name.length * s2 * .7) + 9, h = s2 + 5;
+      const at2 = face === "front" ? P(a, at + .02, z) : P(at + .02, a, z), m = face === "front" ? "1 .5 0 1.08" : "1 -.5 0 1.08";
+      const plain = o.plain;
+      const g = `<g transform="translate(${f(at2[0])} ${f(at2[1])}) matrix(${m} 0 0)">` + (plain ? "" : `<rect x="${f(-w / 2)}" y="${f(-h / 2)}" width="${f(w)}" height="${f(h)}" fill="#fff3d6" stroke="#2a1a2e" stroke-width=".7"/><rect x="${f(-w / 2)}" y="${f(h / 2 - 1)}" width="${f(w)}" height="1" fill="#c9a46a"/>`)
+        + `<text x="0" y="${f(s2 * .36)}" text-anchor="middle" font-family="${signFont}" font-weight="900" font-size="${s2}" fill="${plain ? "#efe2c8" : "#2a1a2e"}">${name}</text></g>`;
+      // where it hangs on screen, for the app to keep speech bubbles off it
+      const dx = w / 2, dy = face === "front" ? w / 4 : -w / 4;
+      labels.push([at2[0] - dx, Math.min(at2[1] - dy, at2[1] + dy) - h * .6, w, Math.abs(2 * dy) + h * 1.2]);
+      const key = o.key != null ? o.key : face === "front" ? a + w / 32 + at + .05 : at + a + w / 32 + .05;
+      topParts.push({id, markup: g, key});
+      top += g;
+    };
+    const topParts = [];
+    // the back walls (Research, Entrance, Planning, Development) and the Lounge's wall: behind everything that stands
+    plaque("room:stacks", "front", 2, 0, 40, "RESEARCH", {key: -1});
+    plaque("room:landing", "front", 7.1, 0, 40, "ENTRANCE", {key: -1});
+    plaque("room:war", "front", 11, 0, 41, "PLANNING", {key: -1});
+    plaque("room:workshop", "front", 18.1, 0, 42, "DEVELOPMENT", {key: -1});
+    plaque("room:porch", "right", 12.9, 0, 42, "LOUNGE", {key: -1});
+    // the rooms behind glass partitions: on the partition behind (or beside) the room, facing into it
+    plaque("room:switch", "front", 22.6, 3, 11, "TOOLS");
+    plaque("room:boiler", "right", 7.6, 18, 9, "BUILDS");
+    plaque("room:crash", "front", 18.4, 11, 15, "TESTING");
+    plaque("room:mail", "front", 11.4, 11, 10, "PULL REQUESTS");
+    plaque("room:launch", "front", 7.7, 11, 10, "DEPLOY");
+    // the front desk's name on its own front, small and quiet (D73: yellow stays for what waits for you)
+    plaque("needsYou", "front", 10.5, 9.2, 5, "FRONT DESK", {plain: true, s: 3.4, key: 11.7 + 9.2 + .05});
     // light pools: lamps, screens, the counter
     let light = "";
     for (const [i, j, c] of lamps) { const [x, y] = P(i, j, 22); light += glow(x, y + 16, 46, c, .5); }
     for (const r of ROOMS) { const [x, y] = P(r.i + r.w / 2, r.j + r.d / 2); light += glow(x, y, 90, "#ffd9a0", .22); }
     { const [x, y] = P(10.5, 8); light += glow(x, y, 120, "#ffd9a0", .25); }
-    const bridgeLights = bridge.map(([i, j]) => { const [x, y] = P(i, j, 6); return `<rect class="bw-lantern" x="${f(x - 2.5)}" y="${f(y - 5)}" width="5" height="6" fill="#3a3550" stroke="#2a1a2e" stroke-width="1.2"/>`; }).join("");
-    { const [x, y] = P(1.5, 19.2, -6); tp("bridge", `<text x="${f(x)}" y="${f(y + 26)}" text-anchor="middle" font-family="${FONT}" font-size="10" fill="#c9a0ff" stroke="#2a1a2e" stroke-width="2" paint-order="stroke">← SERVER ROOM</text>`); }
+    const bridgeLights = "";
 
     /* ---------- put it together ---------- */
     objs.sort((a, b) => a.key - b.key);

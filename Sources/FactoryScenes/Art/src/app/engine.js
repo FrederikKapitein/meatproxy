@@ -94,7 +94,7 @@
       // room for strokes and for the app's heavier sign face
       const box = [Math.floor(b.x - 6), Math.floor(b.y - 4), Math.ceil(b.x + b.width + 6), Math.ceil(b.y + b.height + 4)];
       const img = await raster(part.markup, defs, box, R);
-      if (img) out.push({id: part.id, ...img});
+      if (img) out.push({id: part.id, key: part.key != null ? part.key : null, ...img});
     }
     return out;
   }
@@ -115,7 +115,9 @@
     deploy: [[6.2, 18.0, "cheer", "down"], [6.4, 12.6, "idle", "down"], [4.6, 17.5, "idle", "right"], [5.0, 14.8, "idle", "right"], [7.6, 15.0, "idle", "left"]],
     // the sofa seats sit on the front edge of the cushion (i 1.3): further in, the sofa is drawn over whoever sits there;
     // the standing spots are spread across the room so full-size people do not stand in each other
-    lounge: [[2.9, 11.8, "mug", "right"], [1.35, 12.1, "sit", "right", 6], [1.35, 13.2, "sit", "right", 6], [2.4, 9.9, "idle", "down"], [2.4, 15.4, "mug", "left"], [1.9, 15.95, "idle", "left"]],
+    // the break room (B2): coffee at the bar, a rally at the ping-pong table, the arcade, a nap on the beanbag; everyone
+    // clear of the furniture (nobody sits in a sofa that hides them) and apart on screen
+    lounge: [[2.2, 6.4, "mug", "up"], [1.45, 8.85, "cheer", "down"], [1.45, 12.35, "wave", "up"], [1.85, 15.2, "type", "left"], [2.6, 10.6, "idle", "down"], [2.25, 13.6, "snooze", "down", 4]],
     // in front of the counter and west of it, clear of the hall's way through, looking at you
     needsYou: [[10.4, 9.55, "idle", "down"], [9.2, 9.55, "idle", "down"], [8.0, 9.55, "idle", "down"], [6.8, 9.55, "idle", "down"], [8.4, 8.2, "idle", "down"], [7.2, 8.2, "idle", "down"]],
     parked: [[16.0, 8.62, "sit", "down", 4], [16.8, 8.62, "sit", "down", 4]]
@@ -141,7 +143,7 @@
   // the room rectangles, in tiles, as the atrium lays them out
   const ROOMS_PLAN = {stacks: {i: 0, j: 0, w: 4, d: 5}, landing: {i: 4, j: 0, w: 4, d: 5}, war: {i: 8, j: 0, w: 6, d: 5}, workshop: {i: 14, j: 0, w: 7, d: 5},
     switch: {i: 21, j: 3, w: 3, d: 2}, boiler: {i: 18, j: 5, w: 6, d: 6}, crash: {i: 17, j: 11, w: 7, d: 5}, mail: {i: 9, j: 11, w: 5, d: 5},
-    launch: {i: 3, j: 11, w: 6, d: 8.6}, porch: {i: 0, j: 9, w: 3, d: 7}, counter: {i: 9.3, j: 6.8, w: 2.4, d: 2.4}};
+    launch: {i: 3, j: 11, w: 6, d: 8.6}, porch: {i: 0, j: 5, w: 3, d: 11}, counter: {i: 9.3, j: 6.8, w: 2.4, d: 2.4}};
 
   /* ---------- a person: frames from the blocky rig (D41) ---------- */
   /* who: {role, seed} → BlockyCast.person(role, seed); or {name} for the named cast. frames: [{pose, view, mood, seat, noProp}] */
@@ -157,12 +159,66 @@
     return {R, page: a.pages[0], pages: a.pages, frames: a.items.sort((p, q) => +p.id - +q.id).map(it => ({page: it.page, px: it.px, py: it.py, pw: it.pw, ph: it.ph, x: it.x, y: it.y, w: it.w, h: it.h})), top: cast.top, skin: cast.skin};
   }
 
-  /* name tags, emotes and the stuck cloud, as on the board, one image each centred on its anchor */
+  /* a name plate (Spel+, B2 B3 B6 B7), centred on its anchor (x 0 at the head, y 0 the plate's bottom tip):
+     o: {text, sub, state: work|wait|stuck|done|back, role (colour), helper, badge (colour of a shared diamond)} */
+  const PLATE_FONT = "'Arial Black', 'Avenir Next', Helvetica, sans-serif", SUB_FONT = "'Avenir Next', 'Helvetica Neue', Helvetica, sans-serif";
+  let measureCtx = null;
+  const textW = (t, font) => { measureCtx = measureCtx || document.createElement("canvas").getContext("2d"); measureCtx.font = font; return measureCtx.measureText(t).width; };
   function tag(o) {
-    const R = o.R || 5, text = String(o.text || "").toUpperCase(), tw = text.length * 6.2 + 14;
-    const wait = o.state === "wait", stuck = o.state === "stuck";
-    const markup = `<rect x="${-tw / 2}" y="-9" width="${tw}" height="12" fill="${wait ? "#FFD83D" : stuck ? "#ff4a4a" : "#20182c"}" stroke="#2a1a2e" stroke-width="1.6"/><text x="0" y="0.6" font-family="x" font-size="7.4" text-anchor="middle" fill="${wait ? "#1d1626" : "#fff8ec"}">${text.replace(/[<&>]/g, "")}</text>`;
-    return raster(markup, "", [-tw / 2 - 1.5, -10.5, tw / 2 + 1.5, 4.5], R);
+    const R = o.R || 5, name = String(o.text || "").toUpperCase().replace(/[<&>]/g, ""), sub = String(o.sub || "").replace(/[<&>]/g, "");
+    const st = o.state || "work", wait = st === "wait", stuck = st === "stuck", back = st === "back", done = st === "done";
+    const s = 5.6, ss = 3.9, role = o.role || "#6a6478", badge = o.badge;
+    const tw = Math.max(textW(name, `900 ${s * 10}px ${PLATE_FONT}`) / 10, sub ? textW(sub, `600 ${ss * 10}px ${SUB_FONT}`) / 10 : 0) + 9;
+    const th = sub ? s + ss + 6.4 : s + 5.6, ty = -3 - th;
+    const bg = wait ? "#FFD83D" : stuck ? "#ff4a4a" : "#20182c", ink = wait ? "#1d1626" : stuck ? "#fff8ec" : done ? "#c9c4dc" : "#f3ebdd";
+    const sub2 = wait ? "#3a2e10" : stuck ? "#ffe0d8" : done ? "#8a84a0" : "#b9b2cc";
+    const edge = wait ? "#b08a00" : stuck ? "#a02020" : done ? "#4a4460" : role;
+    let g = `<rect x="${-tw / 2}" y="${ty + 1.4}" width="${tw}" height="${th}" rx="2" fill="#0e0a18" opacity=".45"/>`;
+    g += `<rect x="${-tw / 2}" y="${ty}" width="${tw}" height="${th}" rx="2" fill="${bg}" stroke="${edge}" stroke-width="1.2"/>`;
+    if (!wait && !stuck) g += `<rect x="${-tw / 2 + .6}" y="${ty + .6}" width="2.2" height="${th - 1.2}" fill="${done ? "#4a4460" : role}"/>`;
+    g += `<text x="0" y="${ty + s + 1.6}" text-anchor="middle" font-family="${PLATE_FONT}" font-weight="900" font-size="${s}" fill="${ink}">${name}</text>`;
+    if (sub) g += `<text x="0" y="${ty + s + ss + 3.8}" text-anchor="middle" font-family="${SUB_FONT}" font-weight="600" font-size="${ss}" fill="${sub2}">${sub}</text>`;
+    g += `<path d="M-2.4,${ty + th} L0,-.2 L2.4,${ty + th}" fill="${bg}" stroke="${edge}" stroke-width="1.2" stroke-linejoin="round"/><rect x="-2.2" y="${ty + th - 1.2}" width="4.4" height="1.6" fill="${bg}"/>`;
+    if (badge) { const bx = tw / 2 - 1, by = ty + 1; g += `<path d="M${bx},${by - 3.2} l3.2,3.2 l-3.2,3.2 l-3.2,-3.2z" fill="${badge}" stroke="#f3ebdd" stroke-width=".7"/>`; }
+    let top = ty;
+    if (wait || stuck) { // crisp pixel art straight above the plate: a quest "!" or a storm cloud with its bolt
+      const px = wait ? 1.6 : 2.0, art = wait ? ["..yyyy..", ".yykkyy.", "yyykkyyy", "yyykkyyy", "yyykkyyy", "yyyyyyyy", ".yykkyy.", "..yyyy.."] : ["....gggg.....", "..ggGGGGgg...", ".gGGGGGGGGgg.", "gGGGGGGGGGGGg", "gGGGGGGGGGGGg", ".ggggggggggg.", ".....yy......", "....yy.......", "...yyyy......", ".....yy......", ".....y......."];
+      const C = {y: "#FFD83D", k: "#2a1a2e", g: "#3a3a4e", G: "#9a9ab4"};
+      const w0 = art[0].length * px, h0 = art.length * px, oy = ty - 2;
+      art.forEach((row, ri) => [...row].forEach((ch, ci) => { if (C[ch]) g += `<rect x="${(-w0 / 2 + ci * px).toFixed(2)}" y="${(oy - h0 + ri * px).toFixed(2)}" width="${px + .05}" height="${px + .05}" fill="${C[ch]}"/>`; }));
+      top = oy - h0;
+    }
+    if (back) { // a small blue "sent back" bubble above the plate: quiet, not a shout
+      const bw = 12, bh = 9.5, bx = -bw / 2, by = ty - bh - 3.5;
+      g += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="2" fill="#3f6fd8" stroke="#1d3a8a" stroke-width=".8"/><path d="M-1,${by + bh} l1,2.6 l1,-2.6z" fill="#3f6fd8"/><path d="M3,${by + 3} v2.6 h-5.6 M-2.6,${by + 5.6} l1.7,-1.7 M-2.6,${by + 5.6} l1.7,1.7" stroke="#fff" stroke-width="1.1" fill="none"/>`;
+      top = by;
+    }
+    return raster(g, "", [-tw / 2 - 5, top - 2, tw / 2 + 5, 1.5], R);
+  }
+
+  /* one calm board on the Planning wall (B1, B5): a dark header, five columns, a card per workstream in its column.
+     o: {cards: [{id, title, phase: 0-4, wait, back, done}], w (tiles), h (units)}. Painted flat; the app lays it on the
+     wall's plane. */
+  function board(o) {
+    const R = o.R || 6, W = (o.w || 5.2) * 16, H = o.h || 30, cols = ["PLAN", "BUILD", "TEST", "SHIP", "DONE"], cw = W / 5;
+    let g = `<rect x="0" y="0" width="${W}" height="${H}" fill="#f6f1e6" stroke="#2a2433" stroke-width="1"/><rect x="0" y="0" width="${W}" height="5.6" fill="#3a3550"/>`;
+    g += `<text x="${W / 2}" y="4.1" text-anchor="middle" font-family="${PLATE_FONT}" font-weight="900" font-size="3" fill="#f3ebdd">PLANNING · WORKSTREAMS</text>`;
+    cols.forEach((c, k) => { g += `<text x="${(k + .5) * cw}" y="9.4" text-anchor="middle" font-family="${PLATE_FONT}" font-weight="900" font-size="2.1" fill="#5a5040">${c}</text>`; if (k) g += `<rect x="${k * cw - .15}" y="7" width=".3" height="${H - 8}" fill="#d8cfbd"/>`; });
+    const per = [0, 0, 0, 0, 0];
+    for (const c of o.cards || []) {
+      const k = Math.max(0, Math.min(4, c.phase)), n = per[k]++;
+      if (n > 2) continue;
+      const x = k * cw + 1.2, y = 11 + n * 6.4, w = cw - 2.4, h = 5.6;
+      if (n === 2 && (o.cards || []).filter(q => q.phase === k).length > 3) { g += `<text x="${x + w / 2}" y="${y + 3.6}" text-anchor="middle" font-family="${SUB_FONT}" font-weight="700" font-size="2" fill="#8a7a60">+${(o.cards || []).filter(q => q.phase === k).length - 2} more</text>`; continue; }
+      const bgc = c.wait ? "#FFD83D" : c.done ? "#d8d2c4" : "#fffaf0", edge = c.wait ? "#b08a00" : "#8a7a60";
+      g += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${bgc}" stroke="${edge}" stroke-width=".35"/>`;
+      g += `<text x="${x + 1}" y="${y + 2.5}" font-family="Menlo, monospace" font-weight="700" font-size="1.9" fill="#231a2e">${String(c.id).replace(/[<&>]/g, "")}</text>`;
+      const t = String(c.title || "").replace(/[<&>]/g, ""), cut = t.length > 14 ? t.slice(0, 13) + "…" : t;
+      g += `<text x="${x + 1}" y="${y + 4.8}" font-family="${SUB_FONT}" font-weight="600" font-size="1.55" fill="#3a3040">${cut}</text>`;
+      if (c.back) g += `<rect x="${x + w - 2.6}" y="${y + .6}" width="2" height="2" rx=".4" fill="#3f6fd8"/>`;
+    }
+    // laid on the wall's plane (the front face of the back wall: u along i, v down the wall): its top-left corner at (0, 0)
+    return raster(`<g transform="matrix(1 .5 0 1.08 0 0)">${g}</g>`, "", [-1.5, -1.5, W + 1.5, H * 1.08 + W * .5 + 1.5], R);
   }
   const GLYPH = {"?": ["?", "#3f6fd8"], "!": ["!", "#e0473a"], dots: ["…", "#2a1a2e"], coffee: ["☕", "#7a4a30"], check: ["✓", "#2f9a5a"], back: ["↩", "#3f6fd8"], zzz: ["z", "#5b6ad0"], bug: ["✗", "#8a5cf0"], wait: ["⏳", "#2a1a2e"]};
   function emote(o) {
@@ -278,5 +334,5 @@
     return {png: c.toDataURL("image/jpeg", .9), w: c.width, h: c.height};
   }
 
-  window.sf = {floor, figure, tag, emote, cloud, campus, orbitLayout, body, sky, ready: true};
+  window.sf = {floor, figure, tag, board, emote, cloud, campus, orbitLayout, body, sky, ready: true};
 })();

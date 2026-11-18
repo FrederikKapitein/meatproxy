@@ -17,6 +17,9 @@ public enum IdleMotion {
         case .done:
             if seated { return [("snooze", "tired", 6)] }
             if spotPose == "mug" { return [("mug", "tired", 2.6), ("idle", "tired", 1.8)] }
+            // the break room's games (B2): a rally at the ping-pong table, a high score at the arcade
+            if spotPose == "cheer" || spotPose == "wave" { return [(spotPose, "happy", 0.6), ("idle", "happy", 0.5)] }
+            if spotPose == "type" { return Array(repeating: [("type", "focus", 0.25), ("typeB", "focus", 0.25)] as [Step], count: 4).flatMap { $0 } + [("cheer", "happy", 0.7)] }
             if room == FloorRoom.lounge.rawValue { return [("idle", "tired", 2.4), ("cheer", "happy", 0.5), ("idle", "calm", 0.9), ("mug", "tired", 2.2)] }
             return [("idle", "tired", 3), ("mug", "tired", 2)]
         case .working:
