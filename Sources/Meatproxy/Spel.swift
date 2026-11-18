@@ -260,7 +260,8 @@ struct SpelCard: ViewModifier {
                 }
             }
             .background(shape.fill(Color.plinth).offset(y: 2))
-            .shadow(color: selected ? Color.selection.opacity(0.35) : .clear, radius: selected ? 3 : 0)
+            // the selection's halo: a faint ring just outside the edge (a shadow would blur everything inside)
+            .overlay { if selected { RoundedRectangle(cornerRadius: 12).strokeBorder(Color.selection.opacity(0.3), lineWidth: 2).padding(-3).allowsHitTesting(false) } }
     }
 }
 

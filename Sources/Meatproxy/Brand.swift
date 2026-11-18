@@ -273,7 +273,7 @@ struct BrandLockup: View {
             if line != nil || detail != nil {
                 VStack(alignment: .leading, spacing: size * 0.3) {
                     if let line { Brand.productLineText(line).font(.system(size: max(12, size * 0.25), weight: .semibold)) }
-                    if let detail { Text(detail).font(.system(size: 12, design: .monospaced)).foregroundStyle(Color.muted) }
+                    if let detail { Text(detail).font(.system(size: 13, design: .monospaced)).foregroundStyle(Color.muted) }
                 }
                 .padding(.leading, mark - cell + gap - cell)
             }

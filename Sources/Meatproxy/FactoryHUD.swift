@@ -1336,7 +1336,7 @@ private struct SetUpFactoryCard: View {
                     .buttonStyle(SpelButtonStyle(kind: .primary)).keyboardShortcut(.return, modifiers: [])
                     .disabled(n == 0 && plan.allSatisfy { !$0.exists || $0.optional })
                     .help(n == 0 ? "Everything is there already" : "Writes \(n) file\(n == 1 ? "" : "s"); nothing that is there is replaced")
-                Button { Self.copy(plan) } label: { Text("Copy instead") }.buttonStyle(SpelButtonStyle(kind: .secondary))
+                Button { Self.copy(plan) } label: { Text("Copy instead") }.buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
                     .help("Copies every file with its path, to write them yourself")
             }
         }

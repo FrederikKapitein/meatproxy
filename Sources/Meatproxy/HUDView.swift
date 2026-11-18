@@ -160,6 +160,8 @@ struct HUDView: View {
             else if step == "help:guide" { model.helpTab = .guide; model.commandsOpen = true }
             // "pick": the factory picker the walk's last quest opens (D1)
             else if step == "pick" { model.factoryPickerOpen = true }
+            // "quest:<root>": the walk's factory quest landed on that floor (step 2 of 2)
+            else if step.hasPrefix("quest:") { model.factoryQuest = String(step.dropFirst(6)) }
             else if step.hasPrefix("search:") { model.paletteSeed = String(step.dropFirst(7)); model.paletteOpen = true }
             else if step.hasPrefix("context:") {
                 let xy = step.dropFirst(8).split(separator: ";").compactMap { Double($0) }
@@ -227,6 +229,8 @@ struct HUDView: View {
                 let xy = step.drop { $0 != ":" }.dropFirst().split(separator: ";").compactMap { Double($0) }
                 if xy.count == 2 { WindowShot.mouse(step.hasPrefix("hover:") ? "moved" : step.hasPrefix("ui") ? "uiclick" : "click", x: xy[0], y: xy[1]) }
             }
+            // "key:<n|esc|1|2|k>": a key press as from the keyboard (⌘ with "cmd-" in front: "key:cmd-k")
+            else if step.hasPrefix("key:") { WindowShot.key(String(step.dropFirst(4))) }
             else if step.hasPrefix("wait:"), let s = Double(step.dropFirst(5)) { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }
         }
     }
@@ -267,12 +271,12 @@ private struct KeyCatcher: View {
             Button("") { model.controller.showOrbit(false); model.controller.focusBuilding(nil) }.keyboardShortcut("1", modifiers: .command)
             Button("") { model.controller.showOrbit(false); model.controller.focusBuilding("engine") }.keyboardShortcut("2", modifiers: .command)
             // the open question's answers (C4): 1 is yes, 2 is no; both still ask once more before anything is written
-            Button("") { model.answerKey = AppModel.AnswerKey(count: model.answerKey.count + 1, yes: true) }
-                .keyboardShortcut(free && model.answerable ? KeyboardShortcut("1", modifiers: []) : nil)
-            Button("") { model.answerKey = AppModel.AnswerKey(count: model.answerKey.count + 1, yes: false) }
-                .keyboardShortcut(free && model.answerable ? KeyboardShortcut("2", modifiers: []) : nil)
+            Button("") { guard model.answerable else { return }; model.answerKey = AppModel.AnswerKey(count: model.answerKey.count + 1, yes: true) }
+                .keyboardShortcut(free ? KeyboardShortcut("1", modifiers: []) : nil)
+            Button("") { guard model.answerable else { return }; model.answerKey = AppModel.AnswerKey(count: model.answerKey.count + 1, yes: false) }
+                .keyboardShortcut(free ? KeyboardShortcut("2", modifiers: []) : nil)
         }
-        .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
+        .opacity(0).accessibilityHidden(true)
     }
 }
 
@@ -939,7 +943,7 @@ struct FactoryPicker: View {
                 Spacer(minLength: 0)
             }
         }
-        .padding(16).frame(width: Shell.sheet).frame(maxHeight: 640).spelFrame()
+        .padding(16).frame(width: Shell.sheet).spelFrame()
         .onExitCommand { model.factoryPickerOpen = false }
         .onAppear { picked = floors.first { !model.isFactory($0.project) }?.id }
     }
