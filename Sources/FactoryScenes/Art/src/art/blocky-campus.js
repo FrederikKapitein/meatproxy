@@ -234,7 +234,7 @@
     for (const [a, b, z, s, op, sd, layer] of [[24, -18, 60, 1.8, .42, 2, -1], [-18, 30, -140, 2.2, .44, 3, -1], [12, 62, -320, 2.2, .45, 4, 1], [70, 44, -340, 2.6, .42, 5, 1], [60, 50, -210, 1.6, .5, 7, 1]]) {
       const c = Pr.cloud(W, a, b, z, s, cloudCol, op, sd); far.push([c.ops, layer, c.op]);
     }
-    far.push([balloon(76, 50, 50, NIGHT, W), 1, 1, "balloon"]);
+    far.push([balloon(84, 40, 260, NIGHT, W), 1, 1, "balloon"]);
 
     /* ---------- depth: each object's key, so the app sorts them with its walkers ---------- */
     // the topological order of the objects; a key is at least the sum of its front corner (i1 + j1, as the walkers'), and

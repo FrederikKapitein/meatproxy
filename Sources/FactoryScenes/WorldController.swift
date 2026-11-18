@@ -66,7 +66,7 @@ public final class WorldController {
         }
         campus.onSelectServer = { [weak self] c in guard let self else { return }; self.select(server: self.world.racks.indices.contains(c) ? self.world.racks[c].id : nil) }
         orbit.engine = engine
-        orbit.insets = (330, 0)
+        setSafeArea(Self.defaultSafeArea)
         orbit.onPath = { [weak self] p in self?.orbitPathChanged(p) }
         orbit.onNext = { [weak self] in self?.nextWaiting() }
     }
@@ -80,6 +80,26 @@ public final class WorldController {
     public var animationsEnabled: Bool {
         get { campus.animationsEnabled }
         set { campus.animationsEnabled = newValue; floor?.animationsEnabled = newValue; orbit.animationsEnabled = newValue }
+    }
+
+    // MARK: the free area
+
+    /// What the HUD leaves free of the view, in view points: the quest log on the left, the inspector on the right, the
+    /// top and bottom bars (Spel+: 360 + 16 a side, 64 top and bottom).
+    public struct SafeArea: Equatable, Sendable {
+        public var left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat
+        public init(left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat) { self.left = left; self.right = right; self.top = top; self.bottom = bottom }
+    }
+    public static let defaultSafeArea = SafeArea(left: 376, right: 376, top: 64, bottom: 64)
+    public private(set) var safeArea = WorldController.defaultSafeArea
+
+    /// The HUD says what it covers: every world frames itself inside the rest. The campus overview keeps no room on the
+    /// right (no inspector there; the island runs out of the view on purpose, A4), its building levels and the floors do.
+    public func setSafeArea(_ a: SafeArea) {
+        safeArea = a
+        campus.insets = (a.left, 0); campus.bars = (a.top, a.bottom); campus.inspectorRight = a.right
+        orbit.insets = (a.left, 0); orbit.bars = (a.top, a.bottom)
+        if let f = floor { f.insets = (a.left, a.right); f.bars = (a.top, a.bottom) }
     }
 
     // MARK: data
@@ -117,7 +137,7 @@ public final class WorldController {
         do {
             let started = Date()
             let art = try await engine.campus(world, night: campusNight)
-            if WindowShotLog.on { print("campus painted in \(Int(Date().timeIntervalSince(started) * 1000)) ms (art engine \(art.timing))") }
+            if WindowShotLog.on { print("campus painted in \(Int(Date().timeIntervalSince(started) * 1000)) ms (art engine \(art.timing))\(art.night ? ", by moonlight" : "")") }
             // a few of the team walk the roads: the most recent sessions
             let walkers = world.projects.flatMap { p in p.sessions.map { (p, $0) } }.sorted { $0.1.lastAt > $1.1.lastAt }.prefix(CampusScene.walkerCount).map { $0.0.cast(of: $0.1) }
             await loadFigures(walkers)
@@ -159,7 +179,7 @@ public final class WorldController {
             let scene = floor ?? FloorScene(size: view?.bounds.size ?? CGSize(width: 1200, height: 800))
             scene.engine = engine
             scene.animationsEnabled = campus.animationsEnabled
-            scene.insets = (330, 370)
+            scene.insets = (safeArea.left, safeArea.right); scene.bars = (safeArea.top, safeArea.bottom)
             scene.onSelect = { [weak self] s, a in self?.selectInFloor(s, a) }
             scene.onExit = { [weak self] in self?.exitFloor() }
             scene.onNext = { [weak self] in self?.nextWaiting() }

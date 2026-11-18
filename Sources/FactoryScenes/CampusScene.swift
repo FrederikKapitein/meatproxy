@@ -21,8 +21,8 @@ public final class CampusScene: WorldScene {
 
     /// How many of the team walk the roads.
     public static let walkerCount = 8
-    /// The room the inspector takes on the right once a building is focused, in view points.
-    static let inspectorRoom: CGFloat = 370
+    /// The room the inspector takes on the right once a building is focused, in view points (WorldController.setSafeArea).
+    var inspectorRight: CGFloat = 376
 
     /// What a click at a point would do, and so what lights up under the pointer (one hit test for both).
     enum Target: Equatable { case building(String), storey(String), fountain, walker(String), rack(Int) }
@@ -602,7 +602,9 @@ public final class CampusScene: WorldScene {
             // a deploy on its way (5F): the activity lights answer, three times as fast
             // the state is a light strip that speaks softly (A5): it breathes, never off; activity flickers below it
             let a = l.status ? RackLights.strip(l.state, rack: l.rack, t: t, animated: on) : RackLights.activity(l.state, rack: l.rack, t: life.streaming ? t * 3 : t, animated: on)
-            l.node.alpha = a; l.glow.alpha = 0.35 * a
+            // a server down is the brightest light on the building, with the widest glow (F9)
+            l.node.alpha = a; l.glow.alpha = (l.status && l.state == "down" ? 0.75 : 0.35) * a
+            if l.status && l.state == "down" { l.glow.setScale(1.8) }
             l.node.isHidden = a <= 0.01; l.glow.isHidden = a <= 0.01
         }
         if let b = beacon {
@@ -635,7 +637,7 @@ public final class CampusScene: WorldScene {
     func focus(on key: String?, animated: Bool = true) {
         focus = key
         applyFocus(animated: animated)
-        if let key, let r = focusRect(key) { flyClear(r, padding: 1.2, right: Self.inspectorRoom) } else if animated { goHome() }
+        if let key, let r = focusRect(key) { flyClear(r, padding: 1.2, right: inspectorRight) } else if animated { goHome() }
     }
 
     /// A building with its storey plaques, in scene coordinates: what the camera frames at the Provider level.
@@ -656,7 +658,7 @@ public final class CampusScene: WorldScene {
         clearHover()
         let pts = s.storey.faces.flatMap { $0 }.map(scenePoint)
         let r = CGRect(x: pts.map(\.x).min()!, y: pts.map(\.y).min()!, width: pts.map(\.x).max()! - pts.map(\.x).min()!, height: pts.map(\.y).max()! - pts.map(\.y).min()!)
-        flyClear(r, padding: 1.6, right: Self.inspectorRoom, completion: done)
+        flyClear(r, padding: 1.6, right: inspectorRight, completion: done)
     }
 
     /// The focused building stands out; the others dim (a colour blend toward the night, so nothing shows through them).
@@ -949,37 +951,33 @@ public final class CampusScene: WorldScene {
         return [Self.artP(r.i0, r.j, r.z0), Self.artP(r.i1, r.j, r.z0), Self.artP(r.i1, r.j, r.z1), Self.artP(r.i0, r.j, r.z1)]
     }
 
-    /// One pulled-out rack unit: its box faces, the dark opening it leaves, the details on its front, its tag.
-    private struct Slot { var rack: Int; var node: SKNode; var faces: [SKShapeNode]; var front: [SKShapeNode]; var tag: SKNode }
+    /// The picked rack (D52, Spel+ F7): it stays behind its glass; it lights up there (its strip full, a soft glow in
+    /// its state's colour), a cyan outline runs round its front inside the window, and its name hangs above the roof.
+    private struct Slot { var rack: Int; var node: SKNode; var tag: SKNode; var strip: SKShapeNode; var glow: SKSpriteNode }
 
-    /// Pulls a server's whole rack unit out of the Server room (D52): the full-height unit slides towards you on its
-    /// runners, leaving a dark opening, with its state light and vents on the front and its name on a tag above.
-    /// nil slides the open one back in.
+    /// Picks a server's rack in the Server room; nil lets it go.
     public func showSlot(_ c: Int?, name: String = "", state: String = "ok", animated: Bool = true) {
-        // a repaint of the campus took the unit with it: start over
+        // a repaint of the campus took the rack's light with it: start over
         if let s = slot, s.node.scene == nil { slot = nil }
         if let s = slot, s.rack != c || c == nil {
             slot = nil
-            s.tag.run(.fadeOut(withDuration: 0.12))
-            s.node.run(.sequence([slide(s, from: 1, to: 0, duration: animated ? 0.26 : 0), .removeFromParent()]))
+            s.node.run(.sequence([.fadeOut(withDuration: animated ? 0.15 : 0), .removeFromParent()]))
         }
         guard let c, c < 6, let engine = buildings["engine"] else { return }
         let col = state == "down" ? Self.down : state == "warn" ? Self.warn : Self.okGreen
-        if let s = slot, s.rack == c { s.front[0].fillColor = col; return }
-        let node = SKNode(); node.zPosition = engine.zPosition + 0.7
-        func face(_ fill: SKColor, stroke: SKColor = .clear, width: CGFloat = 0) -> SKShapeNode {
-            let n = SKShapeNode(); n.fillColor = fill; n.strokeColor = stroke; n.lineWidth = width; n.lineJoin = .miter; node.addChild(n); return n
-        }
-        // the opening, then the unit's side, top and front (cyan edges: it is the selection)
-        let hole = face(SKColor(red: 0.04, green: 0.035, blue: 0.08, alpha: 1))
-        let edge = Self.cyan.withAlphaComponent(0.9)
-        let side = face(SKColor(red: 0.13, green: 0.11, blue: 0.24, alpha: 1), stroke: edge, width: px * 0.5)
-        let top = face(SKColor(red: 0.33, green: 0.31, blue: 0.50, alpha: 1), stroke: edge, width: px * 0.5)
-        let front = face(SKColor(red: 0.18, green: 0.17, blue: 0.33, alpha: 1), stroke: edge, width: px * 0.5)
-        // on the front: the state light, the activity light, and vents between them
-        let led = face(col), act = face(SKColor(red: 0.36, green: 0.55, blue: 0.94, alpha: 1))
-        let vents = (0..<4).map { _ in face(SKColor(red: 0.10, green: 0.09, blue: 0.20, alpha: 1)) }
-        // the name tag above the unit, in the cream of the signs
+        if let s = slot, s.rack == c { s.strip.fillColor = col; s.glow.color = col; return }
+        let node = SKNode(); node.zPosition = engine.zPosition + 0.5
+        let rb = rackBox(c), P = Self.artP
+        // a glow on the rack in its state's colour, the strip at full, the outline round the rack's front
+        let glow = glow(P((rb.i0 + rb.i1) / 2, rb.j, (rb.z0 + rb.z1) / 2), size: CGSize(width: 46, height: 60), color: col)
+        glow.alpha = 0.45; node.addChild(glow)
+        let u = (rb.z1 - rb.z0) / 13
+        let strip = shape([P(rb.i0 + 0.06, rb.j, rb.z0 + 10.3 * u), P(rb.i1 - 0.06, rb.j, rb.z0 + 10.3 * u), P(rb.i1 - 0.06, rb.j, rb.z0 + 11 * u), P(rb.i0 + 0.06, rb.j, rb.z0 + 11 * u)], fill: col)
+        node.addChild(strip)
+        let outline = shape(rackPanel(c), fill: .clear, stroke: Self.cyan, width: 1.4 * px)
+        node.addChild(outline)
+        screenLines.append((outline, 1.6))
+        // the name tag above the pavilion's roof, in the cream of the signs, with a dot in its state's colour
         let tag = SKNode()
         let label = SKLabelNode(text: name.uppercased()); label.fontName = "Menlo-Bold"; label.fontSize = 6 * px
         label.fontColor = SKColor(red: 0.16, green: 0.10, blue: 0.18, alpha: 1); label.verticalAlignmentMode = .center
@@ -989,47 +987,11 @@ public final class CampusScene: WorldScene {
         let dot = SKShapeNode(circleOfRadius: 2 * px); dot.fillColor = col; dot.strokeColor = .clear; dot.position = CGPoint(x: -w / 2 + 5 * px, y: 0)
         label.position = CGPoint(x: 2.5 * px, y: 0)
         tag.addChild(bg); tag.addChild(dot); tag.addChild(label)
-        let rb = rackBox(c)
-        tag.position = scenePoint(Self.artP((rb.i0 + rb.i1) / 2, rb.j + Self.slotTravel, rb.z1 + 8)); tag.zPosition = 2; tag.alpha = 0
+        tag.position = scenePoint(P((rb.i0 + rb.i1) / 2, rb.j - 2.2, rb.z1 + 24)); tag.zPosition = 2
         node.addChild(tag)
         content.addChild(node)
-        let s = Slot(rack: c, node: node, faces: [hole, side, top, front], front: [led, act] + vents, tag: tag)
-        slot = s
-        node.run(slide(s, from: 0, to: 1, duration: animated ? 0.34 : 0))
-        tag.run(.sequence([.wait(forDuration: animated ? 0.22 : 0), .fadeIn(withDuration: animated ? 0.15 : 0)]))
-    }
-
-    /// how far a unit comes out, in tiles
-    static let slotTravel: CGFloat = 1.5
-
-    /// The unit between "in" (0) and "out" (1), eased (a small overshoot going out, like a unit on runners).
-    private func slide(_ s: Slot, from a: CGFloat, to b: CGFloat, duration: TimeInterval) -> SKAction {
-        let rb = rackBox(s.rack), i0 = rb.i0, i1 = rb.i1, z0 = rb.z0, z1 = rb.z1, j0 = rb.j, u = (z1 - z0) / 13
-        let draw: (CGFloat) -> Void = { [weak self] t in
-            guard let self else { return }
-            let j1 = j0 + Self.slotTravel * t, P = Self.artP
-            func path(_ pts: [CGPoint]) -> CGPath { let p = CGMutablePath(); p.addLines(between: pts.map { self.scenePoint($0) }); p.closeSubpath(); return p }
-            func plate(_ u0: CGFloat, _ u1: CGFloat, _ h0: CGFloat, _ h1: CGFloat) -> CGPath { path([P(u0, j1, h0), P(u1, j1, h0), P(u1, j1, h1), P(u0, j1, h1)]) }
-            s.faces[0].path = path([P(i0, j0, z0), P(i1, j0, z0), P(i1, j0, z1), P(i0, j0, z1)])      // the opening
-            s.faces[1].path = path([P(i1, j0, z0), P(i1, j1, z0), P(i1, j1, z1), P(i1, j0, z1)])      // side
-            s.faces[2].path = path([P(i0, j0, z1), P(i1, j0, z1), P(i1, j1, z1), P(i0, j1, z1)])      // top
-            s.faces[3].path = plate(i0, i1, z0, z1)                                                   // front
-            s.front[0].path = plate(i0 + 0.06, i1 - 0.06, z0 + 10.3 * u, z0 + 11 * u)                // state light strip
-            s.front[1].path = plate(i1 - 0.16, i1 - 0.08, z0 + 2 * u, z0 + 8 * u)                    // activity lights
-            for (k, v) in s.front.dropFirst(2).enumerated() {
-                let h = z0 + (3 + CGFloat(k) * 1.5) * u
-                v.path = plate(i0 + 0.06, i1 - 0.22, h, h + 0.6 * u)
-            }
-            let shown: CGFloat = t < 0.02 ? 0 : 1
-            for n in s.faces + s.front { n.alpha = shown }
-        }
-        draw(a)
-        guard duration > 0 else { return .run { draw(b) } }
-        return .customAction(withDuration: duration) { _, e in
-            let x = min(1, e / CGFloat(duration))
-            let k: CGFloat = b > a ? 1 + 2.2 * pow(x - 1, 3) + 1.2 * pow(x - 1, 2) : x * x
-            draw(a + (b - a) * k)
-        }
+        slot = Slot(rack: c, node: node, tag: tag, strip: strip, glow: glow)
+        if animated && animationsEnabled { node.alpha = 0; node.run(.fadeIn(withDuration: 0.2)) }
     }
 
     // MARK: for window shots

@@ -14,6 +14,8 @@ public final class FloorScene: WorldScene {
     private(set) var projectID = ""
     private var art: FloorArt?
     private var people: [String: Person] = [:]
+    /// Who stands where with which plate (for tests): room, shown state, and the plate's "name|line|state|role|badge".
+    func plates() -> [String: (room: String, state: SessionState, plate: String)] { people.mapValues { ($0.room, $0.state, $0.tagKey) } }
     private var marker: SKShapeNode?
     private var lastTime: TimeInterval = 0
     private var clock: TimeInterval = 0
@@ -64,7 +66,7 @@ public final class FloorScene: WorldScene {
         projectID = project.id
         self.art = art
         if fresh {
-            content.removeAllChildren(); people = [:]; marker = nil; painted = true; factoryLayer = nil; factoryKey = "-"
+            content.removeAllChildren(); people = [:]; marker = nil; painted = true; factoryLayer = nil; factoryKey = "-"; ceoFigure = nil
             let bg = SKSpriteNode(color: SKColor(red: 0.13, green: 0.11, blue: 0.23, alpha: 1), size: CGSize(width: 40000, height: 40000)); bg.zPosition = -2000
             content.addChild(bg)
             if let g = place(art.ground, z: -500) { content.addChild(g) }
@@ -73,10 +75,11 @@ public final class FloorScene: WorldScene {
             // each room's plaque hangs on its own wall and sorts with it: people pass in front of it (B4)
             for sg in art.signs {
                 guard let n = place(sg.image, z: sg.key.map { $0 * 10 + 0.05 } ?? 3500) else { continue }
+                n.name = "sign:" + sg.id
                 content.addChild(n)
             }
             // the floor fills the room the panels leave (B9): its plate and walls, not the air round it
-            setHome(Self.floorFrame.insetBy(dx: Self.floorFrame.width * 0.06, dy: 0), fill: 0.95)
+            setHome(Self.floorFrame, fill: 1.0)
         }
         if walkMap == nil { walkMap = Self.walkMap(art.solids) }
         // who stands where: each room hands out its spots in a fixed order (everyone first, so the helpers can keep
@@ -93,7 +96,11 @@ public final class FloorScene: WorldScene {
         }
         ceoFigure = sessions.first(where: { $0.heartbeatRun == true })?.id ?? ceoFigure
         var spots: [String: (spot: FloorArt.Spot, room: FloorRoom)] = [:]
+        // a factory's CEO (its main chat) stands at the board in Planning, whatever its run is doing (B1); it carries the
+        // factory's open questions
+        let ceo = Self.factoryCEO(project)
         for s in sessions {
+            if s.id == ceo, debugRooms[s.id] == nil { spots[s.id] = (art.spots["ceo"]?.first ?? Self.ceoSpot, .planning); continue }
             let room = debugRooms[s.id].flatMap(FloorRoom.init(rawValue:)) ?? s.room(now: now)
             spots[s.id] = (takeSpot(room.rawValue, &used), room)
         }
@@ -119,7 +126,7 @@ public final class FloorScene: WorldScene {
         }
         for s in sessions {
             guard let fig = figures[project.cast(of: s).key], let (spot, room) = spots[s.id] else { continue }
-            let st = s.state(now: now)
+            let st = Self.shownState(s, in: project, now: now)
             let p = person(s.id, owner: nil, figure: fig, scale: 1, spot: spot, room: room.rawValue)
             p.state = st
             switch st {
@@ -130,9 +137,11 @@ public final class FloorScene: WorldScene {
             }
             if !p.moving { p.dir = spot.dir }
             p.name = s.persona.name
-            let back = st == .working && s.wentBack(now: now), ceo = s.heartbeatRun == true || s.id.hasPrefix(Project.standingCEOPrefix)
-            let sub = st == .waiting ? "Waits for you" : st == .stuck ? "Stuck" : back ? "Sent back" : st == .done ? (spot.seat > 0 ? "Parked" : "Done")
-                : ceo ? "CEO" : project.role(of: s).label
+            let back = st == .working && s.wentBack(now: now), ceo = s.id == Self.factoryCEO(project) || s.heartbeatRun == true || s.id.hasPrefix(Project.standingCEOPrefix)
+            let questions = s.id == Self.factoryCEO(project) ? project.factory?.openDecisions.count ?? 0 : 0
+            let sub = questions > 0 ? "CEO · \(questions) question\(questions == 1 ? "" : "s")" : ceo && st != .stuck ? "CEO"
+                : st == .waiting ? "Waits for you" : st == .stuck ? "Stuck" : back ? "Sent back" : st == .done ? (spot.seat > 0 ? "Parked" : "Done")
+                : project.role(of: s).label
             let helped = !s.subAgents.filter { !($0.finished && project.isTeamProfile($0.type)) }.isEmpty
             setTag(p, text: s.persona.name, sub: sub, state: st == .waiting ? "wait" : st == .stuck ? "stuck" : back ? "back" : st == .done ? "done" : "work",
                    role: ceo ? "#c9a46a" : Self.roleColour(project.role(of: s)), badge: helped ? Self.helperBadge : nil)
@@ -172,18 +181,27 @@ public final class FloorScene: WorldScene {
     /// Plates of people who stand close on screen would cover each other: from the front back, a plate that runs into
     /// one in front of it goes up just above it (B2). Someone walking keeps their plate where it is.
     private func declutterPlates() {
+        // the loud plates (waits for you, stuck) stay over their person; quieter ones give way, front first
+        let loud: (Person) -> Bool = { $0.state == .waiting || $0.state == .stuck }
         let list = people.values.compactMap { p -> (Person, SKSpriteNode)? in p.tag.map { (p, $0) } }
-            .sorted { $0.1.position.y < $1.1.position.y }
+            .sorted { (loud($0.0) ? 0 : 1, $0.1.position.y) < (loud($1.0) ? 0 : 1, $1.1.position.y) }
+        // the room signs (B4): a plate that would cover one goes up above it, but only a little way (a plate far above its
+        // person reads as someone else's; a sign hidden behind the Planning board is no sign)
+        let signs: [CGRect] = (art?.labels ?? []).map { CGRect(x: $0.minX * px, y: -$0.maxY * px, width: $0.width * px, height: $0.height * px) }
+            .filter { !($0.intersects(boardFrame ?? .null)) }
         var placed: [CGRect] = []
         for (p, t) in list {
             var f = t.frame
             if !p.walking {
+                let start = f.origin.y
                 var moved = true, tries = 0
-                while moved, tries < 6 {
+                while moved, tries < 8 {
                     moved = false; tries += 1
-                    for r in placed where r.intersects(f) {
+                    for r in placed + signs where r.intersects(f) {
                         let x = r.intersection(f)
                         guard x.width > 0.2 * f.width, x.height > 2 * px else { continue }
+                        // over a sign, only when it takes a short step up
+                        if !placed.contains(r), r.maxY + 1 * px - start > 22 * px { continue }
                         f.origin.y = r.maxY + 1 * px; moved = true
                     }
                 }
@@ -195,7 +213,9 @@ public final class FloorScene: WorldScene {
 
     // MARK: a Dark Software Factory
 
-    private var factoryLayer: SKNode?
+    private var factoryLayer: SKNode? { didSet { if factoryLayer == nil { boardFrame = nil } } }
+    /// where the Planning board hangs, once painted (the signs it covers do not count)
+    private var boardFrame: CGRect?
     private var factoryKey = ""
 
     /// A factory's floor: every workstream a card on the back wall of its phase's room (D39: the room says the phase),
@@ -210,6 +230,7 @@ public final class FloorScene: WorldScene {
         guard key != factoryKey else { return }
         factoryKey = key
         factoryLayer?.removeFromParent(); factoryLayer = nil
+        content.childNode(withName: "sign:room:war")?.isHidden = false
         guard let factory else { return }
         let layer = SKNode(); layer.zPosition = 0
         content.addChild(layer); factoryLayer = layer
@@ -236,6 +257,9 @@ public final class FloorScene: WorldScene {
                 let at = project(8.5, 0.02, 43)
                 let n = self.place(SKTexture(cgImage: o.image), CGRect(x: at.x + o.rect.minX, y: at.y + o.rect.minY, width: o.rect.width, height: o.rect.height), z: -5)
                 n.name = "factory:board"
+                self.boardFrame = n.frame
+                // the board carries the room's name: Planning's plaque would only peek out above it
+                self.content.childNode(withName: "sign:room:war")?.isHidden = true
                 layer.addChild(n)
             }
         }
@@ -431,6 +455,23 @@ public final class FloorScene: WorldScene {
         }
         p.tie?.path = line.copy(dashingWithPhase: 0, lengths: [3 * px, 2.5 * px])
         p.tieRing?.position = b
+    }
+
+    /// The factory's CEO on its floor: its main chat (a heartbeat's run, the run named CEO, or the resting stand-in).
+    static func factoryCEO(_ p: Project) -> String? {
+        guard p.factory != nil, let id = p.ceoID, let s = p.sessions.first(where: { $0.id == id }), p.role(of: s) == .ceo else { return nil }
+        return id
+    }
+    /// Where the CEO stands when the art says nothing: under the board's left end in Planning, facing you.
+    static let ceoSpot = FloorArt.Spot(i: 8.65, j: 1.15, pose: "point", dir: "down", seat: 0)
+
+    /// How a session shows on its floor: as its state, except a factory's CEO, which waits for you while the factory has
+    /// an open question (it is the one who asks them), and otherwise is at work at the board or resting there.
+    static func shownState(_ s: Session, in p: Project, now: Date) -> SessionState {
+        let st = s.state(now: now)
+        guard s.id == factoryCEO(p) else { return st }
+        if !(p.factory?.openDecisions.isEmpty ?? true) { return .waiting }
+        return st == .waiting ? .working : st
     }
 
     /// A diamond on the floor round someone who waits (yellow) or is stuck (red): a soft fill, a dark under-edge and the
@@ -633,7 +674,7 @@ public final class FloorScene: WorldScene {
     func select(session: String?, subAgent: String? = nil) {
         selectedSession = session; selectedSubAgent = subAgent
         updateMarker()
-        if let id = subAgent ?? session, let n = who(id)?.node { flyClear(n.calculateAccumulatedFrame().insetBy(dx: -130 * px, dy: -80 * px), padding: 1.0) }
+        if let id = subAgent ?? session, let p = who(id) { flyMiddle(p) }
         else { goHome() }
     }
 
@@ -655,6 +696,15 @@ public final class FloorScene: WorldScene {
     }
 
     private var selectRing: SKShapeNode?
+
+    /// B10: a middle zoom on someone (plates and signs stay in proportion), them and their plate in the middle of the
+    /// free area between the panels and bars.
+    private func flyMiddle(_ p: Person) {
+        var r = p.node.calculateAccumulatedFrame()
+        if let t = p.tag { r = r.union(t.frame) }
+        let k = homeScale * 0.72, usable = max(size.width - insets.left - insets.right, size.width * 0.5)
+        flyClear(CGRect(x: r.midX - usable * k / 2, y: r.midY - 1, width: usable * k, height: 2), padding: 1.0)
+    }
 
     /// Where a person's ring goes (art units): round the feet, or for someone seated on the seat under them.
     static func ringPoint(_ foot: CGPoint, seat: CGFloat, scale: CGFloat) -> CGPoint {

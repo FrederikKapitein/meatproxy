@@ -112,7 +112,8 @@ public enum FloorRoom: String, Sendable, CaseIterable {
 
 extension Session {
     /// The heartbeat's CEO is the same person every run: seeded by its project folder, everyone else by their session.
-    public var personaSeed: String { heartbeatRun == true ? "ceo:" + (projectRoot ?? cwd) : id }
+    /// The CEO is the same person every run, seeded by its project: a heartbeat's run, or a run that says CEO in its title.
+    public var personaSeed: String { heartbeatRun == true || Project.isCEOTitle(title) ? "ceo:" + (projectRoot ?? cwd) : id }
     public var persona: Persona { Persona(id: personaSeed) }
 
     /// The role from what the session does (D41), apart from the CEO, which its project decides (`Project.role(of:)`).
@@ -197,7 +198,7 @@ extension Project {
     public var ceoID: String? {
         // the heartbeat's run is the CEO (one per project); otherwise a factory's CEO run says so in its title
         if let run = sessions.first(where: { $0.heartbeatRun == true }) { return run.id }
-        if factory != nil, let run = sessions.first(where: { $0.title.range(of: #"\bCEO\b"#, options: [.regularExpression, .caseInsensitive]) != nil }) {
+        if factory != nil, let run = sessions.first(where: { Self.isCEOTitle($0.title) }) {
             return run.id
         }
         guard sessions.count > 1 else { return nil }
@@ -211,12 +212,17 @@ extension Project {
         return factory != nil || s.heartbeatRun == true || s.id.hasPrefix(Self.standingCEOPrefix) ? .ceo : .lead
     }
 
+    /// A factory's CEO run says so in its title ("Pebble factory: CEO run").
+    static func isCEOTitle(_ t: String) -> Bool { t.range(of: #"\bCEO\b"#, options: [.regularExpression, .caseInsensitive]) != nil }
+
     /// The id of a factory's resting CEO, before its first heartbeat run.
     public static let standingCEOPrefix = "ceo-standing:"
     /// A factory always shows its CEO on its floor: before the first heartbeat run, a resting stand-in. It is the same
     /// person as the runs (the CEO is seeded by the project), so the first run takes over that figure.
     public var withStandingCEO: Project {
-        guard factory != nil, !isChat, !sessions.contains(where: { $0.heartbeatRun == true }) else { return self }
+        // a CEO session already there (a heartbeat's run, one that says CEO in its title, the main chat) is the CEO: no
+        // second one beside it
+        guard factory != nil, !isChat, ceoID == nil else { return self }
         var s = Session(id: Self.standingCEOPrefix + root, provider: provider, cwd: root, title: "CEO, waiting for the next heartbeat",
                         lastAt: .distantPast, turnOpen: false, projectRoot: root)
         s.heartbeatRun = true

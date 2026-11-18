@@ -105,7 +105,7 @@
   const SPOTS = {
     entrance: [[6, 2.8, "wave", "down"], [5.2, 2.0, "idle", "down"], [7.1, 3.6, "idle", "left"], [5.0, 4.2, "idle", "right"]],
     research: [[3.2, 2.6, "idle", "down"], [2.2, 3.9, "idle", "down"], [0.95, 1.9, "idle", "up"], [3.4, 4.4, "idle", "left"], [1.3, 4.6, "idle", "right"]],
-    planning: [[11.8, 1.6, "sit", "down", 6], [10.6, 1.6, "sit", "down", 6], [9.4, 1.6, "sit", "down", 6], [9.4, 3.9, "sit", "up", 6], [10.6, 3.9, "sit", "up", 6], [11.8, 3.9, "sit", "up", 6], [11, 1.0, "idle", "up"]],
+    planning: [[11.8, 1.6, "sit", "down", 6], [10.6, 1.6, "sit", "down", 6], [9.4, 1.6, "sit", "down", 6], [9.4, 3.9, "sit", "up", 6], [10.6, 3.9, "sit", "up", 6], [11.8, 3.9, "sit", "up", 6], [12.7, 1.05, "idle", "up"]],
     // at a desk: on the near side, back to you, facing the screen
     development: [[15.42, 1.97, "type", "up", 6], [17.62, 1.97, "type", "up", 6], [19.82, 1.97, "type", "up", 6], [15.42, 4.02, "type", "up", 6], [17.62, 4.02, "type", "up", 6], [19.82, 4.02, "type", "up", 6], [16.6, 2.4, "idle", "down"]],
     tools: [[22.3, 3.7, "idle", "right"], [21.6, 3.7, "idle", "down"]],
@@ -120,7 +120,9 @@
     lounge: [[2.2, 6.4, "mug", "up"], [1.45, 8.85, "cheer", "down"], [1.45, 12.35, "wave", "up"], [1.85, 15.2, "type", "left"], [2.6, 10.6, "idle", "down"], [2.25, 13.6, "snooze", "down", 4]],
     // in front of the counter and west of it, clear of the hall's way through, looking at you
     needsYou: [[10.4, 9.55, "idle", "down"], [9.2, 9.55, "idle", "down"], [8.0, 9.55, "idle", "down"], [6.8, 9.55, "idle", "down"], [8.4, 8.2, "idle", "down"], [7.2, 8.2, "idle", "down"]],
-    parked: [[16.0, 8.62, "sit", "down", 4], [16.8, 8.62, "sit", "down", 4]]
+    parked: [[16.0, 8.62, "sit", "down", 4], [16.8, 8.62, "sit", "down", 4]],
+    // a factory's CEO: under the board's left end in Planning, facing you, clear of the desks next door (B1)
+    ceo: [[8.65, 1.15, "point", "down"]]
   };
   const ROOM_OF = {entrance: "landing", research: "stacks", planning: "war", development: "workshop", tools: "switch", builds: "boiler", testing: "crash",
     pullRequests: "mail", deploy: "launch", lounge: "porch", needsYou: "counter", parked: "counter"};

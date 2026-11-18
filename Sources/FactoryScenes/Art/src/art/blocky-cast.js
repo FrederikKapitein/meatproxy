@@ -91,8 +91,10 @@
   };
   /* roles: what they wear and carry, so you can tell them apart at a glance */
   const ROLES = {
-    // the CEO (D73): all black, suit, shirt and tie, long dark hair swept back and a short beard; nobody else dresses so
-    ceo:        {label: "CEO", outfits: ["suit"], tops: ["#18181d"], legs: ["#18181d"], hair: ["long"], hairColor: "#17120f", beard: true, shirt: "#222228", tie: "#0b0b0e", shoes: "#0b0b0e", props: ["mug"], extras: [null, "watch"]},
+    // the CEO (D73): a dark suit and tie, long hair swept back and a short beard; nobody else dresses so
+    // D73 keeps a dark suit; Spel+ makes it read as a person: charcoal with lit and shadow faces, a white shirt, a
+    // violet tie, and brown hair and beard that stand apart from the suit
+    ceo:        {label: "CEO", outfits: ["suit"], tops: ["#3c3c4a"], legs: ["#33333f"], hair: ["long"], hairColor: "#5a3a2a", beard: true, shirt: "#e8e6ee", tie: "#7a5ce0", shoes: "#1a1a20", props: ["mug"], extras: [null, "watch"]},
     // a plain project's main chat: smart casual, a navy jacket over a light shirt, a lanyard and a mug; not the CEO's black
     lead:       {label: "Lead", outfits: ["blazer"], tops: ["#33507e", "#3d6a6a"], legs: ["#2a2433", "#5a6a8a"], hair: ["short", "curly", "bob", "slick"], props: ["mug"], extras: ["lanyard"]},
     sales:      {label: "Sales", outfits: ["blazer"], tops: ["#5a7ab0", "#8a5a7a", "#4a8a8a"], legs: ["#b89a6a", "#3a3f63"], hair: ["slick", "long", "short"], props: ["phone"], extras: [null]},

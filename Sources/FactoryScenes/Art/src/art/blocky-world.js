@@ -269,7 +269,9 @@
       // where it hangs on screen, for the app to keep speech bubbles off it
       const dx = w / 2, dy = face === "front" ? w / 4 : -w / 4;
       labels.push([at2[0] - dx, Math.min(at2[1] - dy, at2[1] + dy) - h * .6, w, Math.abs(2 * dy) + h * 1.2]);
-      const key = o.key != null ? o.key : face === "front" ? a + w / 32 + at + .05 : at + a + w / 32 + .05;
+      // just above the last half-tile piece of the wall it spans (the wall is cut in half tiles, each sorted by its end)
+      // (a piece's key is its end along the wall plus the wall's far side, .07 out, plus .02)
+      const key = o.key != null ? o.key : Math.ceil((a + w / 32) * 2) / 2 + at + .12;
       topParts.push({id, markup: g, key});
       top += g;
     };
@@ -277,13 +279,14 @@
     // the back walls (Research, Entrance, Planning, Development) and the Lounge's wall: behind everything that stands
     plaque("room:stacks", "front", 2, 0, 40, "RESEARCH", {key: -1});
     plaque("room:landing", "front", 7.1, 0, 40, "ENTRANCE", {key: -1});
-    plaque("room:war", "front", 11, 0, 41, "PLANNING", {key: -1});
+    plaque("room:war", "front", 9.3, 0, 41, "PLANNING", {key: -1});
     plaque("room:workshop", "front", 18.1, 0, 42, "DEVELOPMENT", {key: -1});
     plaque("room:porch", "right", 12.9, 0, 42, "LOUNGE", {key: -1});
     // the rooms behind glass partitions: on the partition behind (or beside) the room, facing into it
     plaque("room:switch", "front", 22.6, 3, 11, "TOOLS");
     plaque("room:boiler", "right", 7.6, 18, 9, "BUILDS");
-    plaque("room:crash", "front", 18.4, 11, 15, "TESTING");
+    // on Testing's side wall: its back partition has the scoreboard in front of it
+    plaque("room:crash", "right", 12.3, 17, 15, "TESTING");
     plaque("room:mail", "front", 11.4, 11, 10, "PULL REQUESTS");
     plaque("room:launch", "front", 7.7, 11, 10, "DEPLOY");
     // the front desk's name on its own front, small and quiet (D73: yellow stays for what waits for you)
