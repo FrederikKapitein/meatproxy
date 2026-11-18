@@ -74,7 +74,7 @@ extension AppModel {
             for (k, p) in b.projects.enumerated() {
                 let kind = p.factory != nil ? "factory" : p.isChat ? "chats" : "\(p.sessions.count) chat\(p.sessions.count == 1 ? "" : "s")"
                 c.append(AppCommand(id: "p:" + p.id, title: p.name, detail: "\(p.provider.displayName) tower · floor \(k + 1) · \(kind)", icon: p.isChat ? "chat" : "floor",
-                                    group: .projects, waiting: p.factory?.openDecisions.count ?? 0, logo: p.logo) { [weak self] in self?.controller.enterFloor(p.id) })
+                                    group: .projects, waiting: world.needsYou.filter { $0.project.id == p.id }.count, logo: p.logo) { [weak self] in self?.controller.enterFloor(p.id) })
                 if !p.isChat {
                     c.append(AppCommand(id: "ps:" + p.id, title: "Settings · \(p.name)", detail: "Folder, place and Factory", icon: "gear", group: .show) { [weak self] in self?.openProjectSettings(p.root) })
                 }
@@ -187,6 +187,7 @@ struct CommandPalette: View {
     @EnvironmentObject private var model: AppModel
     @State private var query: String
     @State private var picked = 0
+    @State private var faces = 0
     @FocusState private var focused: Bool
 
     /// what the search starts with (window shots): read once, when it opens
@@ -198,7 +199,7 @@ struct CommandPalette: View {
     var body: some View {
         let groups = FuzzyMatch.rankGrouped(query, model.searchable, groups: query.isEmpty ? Self.emptyOrder : Self.typedOrder, limit: query.isEmpty ? 6 : 8,
                                             group: { $0.group }, text: { $0.title + " " + $0.detail })
-        let flat = groups.flatMap(\.items)
+        let flat = groups.flatMap(\.items); let _ = faces
         let commandsMatch = groups.contains { [.go, .show, .act].contains($0.group) }
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
@@ -246,6 +247,8 @@ struct CommandPalette: View {
         .frame(width: Shell.sheet)
         .spelFrame()
         .onAppear { model.paletteSeed = ""; DispatchQueue.main.async { focused = true } }
+        // the people's portraits, drawn once (a person in the list shows their face, not an empty socket)
+        .task { await model.controller.ensurePortraits(model.searchable.compactMap(\.cast)); faces += 1 }
         .onChange(of: query) { _, _ in picked = 0 }
         .onKeyPress(.downArrow) { picked = min(picked + 1, max(0, flat.count - 1)); return .handled }
         .onKeyPress(.upArrow) { picked = max(picked - 1, 0); return .handled }

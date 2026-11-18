@@ -132,7 +132,7 @@ private struct BuildingFloors: View {
             if building.projects.isEmpty { Text("No sessions in the last 8 hours.").font(.s13).foregroundStyle(Color.muted) }
             ForEach(Array(building.projects.enumerated().reversed()), id: \.element.id) { k, p in
                 let line = p.factory != nil ? model.factoryLine(p) : nil
-                let waiting = p.factory?.openDecisions.count ?? 0
+                let waiting = model.world.needsYou.filter { $0.project.id == p.id }.count   // the quest log's own count for this floor
                 Button { model.controller.enterFloor(p.id) } label: {
                     HStack(spacing: 12) {
                         Socket(size: 32) { Text("\(k + 1)").font(.s15b.monospacedDigit()).foregroundStyle(Color.inkText) }

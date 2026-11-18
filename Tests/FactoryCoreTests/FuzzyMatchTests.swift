@@ -31,6 +31,16 @@ import Testing
         #expect(all[1].items.count == 4)
     }
 
+    /// Henk: "peb" matched "Recipe Box" (r-e-c-i-P-E … B-ox) and ranked its chat first. What you typed as one run wins,
+    /// and once something holds it, letters picked from here and there drop out.
+    @Test func whatYouTypedAsOneRunWins() {
+        let items: [(String, String)] = [("need", "Add grocery list export · Recipe Box"), ("need", "Ship offline streak sync · Pebble Puzzles")]
+        let found = FuzzyMatch.rankGrouped("peb", items, groups: ["need"], group: { $0.0 }, text: { $0.1 })
+        #expect(found.first?.items.map(\.1) == ["Ship offline streak sync · Pebble Puzzles"])
+        // nothing holds the run: the letters in order still find it
+        #expect(FuzzyMatch.rankGrouped("rcpbx", items, groups: ["need"], group: { $0.0 }, text: { $0.1 }).first?.items.count == 1)
+    }
+
     @Test func positionsMarkTheMatch() {
         #expect(FuzzyMatch.positions("peb", "Pebble Puzzles") == [0, 1, 2])
         #expect(FuzzyMatch.positions("pz", "Pebble Puzzles") == [0, 9])
