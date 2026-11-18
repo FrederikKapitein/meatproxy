@@ -165,7 +165,7 @@ extension AppModel {
     static let legend: [(kind: String, title: String, text: String, icon: String, color: UInt32)] = [
         ("alarm", "Alarm light", "That project is broken: CI on main is red, or a session ended with a failed test, push or deploy (clears after 12 hours)", "warn", 0xFF6B6B),
         ("drone", "Drone", "A pull request was merged (without GitHub: a factory pushed or deployed)", "send", 0x6EA8FE),
-        ("lift", "Helper", "A chat started a helper (a sub-agent)", "person", 0x4FE0F5),
+        ("helper", "Lit floor", "A floor's windows light up: a chat there started a helper (a sub-agent)", "person", 0x4FE0F5),
         ("packets", "Packets", "A deploy is running", "box", 0xFF9F43),
         ("smoke", "Smoke", "A factory works in that tower; more while its CEO runs", "pulse", 0xD6D6D6),
         ("dark", "Dark floor", "A factory's mandate: lights on is Assistant, dimmed Hybrid, lights out Dark", "floor", 0x6EA8FE),
