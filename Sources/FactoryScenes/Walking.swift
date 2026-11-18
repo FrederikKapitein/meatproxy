@@ -340,6 +340,13 @@ public enum RackLights {
         if r.next() < 0.4 { return 0 }
         return [0.35, 0.6, 0.85][min(2, Int(r.next() * 3))]
     }
+    /// A rack's light strip in the Server room (A5): green, amber or red by its state, and soft: it breathes, a warning
+    /// a little deeper, a server down a little faster, and is never dark. With animations off: fully on.
+    public static func strip(_ state: String, rack: Int, t: Double, animated: Bool) -> CGFloat {
+        guard animated else { return 1 }
+        let (period, depth): (Double, Double) = state == "down" ? (1.2, 0.35) : state == "warn" ? (2.2, 0.3) : (3.2, 0.12)
+        return CGFloat(1 - depth + depth * sin((t + Double(rack) * 0.37) / period * 2 * .pi))
+    }
     /// The amber lamp by the Server room's door (A5): off when all is well; when a server needs a look it breathes
     /// (never off), a little faster while one is down. With animations off: fully on.
     public static func doorLamp(_ worst: String?, t: Double, animated: Bool) -> CGFloat {

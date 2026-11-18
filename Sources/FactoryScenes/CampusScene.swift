@@ -564,7 +564,8 @@ public final class CampusScene: WorldScene {
         tickStacks(dt)
         tickLife(dt)
         // close up, the storey plaques keep about their size on screen instead of filling the view
-        let k = max(0.5, min(1, cam.xScale / max(homeScale, 0.0001)))
+        // (the blade signs are part of the facades: they only shrink once you come really close)
+        let k = max(0.5, min(1, 2.2 * cam.xScale / max(homeScale, 0.0001)))
         for sg in signs where sg.plaque && abs(sg.node.xScale - k) > 0.005 { sg.node.setScale(k) }
         animateLights()
         fadePlaques(dt)
@@ -599,7 +600,8 @@ public final class CampusScene: WorldScene {
         let t = clock, on = animationsEnabled
         for l in leds {
             // a deploy on its way (5F): the activity lights answer, three times as fast
-            let a = l.status ? RackLights.status(l.state, rack: l.rack, t: t, animated: on) : RackLights.activity(l.state, rack: l.rack, t: life.streaming ? t * 3 : t, animated: on)
+            // the state is a light strip that speaks softly (A5): it breathes, never off; activity flickers below it
+            let a = l.status ? RackLights.strip(l.state, rack: l.rack, t: t, animated: on) : RackLights.activity(l.state, rack: l.rack, t: life.streaming ? t * 3 : t, animated: on)
             l.node.alpha = a; l.glow.alpha = 0.35 * a
             l.node.isHidden = a <= 0.01; l.glow.isHidden = a <= 0.01
         }
@@ -641,6 +643,8 @@ public final class CampusScene: WorldScene {
         guard let n = buildings[key] else { return nil }
         var r = n.calculateAccumulatedFrame()
         for p in art?.plaques[key] ?? [] { r = r.union(CGRect(x: p.minX * px, y: -p.maxY * px, width: p.width * px, height: p.height * px)) }
+        // the low pavilion with its yard round it: a building on its own would fill the whole view
+        if key == "engine" { r = r.insetBy(dx: -r.width * 0.3, dy: -r.height * 0.3) }
         return r
     }
 

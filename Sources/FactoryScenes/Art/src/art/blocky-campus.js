@@ -215,7 +215,7 @@
     obj(w => w.fig(B.person("dev", 8), {pose: "sit", view: "SW"}, 14.6, 30.6, h(14, 30) + 3.2));
     obj(w => w.fig(B.person("lead", 2), {pose: "point", view: "NW"}, 18.6, 41.6, h(18, 41)));
     obj(w => w.fig(B.person("marketing", 5), {pose: "wave", view: "SW", mood: "happy"}, 10.2, 28.6, h(10, 28)));
-    obj(w => w.fig(B.person("researcher", 2), {pose: "read", view: "SE"}, 14.4, 16.8, h(14, 16)));
+    obj(w => w.fig(B.person("researcher", 2), {pose: "read", view: "SE"}, 13.4, 15.2, h(13, 15)));
     obj(w => w.fig(B.person("lead", 3), {pose: "mug", view: "SW"}, 43, 16.4, h(43, 16)));
     for (const [a, b, z, o] of [[4.6, 30.56, 9, {on: "trunkF"}], [24.82, 35.6, 8, {on: "trunkR"}], [13.4, 43.2, 1.15, {dir: "SW"}], [21.2, 9.6, 1, {dir: "SE"}], [7.8, 46.6, 1, {dir: "SW"}]]) obj(w => Pr.squirrel(w, a, b, z + (z > 2 ? h(a, b) - 1 : 0), o));
     for (const [a, b, z, up] of [[14, 33, 120, 1], [15.4, 31.8, 126, 0], [12.8, 31.6, 116, 0], [16.8, 33.2, 112, 1], [44, 22, 170, 1], [45.4, 21, 176, 0], [-4, 20, 40, 1], [-2.8, 19, 46, 0]]) obj(w => Pr.flyer(w, a, b, z, {up, col: "#efeaf4", tip: "#4a4460"}), {layer: 2});
@@ -379,7 +379,8 @@
     W.pool(si0 + 4, sj1 - 1, zs + 1.2, 70, "#8ab4ff", .22);
     // the glass front with mullions in the gaps between racks, a sill band, a transom
     W.box(si0 + .3, sj1 - .06, zs + 1.2, si1 - .4, sj1, zs + SH - 2, "#bfe3ff", {opacity: .18});
-    for (let k = 0; k <= 6; k++) { const a = k === 0 ? si0 + .32 : si0 + .85 + k * .9 - .1; if (a > si1 - .45) continue; W.box(a - .05, sj1 - .06, zs + 4, a + .05, sj1 + .12, zs + SH - 2, SD); }
+    // (the racks stand .55 behind the glass: seen from here a mullion in the gap between two racks sits .55 further on)
+    for (let k = 0; k <= 6; k++) { const a = k === 0 ? si0 + .32 : si0 + .85 + k * .9 - .1 + .55; if (a > si1 - .45) continue; W.box(a - .05, sj1 - .06, zs + 4, a + .05, sj1 + .12, zs + SH - 2, SD); }
     W.box(si0 - .08, sj1 - .06, zs, si1 + .08, sj1 + .14, zs + 4, "#4a4468", {deco: {front: [[si0, zs + 3.2, si1, zs + 4, "#5a5478"]]}}); W.box(si1 - .06, sj0 - .08, zs, si1 + .14, sj1 - .06, zs + 4, "#4a4468");
     W.box(si0 + .3, sj1 - .08, zs + 36, si1 - .4, sj1, zs + 37, SD);
     W.group(R => {
