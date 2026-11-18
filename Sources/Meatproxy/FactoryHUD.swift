@@ -33,7 +33,7 @@ struct FactoryOverview: View {
         let hb = model.heartbeat(project)
         let items: [FolderTabs<Tab>.Item] = [
             .init(id: .overview, title: "Overview", badge: factory.openDecisions.count, help: "What waits for you, the CEO's briefing and your ideas"),
-            .init(id: .work, title: "Work", help: "Workstreams and sessions"),
+            .init(id: .work, title: "Work", badge: project.sessions.filter { $0.state(now: model.world.now) == .waiting }.count, help: "Workstreams and sessions; a badge for chats that wait for you"),
             .init(id: .ceo, title: "CEO", badge: hb?.blocked?.waitsForYou == true ? 1 : 0, help: "Heartbeat, what it may do, autonomy and limits"),
             .init(id: .team, title: "Team", help: "Who the CEO may call in, and how many at once"),
         ]
@@ -129,13 +129,21 @@ private struct PlainFloor: View {
             ForEach(project.sessions.prefix(6)) { s in
                 Button { model.controller.select(session: s.id) } label: {
                     HStack(spacing: 6) {
-                        PixelIcon(s.state(now: model.world.now) == .stuck ? "sq" : "dot", color: Color.state(s.state(now: model.world.now)), size: 9)
+                        // the state as a shape too, never colour alone
+                        let st = s.state(now: model.world.now)
+                        PixelIcon(st == .stuck ? "sq" : st == .waiting ? "bang" : st == .done ? "check" : "dot", color: Color.state(st), size: 9)
+                            .accessibilityLabel(st.label)
                         Text(s.title).font(.s13).foregroundStyle(Color.inkText).lineLimit(1)
                         Text("· \(s.persona.name)").font(.s13).foregroundStyle(Color.muted).lineLimit(1).fixedSize()
                         Spacer(minLength: 0)
                     }
                     .contentShape(Rectangle())
                 }.buttonStyle(CardPressStyle())
+            }
+            if project.sessions.count > 6 {
+                Button { tab = 1 } label: {
+                    Text("\(project.sessions.count - 6) more on the Work tab").font(.s13m).foregroundStyle(Color.muted)
+                }.buttonStyle(.plain)
             }
         }
         .spelCard()
@@ -377,7 +385,7 @@ struct HeartbeatCard: View {
         if state.running { Tag("Running", tone: .work, icon: "dot") }
         else if let b = state.blocked { Tag(b.waitsForYou ? "Held" : "Waiting", tone: b.waitsForYou ? .warn : .neutral) }
         else if let last = state.last, last.outcome == .failed || last.outcome == .timedOut {
-            Tag(last.detail?.contains("was closed") == true || Self.caughtUp(last) ? "Missed \(Self.clock(last.started))" : "Run failed", tone: .warn)
+            Tag(last.detail?.contains("was closed") == true || Self.caughtUp(last) ? "Run skipped" : "Run failed", tone: .warn)
         }
         else if state.config.paused { Tag("Paused") }
         else { Tag("On schedule", tone: .done, icon: "check") }
@@ -398,7 +406,7 @@ struct HeartbeatCard: View {
             fix(b.text, button: b.waitsForYou ? "Resume" : nil, warn: b.waitsForYou) { model.resume(project) }
         } else if let last = state.last, last.outcome != .running {
             if last.outcome == .failed, last.detail?.contains("was closed") == true, !model.projectSettings.heartbeatWhenClosed {
-                fix("Meatproxy was closed at \(Self.clock(last.started)), so the run was skipped.", button: "Keep running when closed", warn: true) {
+                fix("Meatproxy was closed during the run of \(Self.when(last.started)), so it was skipped.", button: "Keep running when closed", warn: true) {
                     model.setHeartbeatWhenClosed(true)
                 }
             } else if let w = last.warning, !(w.hasPrefix("No allowlist") && model.allowlist(project.root).exists) {
@@ -825,10 +833,8 @@ private struct BriefingCard: View {
     let project: Project
     let briefing: Briefing
     var body: some View {
-        // the CEO as the floor shows it: its run's person when there is one
-        let run = project.sessions.first { $0.heartbeatRun == true }
-        let key = run.map { model.cast(of: $0) } ?? CastKey(role: .ceo, seed: "ceo:" + project.root)
-        let ceo = run?.persona.name ?? Persona(id: "ceo:" + project.root).name
+        // the CEO as the floor shows it (one source: AppModel.ceo)
+        let (ceo, key) = model.ceo(of: project)
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Portrait(image: model.controller.portrait(key), role: .ceo, size: 40)
@@ -1012,11 +1018,11 @@ struct WorkstreamCard: View {
 
     private func logRow(_ e: WorkLogEntry) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Socket(size: 32) { PixelIcon(Self.icon(e.phase), color: e.isBack ? .warn : .inkText) }
+            Socket(size: 32) { PixelIcon(Self.icon(e.phase), color: e.isBack ? .working : .inkText) }
             VStack(alignment: .leading, spacing: 2) {
                 Text(Self.sentence(BriefingCard.plain(e.text))).font(.s13m).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 Text(e.isBack ? "Back from \(e.from?.rawValue ?? "") to \(e.phase?.rawValue ?? "")" : (e.phase?.rawValue.capitalized ?? "Note"))
-                    .font(.s11n).foregroundStyle(e.isBack ? Color.warn : Color.muted)
+                    .font(.s11n).foregroundStyle(e.isBack ? Color.working : Color.muted)
             }
             Spacer(minLength: 4)
             Text(BriefingCard.day(e.date)).font(.s11n).foregroundStyle(Color.muted).lineLimit(1).fixedSize()

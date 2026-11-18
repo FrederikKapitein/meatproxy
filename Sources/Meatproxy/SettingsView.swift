@@ -365,7 +365,7 @@ private struct EngineRoomSettings: View {
                 Text("Load, disk and alerts live in the Server room building.").font(.s13).foregroundStyle(Color.muted)
                 Spacer(minLength: 0)
                 Button { model.settingsOpen = false; model.controller.focusBuilding("engine") } label: { SpelLabel("Go to Server room", icon: "chev", iconColor: .inkText) }
-                    .buttonStyle(SpelButtonStyle(kind: .ghost, size: .s))
+                    .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
             }
             DevOpsCard()
             VStack(alignment: .leading, spacing: 0) {

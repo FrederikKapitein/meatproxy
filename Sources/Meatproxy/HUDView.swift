@@ -22,7 +22,7 @@ struct HUDView: View {
             RadialGradient(colors: [.clear, Color.ink.opacity(0.55)], center: .center, startRadius: 380, endRadius: 980)
                 .ignoresSafeArea().allowsHitTesting(false)
             // while the campus is first built, the window is the loading screen alone: no HUD over it
-            if !model.settingsOpen && !loading { hud }
+            if !loading { hud.allowsHitTesting(!model.settingsOpen) }   // under Settings it stays, dimmed and asleep, as under every sheet
             // D72: a right-click menu at the pointer, ⌘K search, Help and the factory picker; a click outside closes them
             if !model.settingsOpen && !loading {
                 if let m = model.contextMenuState {
@@ -47,7 +47,7 @@ struct HUDView: View {
                         else { CommandSheet().id("commands") }
                         Spacer(minLength: 0)
                     }
-                    .padding(.top, Shell.top).padding(.horizontal, Shell.gutter)
+                    .padding(.top, Shell.top).padding(.horizontal, Shell.gutter).ignoresSafeArea()   // on the same top line as Settings
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
@@ -86,6 +86,22 @@ struct HUDView: View {
         .onChange(of: loading, initial: true) { _, now in if !now { hudShown = true } }
         .background(WindowShot.active ? Color.clear : Color.ink)
         .task { await runShotActions() }
+        // the free area between the panels, for the world to frame things in (Shell's measures, the drawer's height)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in windowSize = size; updateFreeArea() }
+        .onChange(of: model.selection.level) { _, _ in updateFreeArea() }
+        .onChange(of: model.terminalShown) { _, _ in updateFreeArea() }
+        .onReceive(model.terminals.$height) { _ in updateFreeArea() }
+    }
+
+    @State private var windowSize: CGSize = .zero
+    private func updateFreeArea() {
+        let g = Shell.gutter, w = windowSize.width, h = windowSize.height
+        guard w > 0, h > 0 else { return }
+        let left = g + Shell.side + g
+        let right = w - (model.selection.level != .all ? g + Shell.side + g : g)
+        let bottom = h - (model.terminalShown ? model.terminals.height + 2 * g : Shell.bar + 2 * g)
+        let area = CGRect(x: left, y: Shell.top, width: max(0, right - left), height: max(0, bottom - Shell.top))
+        if area != model.freeArea { model.freeArea = area }
     }
 
     /// the campus is really being built
@@ -130,7 +146,7 @@ struct HUDView: View {
             }
         }
         .ignoresSafeArea(edges: .top)
-        .background { KeyCatcher() }
+        .background { if !model.settingsOpen { KeyCatcher() } }   // Settings keeps its keys while it is open
         .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: model.selection.level)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: model.terminalShown)
     }
@@ -190,6 +206,10 @@ struct HUDView: View {
             }
             else if step == "settings" { model.settingsOpen = true }
             else if step == "settings:projects" { model.settingsAtProjects = true; model.settingsOpen = true }
+            // "settings:<general|sources|privacy|engine>": Settings on that tab (the same as settingspage:)
+            else if step.hasPrefix("settings:"), ["general", "sources", "privacy", "engine"].contains(String(step.dropFirst(9))) {
+                model.settingsPage = String(step.dropFirst(9)); model.settingsOpen = true
+            }
             // "settingspage:<general|sources|privacy|engine|project:<root>|server:<id>>": Settings open on that page
             else if step.hasPrefix("settingspage:") { model.settingsPage = String(step.dropFirst(13)); model.settingsOpen = true }
             else if step.hasPrefix("walk:"), let k = Int(step.dropFirst(5)) { model.walkStep = k; model.walkGoalDone = false; if k == 1 { model.controller.focusBuilding("claude") } }
@@ -524,7 +544,7 @@ private struct QuestLog: View {
         .overlay {
             if walking {
                 RoundedRectangle(cornerRadius: 10).fill(Color.ink.opacity(0.62))
-                    .overlay(alignment: .top) { Tag("Waits until the walk is done").padding(.top, 52) }
+                    .overlay { Tag("Waits until the walk is done").background(RoundedRectangle(cornerRadius: 6).fill(Color.panel)) }
                     .allowsHitTesting(false)
             }
         }
@@ -608,13 +628,14 @@ struct ScrollFit<Content: View>: View {
     var body: some View {
         ViewThatFits(in: .vertical) {
             content()
-            ScrollView { content() }.scrollIndicators(.automatic)
-                .mask(VStack(spacing: 0) { Color.black; LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 24) })
-                .overlay(alignment: .bottom) {
-                    HStack(spacing: 5) { PixelIcon("chevd", color: .muted, size: 9); Text("More · scroll").font(.s11n) }
-                        .foregroundStyle(Color.muted).padding(.horizontal, 8).frame(height: 20)
-                        .background(Capsule().fill(Color.panel)).allowsHitTesting(false)
-                }
+            // the "more" line has a row of its own under the list, so it never prints over the last row's text
+            VStack(spacing: 4) {
+                ScrollView { content() }.scrollIndicators(.automatic)
+                    .mask(VStack(spacing: 0) { Color.black; LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 16) })
+                HStack(spacing: 5) { PixelIcon("chevd", color: .muted, size: 9); Text("More · scroll").font(.s11n) }
+                    .foregroundStyle(Color.muted).frame(maxWidth: .infinity).frame(height: 16)
+                    .accessibilityHidden(true)
+            }
         }
     }
 }

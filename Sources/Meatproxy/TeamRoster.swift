@@ -86,10 +86,11 @@ struct TeamRoster: View {
         return names.count == 1 ? last : names.dropLast().joined(separator: ", ") + " and " + last
     }
 
-    /// one face per role on this roster, the same every time; the CEO is the one on the floor (seeded by the project)
+    /// one face per role, the same on every roster (a floor's Team tab and the default team in Settings); the CEO is
+    /// the one on the floor (AppModel.ceo, the floor's own source)
     private func key(_ r: CastRole) -> CastKey {
-        if r == .ceo, let root { return CastKey(role: .ceo, seed: "ceo:" + root) }
-        return CastKey(role: r, seed: "team:" + (root ?? "campus"))
+        if r == .ceo, let project { return model.ceo(of: project).cast }
+        return CastKey(role: r, seed: "team")
     }
 
     private func face(_ r: CastRole) -> some View {
@@ -128,7 +129,7 @@ struct TeamRoster: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) { RoundedRectangle(cornerRadius: 2).fill(Color.role(p.role)).frame(width: 8, height: 8); Text(p.label).font(.s15).foregroundStyle(Color.inkText) }
                 Text(n == 0 ? "None on this team" : "\(model.model(p, root: root).capitalized) · \(p.may)")
-                    .font(.s13).foregroundStyle(Color.muted).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    .font(.s13).foregroundStyle(Color.muted).lineLimit(4).fixedSize(horizontal: false, vertical: true)
                 if now > 0 {
                     HStack(spacing: 4) {
                         if now > n { PixelIcon("warn", color: .warn, size: 9) }

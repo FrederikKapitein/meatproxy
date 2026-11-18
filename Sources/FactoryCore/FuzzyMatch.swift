@@ -20,6 +20,11 @@ public enum FuzzyMatch {
             }
             if !found { return nil }
         }
+        // what you typed, as you typed it, wins over letters picked from here and there; more at the start of a word
+        if let start = contiguous(q, t) {
+            let wordStart = start == 0 || !(t[start - 1].isLetter || t[start - 1].isNumber)
+            score += 500 + (wordStart ? 200 : 0)
+        }
         // shorter texts win a tie: "Pebble" before "Pebble Puzzles settings"
         return score * 100 - min(t.count, 99)
     }
@@ -37,8 +42,13 @@ public enum FuzzyMatch {
     /// match drops out. With no query every group keeps its own order.
     public static func rankGrouped<T, G: Hashable>(_ query: String, _ items: [T], groups: [G], limit: Int = 8,
                                                    group: (T) -> G, text: (T) -> String) -> [(group: G, items: [T])] {
-        groups.compactMap { g in
-            let found = rank(query, items.filter { group($0) == g }, limit: limit, text: text)
+        // once something holds what you typed as one run ("peb" in Pebble), letters picked from here and there
+        // ("Recipe Box") no longer count as a match
+        let q = Array(fold(query).filter { !$0.isWhitespace })
+        let strict = !q.isEmpty && !query.contains(" ") && items.contains { contiguous(q, Array(fold(text($0)))) != nil }
+        let pool = strict ? items.filter { contiguous(q, Array(fold(text($0)))) != nil } : items
+        return groups.compactMap { g in
+            let found = rank(query, pool.filter { group($0) == g }, limit: limit, text: text)
             return found.isEmpty ? nil : (g, found)
         }
     }
@@ -60,6 +70,13 @@ public enum FuzzyMatch {
             out.append(ti); ti += 1
         }
         return out
+    }
+
+    /// where the query's letters stand together in the text, if they do
+    private static func contiguous(_ q: [Character], _ t: [Character]) -> Int? {
+        guard !q.isEmpty, q.count <= t.count else { return nil }
+        for i in 0...(t.count - q.count) where t[i] == q[0] && Array(t[i..<(i + q.count)]) == q { return i }
+        return nil
     }
 
     private static func fold(_ s: String) -> String { s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }

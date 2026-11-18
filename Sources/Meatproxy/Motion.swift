@@ -219,12 +219,12 @@ struct AnswerStamp: View {
     @State private var landed = false
     var body: some View {
         ZStack {
-            Circle().stroke(yes ? Color.signal : Color.border, lineWidth: 2)
+            Circle().stroke(yes ? Color.done : Color.border, lineWidth: 2)
                 .scaleEffect(landed ? 1.6 : 0.6).opacity(landed ? 0 : 0.8)
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.45).delay(0.12), value: landed)
             Group {
-                if yes { BrandMark() } else {
-                    Image(systemName: "xmark").font(.system(size: 26, weight: .black)).foregroundStyle(Color.inkText)
+                if yes { PixelIcon("check", color: .done, size: 36) } else {   // answered is done: green, not the yellow of what waits
+                    PixelIcon("close", color: .inkText, size: 36)
                 }
             }
             // tilted only in flight; it lands square, so the pixels stay crisp and the ledge straight below

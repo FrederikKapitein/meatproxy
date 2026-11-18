@@ -51,6 +51,10 @@ final class AppModel: ObservableObject {
     var answerable: Bool { openQuestion != nil }
     /// tokens "saved" in a demo: nothing reaches the Keychain
     @Published var demoTokens: Set<Secrets.Key> = []
+    /// The world's free area between the HUD's panels, in window points from the top left: right of the quest log,
+    /// left of the inspector (when one is open), below the top bar, above the bottom bar or the terminal drawer. The
+    /// HUD keeps it current; the world frames what you open in it (once WorldController takes a safe area).
+    @Published var freeArea: CGRect = .zero
 
     /// A resume command that first prints what the chat asked (C5). The question goes in as an argument of sh, never
     /// into the script, so nothing in it is run.
@@ -1105,8 +1109,18 @@ final class AppModel: ObservableObject {
     // MARK: sessions
 
     /// How a session is drawn: its role in its project (the CEO is the project's main chat, D41) and its id.
+    /// A person's look, as the floor casts it: the project with its standing CEO (`withStandingCEO`), exactly as the
+    /// world paints the floor, so the HUD and the floor never disagree on who the CEO is.
     func cast(of s: Session) -> CastKey {
-        world.projects.first { $0.sessions.contains { $0.id == s.id } }?.cast(of: s) ?? CastKey(role: s.workRole, seed: s.id)
+        world.projects.first { $0.sessions.contains { $0.id == s.id } }?.withStandingCEO.cast(of: s) ?? CastKey(role: s.workRole, seed: s.id)
+    }
+
+    /// A project's CEO as the floor shows it: the person of `ceoID` on the floor's project (with its standing CEO).
+    /// One source for the briefing, the Team tab and anything else that names the CEO.
+    func ceo(of p: Project) -> (name: String, cast: CastKey) {
+        let floor = p.withStandingCEO
+        if let id = floor.ceoID, let s = floor.sessions.first(where: { $0.id == id }) { return (s.persona.name, floor.cast(of: s)) }
+        return (Persona(id: "ceo:" + p.root).name, CastKey(role: .ceo, seed: "ceo:" + p.root))
     }
 
     func session(_ id: String?) -> (project: Project, session: Session)? {
