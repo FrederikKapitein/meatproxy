@@ -278,7 +278,7 @@
     const topParts = [];
     // the back walls (Research, Entrance, Planning, Development) and the Lounge's wall: behind everything that stands
     plaque("room:stacks", "front", 2, 0, 40, "RESEARCH", {key: -1});
-    plaque("room:landing", "front", 7.1, 0, 40, "ENTRANCE", {key: -1});
+    plaque("room:landing", "right", 2.6, 4, 13, "ENTRANCE");
     // Planning's on its side wall, low: the planners' plates hang high, along the back wall
     plaque("room:workshop", "front", 18.1, 0, 42, "DEVELOPMENT", {key: -1});
     plaque("room:porch", "right", 12.9, 0, 42, "LOUNGE", {key: -1});

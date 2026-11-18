@@ -37,6 +37,22 @@ struct FloorCEOTests {
         #expect(p.cast(of: run).seed == "ceo:" + p.root)
     }
 
+    /// Shopfront set up as a factory (shot 28): its lead, who waits for you, becomes the CEO. The CEO plate must keep the
+    /// waiting state (yellow, "!"), not hide it.
+    @Test func aCEOThatWaitsForYouStillShowsIt() throws {
+        let world = Fixture.world()
+        var shop = try #require(world.projects.first { $0.root == "/demo/shopfront" })
+        var f = try #require(world.projects.first { $0.root == Fixture.factoryRoot }?.factory)
+        f.decisions = []
+        shop.factory = f
+        let p = shop.withStandingCEO
+        let ceo = try #require(p.ceoID)
+        let run = try #require(p.sessions.first { $0.id == ceo })
+        #expect(run.state(now: world.now) == .waiting, "the fixture's lead waits for you")
+        #expect(FloorScene.shownState(run, in: p, now: world.now) == .waiting)
+        #expect(FloorScene.plateLine(run, in: p, state: .waiting, back: false, seated: false, now: world.now) == "CEO · waits for you")
+    }
+
     @Test func aFactoryWithoutACEORunShowsItsStandIn() throws {
         let world = Fixture.world()
         var p = try #require(world.projects.first { $0.root == Fixture.factoryRoot })

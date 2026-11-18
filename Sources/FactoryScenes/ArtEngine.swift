@@ -85,17 +85,16 @@ public final class ArtEngine: NSObject, WKURLSchemeHandler {
         let sum = world.serverSummary
         let racks = world.racks.prefix(6).map { ["name": $0.name, "state": $0.state.rawValue] }
         let input: [String: Any] = ["R": 2, "claude": floors(.claude), "chatgpt": floors(.chatgpt), "waiting": world.needsYou.count,
-                                    "quests": world.needsYou.prefix(2).map { Self.questLabel($0) }, "night": night, "racks": racks,
+                                    "quests": Array(world.needsYou.compactMap { Self.questLabel($0) }.prefix(2)), "night": night, "racks": racks,
                                     "engine": ["total": sum.total, "warn": sum.warn, "down": sum.down]]
         return CampusArt(try await call("return await window.sf.campus(input)", ["input": input]))
     }
 
-    /// A quest on the pillar's side (A3): what it asks in a word or two, its verb and its project ("SHIP PEBBLE?").
-    static func questLabel(_ n: NeedsYou) -> String {
-        let verb = n.title.split(whereSeparator: { !$0.isLetter && $0 != "-" }).first.map(String.init) ?? "Look"
-        let project = n.project.name.split(separator: " ").first.map(String.init) ?? ""
-        let both = "\(verb) \(project)?"
-        return (both.count <= 12 ? both : "\(verb)?").uppercased()
+    /// A quest on the pillar's side (A3): its question when that is short enough to stand there whole (12 letters at
+    /// most, without what is in brackets); nil otherwise: no cut-off lines.
+    static func questLabel(_ n: NeedsYou) -> String? {
+        let t = n.title.replacingOccurrences(of: #"\s*\([^)]*\)"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        return t.count <= 12 && !t.isEmpty ? t.uppercased() : nil
     }
 
     /// A project's logo as a small PNG data URI for its plaque (D58): drawn once per file at 48 px, kept.

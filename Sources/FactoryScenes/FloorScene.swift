@@ -79,7 +79,8 @@ public final class FloorScene: WorldScene {
                 content.addChild(n)
             }
             // the floor fills the room the panels leave (B9): its plate and walls, not the air round it
-            setHome(Self.floorFrame, fill: 1.0)
+            // the rooms, not the air round them: the outer rims a little cropped (B9)
+            setHome(Self.floorFrame.insetBy(dx: Self.floorFrame.width * 0.025, dy: Self.floorFrame.height * 0.05), fill: 0.98)
         }
         if walkMap == nil { walkMap = Self.walkMap(art.solids) }
         // who stands where: each room hands out its spots in a fixed order (everyone first, so the helpers can keep
@@ -138,10 +139,7 @@ public final class FloorScene: WorldScene {
             if !p.moving { p.dir = spot.dir }
             p.name = s.persona.name
             let back = st == .working && s.wentBack(now: now), ceo = s.id == Self.factoryCEO(project) || s.heartbeatRun == true || s.id.hasPrefix(Project.standingCEOPrefix)
-            let questions = s.id == Self.factoryCEO(project) ? project.factory?.openDecisions.count ?? 0 : 0
-            let sub = questions > 0 ? "CEO · \(questions) question\(questions == 1 ? "" : "s")" : ceo && st != .stuck ? "CEO"
-                : st == .waiting ? "Waits for you" : st == .stuck ? "Stuck" : back ? "Sent back" : st == .done ? (spot.seat > 0 ? "Parked" : "Done")
-                : project.role(of: s).label
+            let sub = Self.plateLine(s, in: project, state: st, back: back, seated: spot.seat > 0, now: now)
             let helped = !s.subAgents.filter { !($0.finished && project.isTeamProfile($0.type)) }.isEmpty
             setTag(p, text: s.persona.name, sub: sub, state: st == .waiting ? "wait" : st == .stuck ? "stuck" : back ? "back" : st == .done ? "done" : "work",
                    role: ceo ? "#c9a46a" : Self.roleColour(project.role(of: s)), badge: helped ? Self.helperBadge : nil)
@@ -190,22 +188,31 @@ public final class FloorScene: WorldScene {
         let signs: [CGRect] = (art?.labels ?? []).map { CGRect(x: $0.minX * px, y: -$0.maxY * px, width: $0.width * px, height: $0.height * px) }
             .filter { !($0.intersects(boardFrame ?? .null)) }
         var placed: [CGRect] = []
+        // how much of a plate at f would lie over plates already placed and over signs
+        func clash(_ f: CGRect) -> CGFloat {
+            var a: CGFloat = 0
+            for r in placed + signs {
+                let x = r.intersection(f)
+                if !x.isNull, x.width > 0.2 * f.width, x.height > 2 * px { a += x.width * x.height }
+            }
+            return a
+        }
         for (p, t) in list {
             var f = t.frame
             if !p.walking {
-                let start = f.origin.y
-                var moved = true, tries = 0
-                while moved, tries < 8 {
-                    moved = false; tries += 1
-                    for r in placed + signs where r.intersects(f) {
-                        let x = r.intersection(f)
-                        guard x.width > 0.2 * f.width, x.height > 2 * px else { continue }
-                        // over a sign, only when it takes a short step up
-                        if !placed.contains(r), r.maxY + 1 * px - start > 22 * px { continue }
-                        f.origin.y = r.maxY + 1 * px; moved = true
-                    }
+                // where it is, one step up, half a step to either side, or up and to a side: never further, since a plate
+                // far from its person reads as someone else's. The first clear place wins, else the least covered.
+                let w = f.width, h = f.height + 1 * px
+                let moves: [CGPoint] = [.zero, CGPoint(x: 0, y: h), CGPoint(x: -0.6 * w, y: 0), CGPoint(x: 0.6 * w, y: 0),
+                                        CGPoint(x: -0.6 * w, y: h), CGPoint(x: 0.6 * w, y: h)]
+                var best = f, least = CGFloat.infinity
+                for m in moves {
+                    let g = f.offsetBy(dx: m.x, dy: m.y), c = clash(g)
+                    if c < least - 1 { least = c; best = g }
+                    if c == 0 { break }
                 }
-                t.position.y = f.maxY
+                f = best
+                t.position = CGPoint(x: f.minX + f.width * t.anchorPoint.x, y: f.minY + f.height * t.anchorPoint.y)
             }
             placed.append(f)
         }
@@ -362,7 +369,7 @@ public final class FloorScene: WorldScene {
             let byPeople = taken.contains { q in
                 let f = project(q.x, q.y)
                 // their bodies, or their name plates (about 44 wide, 20 high) over each other
-                return (abs(f.x - foot.x) < 14 * k && abs(f.y - foot.y) < 30 * k) || (abs(f.x - foot.x) < 44 && abs(f.y - foot.y) < 20)
+                return (abs(f.x - foot.x) < 14 * k && abs(f.y - foot.y) < 30 * k) || (abs(f.x - foot.x) < 44 * plateScale && abs(f.y - foot.y) < 20 * plateScale)
             }
             return hid.isEmpty && !byPeople
         }
@@ -429,9 +436,17 @@ public final class FloorScene: WorldScene {
             // done and free plates are quieter
             n.alpha = state == "done" || state == "free" ? 0.82 : 1
             p.tagRect = o.rect
+            // it hangs from its tip (the image's (0, 0)), so it can grow and shrink round it
+            n.anchorPoint = CGPoint(x: -o.rect.minX / o.rect.width, y: o.rect.maxY / o.rect.height)
             self.content.addChild(n); p.tag = n; self.layout(p)
         }
     }
+
+    /// How big the plates are drawn: so their second line is at least 11 pt on screen (B9), at home and closer in; never
+    /// smaller than half their size.
+    var plateScale: CGFloat { max(0.5, Self.plateLinePoints * cam.xScale / (Self.plateLineUnits * px)) }
+    /// a plate's second line: 11 pt on screen; its size in the plate's own art units (engine.js tag: ss)
+    static let plateLinePoints: CGFloat = 11, plateLineUnits: CGFloat = 4.4
 
     /// The floor's plate with its walls and the launch balcony, in art units: what the home view fills (B9).
     static let floorFrame = CGRect(x: -262, y: -58, width: 652, height: 396)
@@ -465,13 +480,26 @@ public final class FloorScene: WorldScene {
     /// Where the CEO stands when the art says nothing: under the board's left end in Planning, facing you.
     static let ceoSpot = FloorArt.Spot(i: 8.65, j: 1.15, pose: "point", dir: "down", seat: 0)
 
-    /// How a session shows on its floor: as its state, except a factory's CEO, which waits for you while the factory has
-    /// an open question (it is the one who asks them), and otherwise is at work at the board or resting there.
+    /// How a session shows on its floor: as its state; a factory's CEO also waits for you while the factory has an open
+    /// question (it is the one who asks them). A CEO that waits for you itself always shows it.
     static func shownState(_ s: Session, in p: Project, now: Date) -> SessionState {
         let st = s.state(now: now)
         guard s.id == factoryCEO(p) else { return st }
         if !(p.factory?.openDecisions.isEmpty ?? true) { return .waiting }
-        return st == .waiting ? .working : st
+        return st
+    }
+
+    /// The second line of a plate: what waits for you comes first, and a CEO says it is the CEO.
+    static func plateLine(_ s: Session, in p: Project, state st: SessionState, back: Bool, seated: Bool, now: Date) -> String {
+        let ceo = s.id == factoryCEO(p) || s.heartbeatRun == true || s.id.hasPrefix(Project.standingCEOPrefix)
+        let questions = s.id == factoryCEO(p) ? p.factory?.openDecisions.count ?? 0 : 0
+        if questions > 0 { return "CEO · \(questions) question\(questions == 1 ? "" : "s")" }
+        if st == .waiting { return ceo ? "CEO · waits for you" : "Waits for you" }
+        if st == .stuck { return ceo ? "CEO · stuck" : "Stuck" }
+        if ceo { return "CEO" }
+        if back { return "Sent back" }
+        if st == .done { return seated ? "Parked" : "Done" }
+        return p.role(of: s).label
     }
 
     /// A diamond on the floor round someone who waits (yellow) or is stuck (red): a soft fill, a dark under-edge and the
@@ -560,7 +588,10 @@ public final class FloorScene: WorldScene {
         p.shadow.position = scenePoint(foot); p.shadow.zPosition = z - 0.2; p.shadow.isHidden = seat > 0
         let head = foot.y - (35 + seat) * 1.08 * p.scale
         let bob = animationsEnabled ? CGFloat(sin(clock * 3.2 + p.phase)) * 1.2 : 0
-        if let t = p.tag { t.position = scenePoint(CGPoint(x: foot.x + p.tagRect.minX, y: head - 2 + p.tagRect.minY)) }
+        if let t = p.tag {
+            t.setScale(plateScale)
+            t.position = scenePoint(CGPoint(x: foot.x, y: head - 2))
+        }
         tie(p)
         if let t = p.hoverTag { t.position = scenePoint(CGPoint(x: foot.x - t.size.width / px / 2, y: head - 10.5)) }
         // rings lie round the feet; round someone seated, round the seat under them (at the floor it would sit on the
@@ -716,7 +747,7 @@ public final class FloorScene: WorldScene {
         selectRing?.position = scenePoint(Self.ringPoint(foot, seat: seat, scale: p.scale))
         selectRing?.zPosition = seat > 0 ? p.node.zPosition - 0.13 : 3000.05
         p.ring?.isHidden = selectRing != nil
-        let at = CGPoint(x: foot.x, y: foot.y - (35 + seat) * 1.08 * p.scale - 2 + (p.tag != nil ? p.tagRect.minY : 0) - 12)
+        let at = CGPoint(x: foot.x, y: foot.y - (35 + seat) * 1.08 * p.scale - 2 + (p.tag != nil ? p.tagRect.minY * plateScale : 0) - 12)
         // a room sign hangs there: no mark over the head (the ring at the feet already says who is selected; beside the
         // tag it read as loose, belonging to nobody)
         m.position = scenePoint(at)

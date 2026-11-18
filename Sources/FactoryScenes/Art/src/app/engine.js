@@ -169,7 +169,8 @@
   function tag(o) {
     const R = o.R || 5, name = String(o.text || "").toUpperCase().replace(/[<&>]/g, ""), sub = String(o.sub || "").replace(/[<&>]/g, "");
     const st = o.state || "work", wait = st === "wait", stuck = st === "stuck", back = st === "back", done = st === "done";
-    const s = 5.6, ss = 3.9, role = o.role || "#6a6478", badge = o.badge;
+    // (ss: FloorScene.plateLineUnits; the app scales the plate so this line is 11 pt on screen)
+    const s = 5.8, ss = 4.4, role = o.role || "#6a6478", badge = o.badge;
     const tw = Math.max(textW(name, `900 ${s * 10}px ${PLATE_FONT}`) / 10, sub ? textW(sub, `600 ${ss * 10}px ${SUB_FONT}`) / 10 : 0) + 9;
     const th = sub ? s + ss + 6.4 : s + 5.6, ty = -3 - th;
     const bg = wait ? "#FFD83D" : stuck ? "#ff4a4a" : "#20182c", ink = wait ? "#1d1626" : stuck ? "#fff8ec" : done ? "#c9c4dc" : "#f3ebdd";
