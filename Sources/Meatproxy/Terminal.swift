@@ -76,7 +76,8 @@ final class TerminalCenter: NSObject, ObservableObject, LocalProcessTerminalView
     }
 }
 
-/// The terminal panel: a tab bar over the selected tab's terminal, its height dragged from the top edge.
+/// The terminal drawer (E10): a panel in the same frame as the others, its tabs as folder tabs over the selected tab's
+/// terminal, its height dragged from the top edge. The side panels end 16 above it.
 struct TerminalPanel: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var center: TerminalCenter
@@ -85,7 +86,7 @@ struct TerminalPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             // the grip: drag to make it taller or shorter
-            Capsule().fill(Color.border.opacity(0.6)).frame(width: 36, height: 4).padding(.vertical, 5)
+            RoundedRectangle(cornerRadius: 2).fill(Color.border).frame(width: 36, height: 4).padding(.vertical, 6)
                 .frame(maxWidth: .infinity).contentShape(Rectangle())
                 .gesture(DragGesture().onChanged { g in
                     let start = dragStart ?? center.height
@@ -93,56 +94,61 @@ struct TerminalPanel: View {
                     center.height = min(max(start - g.translation.height, 160), 720)
                 }.onEnded { _ in dragStart = nil })
                 .onHover { inside in if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() } }
-            HStack(spacing: 6) {
-                Image(systemName: "terminal").font(.system(size: 12, weight: .bold)).foregroundStyle(Color.muted).padding(.leading, 10)
+                .accessibilityLabel("Drag to resize the terminal")
+            HStack(alignment: .bottom, spacing: 8) {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) { ForEach(center.tabs) { tab in TabChip(center: center, tab: tab) } }
+                    HStack(alignment: .bottom, spacing: 2) { ForEach(center.tabs) { tab in TabChip(center: center, tab: tab) } }
                 }
+                .frame(height: 36)
                 Spacer(minLength: 0)
-                Button { center.toggle() } label: {
-                    HStack(spacing: 6) { Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold)); KeyCap("⌘J") }
-                        .padding(.horizontal, 8).frame(height: 24)
-                }.buttonStyle(TactileButtonStyle(kind: .neutral)).help("Hide the terminal (⌘J)").padding(.trailing, 8)
+                Button { center.toggle() } label: { SpelLabel(icon: "chevd", key: "⌘J", iconColor: .inkText) }
+                    .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s)).help("Hide the terminal (⌘J)").accessibilityLabel("Hide the terminal")
+                    .padding(.bottom, 4)
             }
-            .padding(.bottom, 6)
-            Divider().overlay(Color.divider)
+            .padding(.horizontal, 12)
             ZStack {
                 ForEach(center.tabs) { tab in
                     TerminalHost(view: tab.view).opacity(tab.id == center.selected ? 1 : 0).allowsHitTesting(tab.id == center.selected)
                 }
                 if center.tabs.isEmpty {
                     Text("Take over a session, follow a run or open a server from its card: it opens here.")
-                        .font(.system(size: 12.5)).foregroundStyle(Color.muted)
+                        .font(.s13).foregroundStyle(Color.muted)
                 }
             }
             .padding(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 10, bottomTrailingRadius: 10, topTrailingRadius: 10).fill(Color(red: 0.07, green: 0.07, blue: 0.07)))
+            .overlay(UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 10, bottomTrailingRadius: 10, topTrailingRadius: 10).strokeBorder(Color.divider, lineWidth: 2))
+            .padding(.horizontal, 12).padding(.top, -2).padding(.bottom, 12)
         }
         .frame(height: center.height)
-        .background(Color.ink, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.divider))
-        .shadow(color: .black.opacity(0.4), radius: 18, y: 6)
+        .spelFrame()
     }
 }
 
-/// One tab: its icon, title, a light while it runs (or how it ended), and its close cross.
+/// One tab as a folder tab: a light while it runs (or how it ended), its title, and its close cross.
 private struct TabChip: View {
     @ObservedObject var center: TerminalCenter
     let tab: TerminalCenter.Tab
     var body: some View {
         let on = tab.id == center.selected
         HStack(spacing: 6) {
-            Circle().fill(tab.exited == nil ? Color.done : Color.muted).frame(width: 6, height: 6)
-            Image(systemName: tab.icon).font(.system(size: 10.5, weight: .semibold))
-            Text(tab.title).font(.system(size: 11.5, weight: on ? .bold : .semibold)).lineLimit(1).frame(maxWidth: 220, alignment: .leading)
-            if let code = tab.exited { Text(code.map { "exit \($0)" } ?? "ended").font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Color.muted) }
-            Button { center.close(tab.id) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.muted) }
-                .buttonStyle(.plain).help(tab.exited == nil ? "Close and stop it" : "Close")
+            PixelIcon(tab.exited == nil ? "dot" : "ring", color: tab.exited == nil ? .done : .muted, size: 9)
+            Text(tab.title).font(.system(size: 13, weight: on ? .bold : .semibold)).foregroundStyle(on ? Color.inkText : Color.muted)
+                .lineLimit(1).frame(maxWidth: 240, alignment: .leading)
+            if let code = tab.exited { Text(code.map { "exit \($0)" } ?? "ended").font(.mono11).foregroundStyle(Color.muted) }
+            Button { center.close(tab.id) } label: { PixelIcon("close", color: .muted, size: 9).frame(width: 18, height: 18).contentShape(Rectangle()) }
+                .buttonStyle(.plain).help(tab.exited == nil ? "Close and stop it" : "Close").accessibilityLabel("Close \(tab.title)")
         }
-        .padding(.horizontal, 9).padding(.vertical, 5)
-        .background(on ? Color.raised : Color.clear, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? Color.border.opacity(0.7) : Color.clear))
+        .padding(.horizontal, 12)
+        .frame(height: on ? 36 : 30)
+        .background(TabShape().fill(on ? Color(red: 0.07, green: 0.07, blue: 0.07) : Color.rail))
+        .overlay(TabShape().stroke(Color.divider, lineWidth: 2).padding(.horizontal, 1).padding(.top, 1))
+        .padding(.bottom, on ? 0 : 2)
         .contentShape(Rectangle())
+        .zIndex(on ? 2 : 0)
         .onTapGesture { center.selected = tab.id; DispatchQueue.main.async { tab.view.window?.makeFirstResponder(tab.view) } }
+        .accessibilityElement(children: .contain).accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
     }
 }
 

@@ -144,14 +144,26 @@ public struct SeededRandom {
 /// turn, and an arm with an in and an out lane to each end of the island.
 public enum CampusRoads {
     public struct Arm { public var name: String, inStart: CGPoint, inEnd: CGPoint, outStart: CGPoint, outEnd: CGPoint }
+    /// Spel+ (D80): people walk the sidewalks, not the roads. Each arm is one sidewalk with a lane in and a lane out, 0.8
+    /// tile apart; the loop goes round the crossing over its four zebras (blocky-campus.js keeps these clear).
+    /// Every arm joins the loop from the side, between two of its corners (never head-on into a corner), and leaves it
+    /// just before where it joins (so who leaves never crosses who comes in).
     public static let arms: [Arm] = [
-        Arm(name: "west", inStart: CGPoint(x: 2.5, y: 13.4), inEnd: CGPoint(x: 12.6, y: 13.4), outStart: CGPoint(x: 12.6, y: 12.6), outEnd: CGPoint(x: 2.5, y: 12.6)),
-        Arm(name: "east", inStart: CGPoint(x: 27.5, y: 12.6), inEnd: CGPoint(x: 17.4, y: 12.6), outStart: CGPoint(x: 17.4, y: 13.4), outEnd: CGPoint(x: 27.5, y: 13.4)),
-        Arm(name: "north", inStart: CGPoint(x: 14.6, y: 3.5), inEnd: CGPoint(x: 14.6, y: 11), outStart: CGPoint(x: 15.4, y: 11), outEnd: CGPoint(x: 15.4, y: 3.5)),
-        Arm(name: "south", inStart: CGPoint(x: 15.4, y: 23.5), inEnd: CGPoint(x: 15.4, y: 15), outStart: CGPoint(x: 14.6, y: 15), outEnd: CGPoint(x: 14.6, y: 23.5)),
+        Arm(name: "west", inStart: CGPoint(x: 11, y: 20.4), inEnd: CGPoint(x: 28.2, y: 20.4), outStart: CGPoint(x: 28.2, y: 19.6), outEnd: CGPoint(x: 11, y: 19.6)),
+        Arm(name: "east", inStart: CGPoint(x: 51, y: 25.6), inEnd: CGPoint(x: 35.8, y: 25.6), outStart: CGPoint(x: 35.8, y: 26.4), outEnd: CGPoint(x: 51, y: 26.4)),
+        Arm(name: "north", inStart: CGPoint(x: 34.6, y: 11.5), inEnd: CGPoint(x: 34.6, y: 19.2), outStart: CGPoint(x: 35.4, y: 19.2), outEnd: CGPoint(x: 35.4, y: 11.5)),
+        Arm(name: "south", inStart: CGPoint(x: 29.4, y: 39), inEnd: CGPoint(x: 29.4, y: 26.8), outStart: CGPoint(x: 28.6, y: 26.8), outEnd: CGPoint(x: 28.6, y: 39)),
     ]
-    /// The loop, with the fountain on the walker's left.
-    public static let loop = [CGPoint(x: 12.6, y: 15), CGPoint(x: 17.4, y: 15), CGPoint(x: 17.4, y: 11), CGPoint(x: 12.6, y: 11)]
+    /// The loop round the crossing, the crossing on the walker's left: on the sidewalks' corners and over the zebras.
+    public static let loop = [CGPoint(x: 28.2, y: 26.8), CGPoint(x: 35.8, y: 26.8), CGPoint(x: 35.8, y: 19.2), CGPoint(x: 28.2, y: 19.2)]
+    /// The crossing's middle, which nobody walks through (only round it, over the zebras).
+    public static let crossing = CGRect(x: 30, y: 21, width: 4, height: 4)
+
+    /// How high the ground is where someone walks (model units): the roads lie lower than the sidewalks (their kerbs).
+    public static func height(_ i: CGFloat, _ j: CGFloat) -> CGFloat {
+        let onRoad = (j >= 21 && j < 25 && i >= 6 && i < 57) || (i >= 30 && i < 34 && j >= 6 && j < 45)
+        return onRoad ? -1.4 : 1.6
+    }
 
     public static let graph: LaneGraph = {
         var g = LaneGraph()
@@ -327,6 +339,21 @@ public enum RackLights {
         _ = r.next()
         if r.next() < 0.4 { return 0 }
         return [0.35, 0.6, 0.85][min(2, Int(r.next() * 3))]
+    }
+    /// A rack's light strip in the Server room (A5): green, amber or red by its state, and soft: it breathes, a warning
+    /// a little deeper, a server down a little faster, and is never dark. With animations off: fully on.
+    public static func strip(_ state: String, rack: Int, t: Double, animated: Bool) -> CGFloat {
+        guard animated else { return 1 }
+        let (period, depth): (Double, Double) = state == "down" ? (1.2, 0.12) : state == "warn" ? (2.2, 0.25) : (3.2, 0.12)
+        return CGFloat(1 - depth + depth * sin((t + Double(rack) * 0.37) / period * 2 * .pi))
+    }
+    /// The amber lamp by the Server room's door (A5): off when all is well; when a server needs a look it breathes
+    /// (never off), a little faster while one is down. With animations off: fully on.
+    public static func doorLamp(_ worst: String?, t: Double, animated: Bool) -> CGFloat {
+        guard let worst, worst != "ok" else { return 0 }
+        guard animated else { return 1 }
+        let period = worst == "down" ? 1.4 : 2.8
+        return CGFloat(0.75 + 0.25 * sin(t / period * 2 * .pi))
     }
     /// The roof beacon: off when all is well, blinking yellow for a warning, faster red when something is down.
     public static func beacon(_ worst: String?, t: Double, animated: Bool) -> CGFloat {

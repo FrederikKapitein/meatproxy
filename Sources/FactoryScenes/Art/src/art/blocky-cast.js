@@ -3,7 +3,7 @@
    four views (front-left, front-right, back-left, back-right) come for free. A plain script (no imports):
      BlockyCast.figure(name, {pose, mood, view, frame}) → SVG markup round the feet at (0, 0)
    view: SE (front-right) | SW (front-left) | NE (back-right) | NW (back-left)
-   pose: idle | walkA | walkB | sit | type | wave | ask | stuck | mug | cheer
+   pose: idle | walkA | walkB | sit | type | typeB | read | point | snooze | wave | ask | stuck | mug | cheer
    mood: calm | happy | focus | wait | stuck | tired */
 (function () {
   const f = v => (+v).toFixed(2);
@@ -13,6 +13,11 @@
   const VIEWDIR = [1, 1, 1].map(x => x / Math.sqrt(3));
   // flat shading with a warm light and cool shadows
   function lit(base, n) {
+    if (window.__NIGHT) { // moonlight from the same side (D80, A8): dark, cool, with the faces still told apart
+      const d = Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]), k = .21 + .22 * d;
+      const c = hex(base), moon = [26, 32, 66];
+      return toHex(c.map((v, i) => v * k + moon[i] * (.55 + .25 * d)));
+    }
     const d = Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]), k = .58 + .5 * d;
     const c = hex(base), warm = [255, 244, 225], cool = [70, 60, 120];
     return toHex(c.map((v, i) => k >= 1 ? v + (warm[i] - v) * (k - 1) * .9 : v * k + cool[i] * (1 - k) * .28));
@@ -64,7 +69,7 @@
           return toWorld(F, [u, y1, v]);
         };
         if (shape === "poly") face.decals.push({pts: d[0].map(([u, v]) => proj(pt(u, v))), fill: lit(dcol, n)});
-        else face.decals.push({pts: [pt(d[0], d[1]), pt(d[2], d[1]), pt(d[2], d[3]), pt(d[0], d[3])].map(proj), fill: dcol === "#ffffff" || dcol[0] === "!" ? (dcol[0] === "!" ? dcol.slice(1) : dcol) : lit(dcol, n)});
+        else face.decals.push({pts: [pt(d[0], d[1]), pt(d[2], d[1]), pt(d[2], d[3]), pt(d[0], d[3])].map(proj), fill: window.__NIGHT ? lit(dcol[0] === "!" ? dcol.slice(1) : dcol, n) : dcol === "#ffffff" || dcol[0] === "!" ? (dcol[0] === "!" ? dcol.slice(1) : dcol) : lit(dcol, n)});
       }
       this.faces.push(face);
     }
@@ -86,8 +91,10 @@
   };
   /* roles: what they wear and carry, so you can tell them apart at a glance */
   const ROLES = {
-    // the CEO (D73): all black, suit, shirt and tie, long dark hair swept back and a short beard; nobody else dresses so
-    ceo:        {label: "CEO", outfits: ["suit"], tops: ["#18181d"], legs: ["#18181d"], hair: ["long"], hairColor: "#17120f", beard: true, shirt: "#222228", tie: "#0b0b0e", shoes: "#0b0b0e", props: ["mug"], extras: [null, "watch"]},
+    // the CEO (D73): a dark suit and tie, long hair swept back and a short beard; nobody else dresses so
+    // D73 keeps a dark suit; Spel+ makes it read as a person: charcoal with lit and shadow faces, a white shirt, a
+    // violet tie, and brown hair and beard that stand apart from the suit
+    ceo:        {label: "CEO", outfits: ["suit"], tops: ["#3c3c4a"], legs: ["#33333f"], hair: ["long"], hairColor: "#5a3a2a", beard: true, shirt: "#e8e6ee", tie: "#7a5ce0", shoes: "#1a1a20", props: ["mug"], extras: [null, "watch"]},
     // a plain project's main chat: smart casual, a navy jacket over a light shirt, a lanyard and a mug; not the CEO's black
     lead:       {label: "Lead", outfits: ["blazer"], tops: ["#33507e", "#3d6a6a"], legs: ["#2a2433", "#5a6a8a"], hair: ["short", "curly", "bob", "slick"], props: ["mug"], extras: ["lanyard"]},
     sales:      {label: "Sales", outfits: ["blazer"], tops: ["#5a7ab0", "#8a5a7a", "#4a8a8a"], legs: ["#b89a6a", "#3a3f63"], hair: ["slick", "long", "short"], props: ["phone"], extras: [null]},
@@ -120,6 +127,10 @@
     walkB: {armL: [-28, 4, 10], armR: [28, 4, 10], legL: 26, legR: -26, bob: .4},
     sit:   {armL: [20, 6, 30], armR: [20, 6, 30], legL: 90, legR: 90, sit: true},
     type:  {armL: [52, 8, 60], armR: [52, 8, 60], legL: 90, legR: 90, sit: true, head: -8},
+    typeB: {armL: [44, 8, 72], armR: [60, 8, 48], legL: 90, legR: 90, sit: true, head: -6},
+    read:  {armL: [46, 12, 84], armR: [46, 12, 84], legL: 0, legR: 0, head: -14},
+    point: {armL: [0, 6, 0], armR: [78, 14, 4], legL: 0, legR: 0, head: 6},
+    snooze: {armL: [16, 6, 26], armR: [16, 6, 26], legL: 90, legR: 90, sit: true, head: -24},
     wave:  {armL: [0, 6, 0], armR: [0, 150, -40], legL: 0, legR: 0, head: 6},
     ask:   {armL: [10, 28, 70], armR: [-10, 146, -26], legL: 0, legR: 0, head: 8},
     stuck: {armL: [0, 140, 95], armR: [0, 140, 95], legL: 0, legR: 0, head: -10},

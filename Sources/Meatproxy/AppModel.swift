@@ -21,7 +21,57 @@ final class AppModel: ObservableObject {
     @Published var commandsOpen = false
     @Published var contextMenuState: ContextMenuState?
     /// a panel of the HUD is open over the world: plain keys (N, Esc) belong to it, not to the world
-    var overlayOpen: Bool { paletteOpen || commandsOpen || contextMenuState != nil }
+    var overlayOpen: Bool { paletteOpen || commandsOpen || factoryPickerOpen || contextMenuState != nil }
+    /// the walk's last quest (D1): which project gets a CEO
+    @Published var factoryPickerOpen = false
+    /// the floor that quest landed on: its Factory switch is step 2 of 2 until you switch it on
+    @Published var factoryQuest: String?
+    /// Help's tab: every key, or the field guide (D7)
+    @Published var helpTab: HelpTab = .keys
+    /// window shots: a tab to open on the next floor entered
+    var pendingTab: FactoryOverview.Tab?
+    /// the group open on a factory's CEO tab (D2): "rhythm", "wakes", "autonomy", "limits", "models", "contract"
+    @Published var ceoGroup: String?
+    /// the walk's open step: its goal is done, and one button takes you on (D8)
+    @Published var walkGoalDone = false
+    /// a key pressed the visible button's way: N on Next, Esc on Up
+    @Published var nextPulse = 0
+    @Published var upPulse = 0
+    /// 1 or 2 pressed on an open question (C4, C9): its card shows the confirm step for that answer
+    struct AnswerKey: Equatable { var count = 0; var yes = true }
+    @Published var answerKey = AnswerKey()
+    /// the open question the inspector shows: a factory's decision, or the question about the open server (C9)
+    var openQuestion: (project: Project, decision: FactoryDecision)? {
+        let s = selection
+        if let d = s.decisionID, let pid = s.projectID, let q = world.decision(project: pid, d), q.decision.status == .open { return q }
+        if s.decisionID == nil, s.engineRoom, let id = s.serverID, let sv = world.servers.first(where: { $0.id == id }),
+           let ops = world.ops, let d = Self.question(about: sv.name, in: ops) { return (ops, d) }
+        return nil
+    }
+    var answerable: Bool { openQuestion != nil }
+    /// tokens "saved" in a demo: nothing reaches the Keychain
+    @Published var demoTokens: Set<Secrets.Key> = []
+    /// The world's free area between the HUD's panels, in window points from the top left: right of the quest log,
+    /// left of the inspector (when one is open), below the top bar, above the bottom bar or the terminal drawer. The
+    /// HUD keeps it current; the world frames what you open in it (once WorldController takes a safe area).
+    @Published var freeArea: CGRect = .zero
+
+    /// A resume command that first prints what the chat asked (C5). The question goes in as an argument of sh, never
+    /// into the script, so nothing in it is run.
+    static func withQuestion(_ c: TerminalCommand, _ said: String?) -> TerminalCommand {
+        guard let q = said?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty else { return c }
+        let shown = q.count > 1200 ? "…" + String(q.suffix(1199)) : q
+        return TerminalCommand(title: c.title, executable: "/bin/sh",
+                               args: ["-c", "printf '\\033[2mIt asked:\\033[0m\\n%s\\n\\n' \"$1\"; shift; exec \"$@\"", "sh", shown, c.executable] + c.args, cwd: c.cwd)
+    }
+    /// the DevOps agent's open question about a server: the first that names it as a word
+    static func question(about server: String, in ops: Project) -> FactoryDecision? {
+        let word = try? NSRegularExpression(pattern: "(^|[^A-Za-z0-9_-])" + NSRegularExpression.escapedPattern(for: server) + "($|[^A-Za-z0-9_-])")
+        return ops.factory?.openDecisions.first { d in
+            let text = d.title + " " + d.why
+            return word?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+        }
+    }
     /// the Status layer on the campus (D69), remembered between launches
     @Published var statusLayer = !AppModel.demo && UserDefaults.standard.bool(forKey: "statusLayer")
     /// the status pages you watch (D69)
@@ -378,9 +428,9 @@ final class AppModel: ObservableObject {
     }
 
     private func apply(_ w: World) {
-        world = w
+        world = withTeams(w).withUniqueNames()
         lastRead = w.now
-        controller.show(w)
+        controller.show(world)
         Task { await controller.ensurePortraits(w.projects.flatMap { p in p.sessions.map { p.cast(of: $0) } }); objectWillChange.send() }
     }
 
@@ -469,7 +519,9 @@ final class AppModel: ObservableObject {
     /// heartbeat run that is still going stops first (it is yours now), and that factory's heartbeat waits until you
     /// close the tab.
     func takeOver(_ s: Session) {
-        guard let cmd = TerminalCommand.resume(s) else { status = "This session cannot be resumed here (no \(s.provider == .claude ? "claude" : "codex") CLI found)."; return }
+        guard let resume = TerminalCommand.resume(s) else { status = "This session cannot be resumed here (no \(s.provider == .claude ? "claude" : "codex") CLI found)."; return }
+        // a chat that waits shows what it asked above the conversation (C5): answering happens there, not in the app
+        let cmd = s.state(now: world.now) == .waiting ? Self.withQuestion(resume, s.lastSaid) : resume
         let root = world.projects.first { $0.sessions.contains { $0.id == s.id } }?.root
         let ceo = s.heartbeatRun == true && root != nil
         if ceo, let root { heartbeats.takeOver(root) }
@@ -631,7 +683,10 @@ final class AppModel: ObservableObject {
 
     /// Switches a project on or off as a Dark Software Factory. Nothing in the project changes: the factory's files are
     /// its CEO's; the app only reads them (and writes your answers). A factory stays on the campus.
-    func setFactory(_ root: String, on: Bool) { changeProjects { $0.update(root) { e in e.factory = on; if on { e.pinned = true } } } }
+    func setFactory(_ root: String, on: Bool) {
+        changeProjects { $0.update(root) { e in e.factory = on; if on { e.pinned = true } } }
+        if on, factoryQuest == root { factoryQuest = nil }
+    }
     /// Keeps a project on the campus without a recent session (D46).
     func setPinned(_ root: String, on: Bool) { changeProjects { $0.update(root) { $0.pinned = on } } }
     func setShowChats(_ on: Bool) { changeProjects { $0.showChats = on } }
@@ -708,13 +763,109 @@ final class AppModel: ObservableObject {
         return world.projects.first { $0.root == root }?.factory?.mandate ?? FactoryMandate()
     }
 
-    /// Changes a factory's mandate and writes it (contract v3, D56); the CEO follows it from its next run.
+    /// Changes a factory's mandate and writes it (contract v3, D56); the CEO follows it from its next run. A floor that
+    /// follows the campus team gets the campus default's numbers written out.
     func setMandate(_ root: String, _ change: (inout FactoryMandate) -> Void) {
         var m = mandate(root)
         change(&m)
+        if !m.ownTeam { m.team = projectSettings.defaultTeam }
         if fixture { demoMandates[root] = m; objectWillChange.send(); return }
         do { try MandateFile.write(m, root: root); refresh() }
         catch { status = "Could not write the mandate: \(error.localizedDescription)" }
+    }
+
+    // MARK: the team (D79)
+
+    /// The team a floor works with: its own, or the campus default.
+    func team(_ root: String) -> (team: AgentTeam, own: Bool) {
+        let m = mandate(root)
+        return m.ownTeam ? (m.team, true) : (projectSettings.defaultTeam, false)
+    }
+
+    /// Gives a floor its own team (starting from the one it has) and changes it.
+    func setTeam(_ root: String, _ change: (inout AgentTeam) -> Void) {
+        let start = team(root).team
+        setMandate(root) { m in m.ownTeam = true; m.team = start; change(&m.team) }
+        showTeams()
+    }
+
+    /// Back to the campus default, or its own team starting from the default's numbers.
+    func followCampusTeam(_ root: String, _ follow: Bool) {
+        let start = team(root).team
+        setMandate(root) { m in m.ownTeam = !follow; m.team = start }
+        showTeams()
+    }
+
+    /// Changes the campus default and writes it into every factory floor that follows it.
+    func setDefaultTeam(_ change: (inout AgentTeam) -> Void) {
+        changeProjects { change(&$0.defaultTeam) }
+        for root in projectSettings.factoryRoots where isSetUp(root) && !mandate(root).ownTeam { setMandate(root) { _ in } }
+        showTeams()
+    }
+
+    /// Every factory floor knows its team and the look of each profile, so all of them are on the floor (D79).
+    private func withTeams(_ w: World) -> World {
+        var w = w
+        let roles = Dictionary(projectSettings.customProfiles.map { ($0.name, $0.look) }, uniquingKeysWith: { a, _ in a })
+        for b in w.buildings.indices {
+            for k in w.buildings[b].projects.indices where w.buildings[b].projects[k].factory != nil {
+                let root = w.buildings[b].projects[k].root
+                guard isSetUp(root) else { continue }
+                w.buildings[b].projects[k].team = team(root).team
+                w.buildings[b].projects[k].teamRoles = roles
+            }
+        }
+        return w
+    }
+    /// the floor follows a team change at once
+    private func showTeams() { world = withTeams(world); controller.show(world) }
+
+    /// Adds a profile of your own; it is offered on every floor.
+    func addProfile(_ p: CustomProfile) {
+        changeProjects { $0.customProfiles.append(p) }
+        showTeams()
+    }
+    /// Removes a profile of your own: from the list and from every team (its agent files stay where they are).
+    func removeProfile(_ name: String) {
+        changeProjects { $0.customProfiles.removeAll { $0.name == name }; $0.defaultTeam.set(name, 0) }
+        for root in projectSettings.factoryRoots where isSetUp(root) && mandate(root).ownTeam && mandate(root).team.count(name) > 0 {
+            setMandate(root) { $0.team.set(name, 0) }
+        }
+        showTeams()
+    }
+
+    /// The profiles a roster shows: Meatproxy's, the ones you made, then other agent files in the project.
+    func profiles(_ root: String?) -> [AgentProfile] {
+        let mine = AgentProfile.standard + projectSettings.customProfiles.map(\.profile)
+        guard let root, !fixture else { return mine }
+        let own = TeamFiles.existing(root: root).filter { e in !mine.contains { $0.name == e.key } }
+        return mine + own.keys.sorted().map { AgentProfile.own($0, model: own[$0] ?? nil) }
+    }
+    func isCustom(_ name: String) -> Bool { projectSettings.customProfiles.contains { $0.name == name } }
+
+    /// The model a profile runs on in this project: its agent file's, or the one Meatproxy writes.
+    func model(_ p: AgentProfile, root: String?) -> String {
+        guard let root, !fixture, let m = TeamFiles.existing(root: root)[p.name] else { return p.model }
+        return m ?? "inherit"
+    }
+
+    /// The agent files a floor's team still needs (none on a Codex floor: Codex has no agent files).
+    func teamFiles(_ project: Project) -> [StarterFile] {
+        guard project.provider == .claude else { return [] }
+        var plan = TeamFiles.plan(root: project.root, project: project.name, team: team(project.root).team, profiles: profiles(project.root))
+        if fixture { for k in plan.indices { plan[k].exists = demoTeamFiles.contains(project.root + plan[k].path) } }
+        return plan
+    }
+    private var demoTeamFiles: Set<String> = []
+
+    /// Writes the missing agent files you approved; never replaces one. The demo only pretends.
+    func createTeamFiles(_ project: Project, files: [StarterFile]) {
+        if fixture { for f in files { demoTeamFiles.insert(project.root + f.path) }; objectWillChange.send(); return }
+        do {
+            let written = try FactoryScaffold.create(files, root: project.root)
+            status = "Wrote \(written.count) agent file\(written.count == 1 ? "" : "s") in \(project.name)"
+            objectWillChange.send()
+        } catch { status = "Could not write the agent files: \(error.localizedDescription)" }
     }
 
     /// Sends the factory's CEO an idea (factory/ideas/), and wakes it a few minutes later like an answer does.
@@ -882,6 +1033,7 @@ final class AppModel: ObservableObject {
     @Published var nextPressed = 0
     func endWalk() {
         walkStep = nil
+        walkGoalDone = false
         if !fixture { UserDefaults.standard.set(true, forKey: "walkDone") }
     }
 
@@ -957,8 +1109,18 @@ final class AppModel: ObservableObject {
     // MARK: sessions
 
     /// How a session is drawn: its role in its project (the CEO is the project's main chat, D41) and its id.
+    /// A person's look, as the floor casts it: the project with its standing CEO (`withStandingCEO`), exactly as the
+    /// world paints the floor, so the HUD and the floor never disagree on who the CEO is.
     func cast(of s: Session) -> CastKey {
-        world.projects.first { $0.sessions.contains { $0.id == s.id } }?.cast(of: s) ?? CastKey(role: s.workRole, seed: s.id)
+        world.projects.first { $0.sessions.contains { $0.id == s.id } }?.withStandingCEO.cast(of: s) ?? CastKey(role: s.workRole, seed: s.id)
+    }
+
+    /// A project's CEO as the floor shows it: the person of `ceoID` on the floor's project (with its standing CEO).
+    /// One source for the briefing, the Team tab and anything else that names the CEO.
+    func ceo(of p: Project) -> (name: String, cast: CastKey) {
+        let floor = p.withStandingCEO
+        if let id = floor.ceoID, let s = floor.sessions.first(where: { $0.id == id }) { return (s.persona.name, floor.cast(of: s)) }
+        return (Persona(id: "ceo:" + p.root).name, CastKey(role: .ceo, seed: "ceo:" + p.root))
     }
 
     func session(_ id: String?) -> (project: Project, session: Session)? {

@@ -335,7 +335,6 @@ extension CampusScene {
         st.roof?.position.y = st.roofOffset * px
         for k in st.pieces.indices { layer(st.key, storey: k)?.position.y = st.offset(k) * px }
         layer(st.key, storey: nil)?.position.y = st.roofOffset * px
-        life.shafts[st.key]?.alpha = 1 - min(1, st.e * 3)
         for (i, sg) in signs.enumerated() where sg.owner == st.key && i < signHome.count {
             let off = sg.plaque ? sg.storey.map { st.offset($0) } ?? 0 : st.roofOffset
             sg.node.position = CGPoint(x: signHome[i].x, y: signHome[i].y + off * px)

@@ -44,6 +44,8 @@ public final class WorldController {
     private var campusSignature = ""
     private var orbitSignature = ""
     private var painting = false
+    /// the campus is painted by moonlight (A8)
+    private var campusNight = false
     private var needsRepaint = false
     private var needsIndex = -1
     /// the question you asked to see; it stays while you are at its project's level, so a fly there does not drop it
@@ -56,9 +58,15 @@ public final class WorldController {
         campus.onSelectSession = { [weak self] id in self?.select(session: id) }
         campus.onHoverTitle = { [weak self] t in self?.onHoverTitle?(t) }
         campus.onEffect = { [weak self] k, t, l in self?.onEffect?(k, t, l) }
+        // A8: dusk and dawn repaint the campus by moonlight or by day
+        campus.onNightChange = { [weak self] night in
+            guard let self, self.campusNight != night else { return }
+            self.campusNight = night
+            Task { await self.repaintCampus() }
+        }
         campus.onSelectServer = { [weak self] c in guard let self else { return }; self.select(server: self.world.racks.indices.contains(c) ? self.world.racks[c].id : nil) }
         orbit.engine = engine
-        orbit.insets = (330, 0)
+        setSafeArea(Self.defaultSafeArea)
         orbit.onPath = { [weak self] p in self?.orbitPathChanged(p) }
         orbit.onNext = { [weak self] in self?.nextWaiting() }
     }
@@ -66,12 +74,45 @@ public final class WorldController {
     public func attach(_ v: SKView) {
         view = v
         v.ignoresSiblingOrder = false
+        if let f = pendingFree { pendingFree = nil; setSafeArea(f) }
         if v.scene == nil { v.presentScene(inOrbit ? orbit : (floor ?? campus)) }
     }
 
     public var animationsEnabled: Bool {
         get { campus.animationsEnabled }
         set { campus.animationsEnabled = newValue; floor?.animationsEnabled = newValue; orbit.animationsEnabled = newValue }
+    }
+
+    // MARK: the free area
+
+    /// What the HUD leaves free of the view, in view points: the quest log on the left, the inspector on the right, the
+    /// top and bottom bars (Spel+: 360 + 16 a side, 64 top and bottom).
+    public struct SafeArea: Equatable, Sendable {
+        public var left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat
+        public init(left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat) { self.left = left; self.right = right; self.top = top; self.bottom = bottom }
+    }
+    public static let defaultSafeArea = SafeArea(left: 376, right: 376, top: 64, bottom: 64)
+    public private(set) var safeArea = WorldController.defaultSafeArea
+    private var pendingFree: CGRect?
+
+    /// The HUD says what it covers: every world frames itself inside the rest. The campus overview keeps no room on the
+    /// right (no inspector there; the island runs out of the view on purpose, A4), its building levels and the floors do.
+    /// The free area as the HUD keeps it (AppModel.freeArea): a rect in window points from the top left, measured
+    /// against the world's view. Without an inspector open its right edge is near the window's; the building levels
+    /// still keep room for the inspector they open.
+    public func setSafeArea(_ free: CGRect) {
+        guard free.width > 0, free.height > 0 else { return }
+        // (before the view is attached: kept for then)
+        guard let v = view else { pendingFree = free; return }
+        let size = v.bounds.size
+        setSafeArea(SafeArea(left: free.minX, right: max(0, size.width - free.maxX), top: free.minY, bottom: max(0, size.height - free.maxY)))
+    }
+
+    public func setSafeArea(_ a: SafeArea) {
+        safeArea = a
+        campus.insets = (a.left, 0); campus.bars = (a.top, a.bottom); campus.inspectorRight = max(a.right, Self.defaultSafeArea.right)
+        orbit.insets = (a.left, 0); orbit.bars = (a.top, a.bottom)
+        if let f = floor { f.insets = (a.left, a.right); f.bars = (a.top, a.bottom) }
     }
 
     // MARK: data
@@ -91,11 +132,12 @@ public final class WorldController {
             + "|servers:" + w.servers.map { "\($0.id)=\($0.kind.rawValue)/\($0.state.rawValue)" }.joined(separator: ",")
     }
     static func signature(_ p: Project, now: Date) -> String {
-        p.id + "=" + p.sessions.map { "\($0.id.prefix(8))\($0.state(now: now).rawValue.prefix(2))\($0.subAgents.count)\($0.room(now: now).rawValue.prefix(3))" }.joined()
+        p.id + "=" + p.sessions.map { "\($0.id.prefix(8))\($0.state(now: now).rawValue.prefix(2))\($0.subAgents.count)\($0.subAgents.filter(\.finished).count)\($0.room(now: now).rawValue.prefix(3))" }.joined()
+            + (p.team.map { t in "|t" + t.names.map { "\($0):\(t.count($0))" }.joined(separator: ",") } ?? "")
     }
 
     /// The people of a project, and their helpers, as cast keys.
-    private func casts(_ p: Project) -> [CastKey] { p.sessions.flatMap { s in [p.cast(of: s)] + s.subAgents.map(\.cast) } }
+    private func casts(_ p: Project) -> [CastKey] { p.sessions.flatMap { s in [p.cast(of: s)] + s.subAgents.map(\.cast) } + p.teamSlots.map(\.cast) }
 
     private func loadFigures(_ keys: [CastKey]) async {
         for k in keys where figures[k.key] == nil { if let f = try? await engine.figure(k) { figures[k.key] = f } }
@@ -103,10 +145,12 @@ public final class WorldController {
 
     public func repaintCampus() async {
         if painting { needsRepaint = true; return }
-        painting = true; defer { painting = false }
+        painting = true
         if !campus.isPainted { onStatus?("Building the campus…") }
         do {
-            let art = try await engine.campus(world)
+            let started = Date()
+            let art = try await engine.campus(world, night: campusNight)
+            if WindowShotLog.on { print("campus painted in \(Int(Date().timeIntervalSince(started) * 1000)) ms (art engine \(art.timing))\(art.night ? ", by moonlight" : "")") }
             // a few of the team walk the roads: the most recent sessions
             let walkers = world.projects.flatMap { p in p.sessions.map { (p, $0) } }.sorted { $0.1.lastAt > $1.1.lastAt }.prefix(CampusScene.walkerCount).map { $0.0.cast(of: $0.1) }
             await loadFigures(walkers)
@@ -119,6 +163,9 @@ public final class WorldController {
             }
             onStatus?(nil)
         } catch { onStatus?("The art engine did not answer: \(error.localizedDescription)") }
+        // the flag goes down first: a repaint asked for meanwhile (new data, a night that fell) must not find it still up
+        // and be lost
+        painting = false
         if needsRepaint { needsRepaint = false; await repaintCampus() }
     }
 
@@ -145,7 +192,7 @@ public final class WorldController {
             let scene = floor ?? FloorScene(size: view?.bounds.size ?? CGSize(width: 1200, height: 800))
             scene.engine = engine
             scene.animationsEnabled = campus.animationsEnabled
-            scene.insets = (330, 370)
+            scene.insets = (safeArea.left, safeArea.right); scene.bars = (safeArea.top, safeArea.bottom)
             scene.onSelect = { [weak self] s, a in self?.selectInFloor(s, a) }
             scene.onExit = { [weak self] in self?.exitFloor() }
             scene.onNext = { [weak self] in self?.nextWaiting() }
@@ -425,3 +472,6 @@ public final class WorldController {
         onChange?(selection)
     }
 }
+
+/// Window shots print a few timings (debug aid).
+enum WindowShotLog { static let on = ProcessInfo.processInfo.environment["SF_WINDOW_SHOT"] != nil }

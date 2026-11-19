@@ -70,8 +70,10 @@ public final class ArtEngine: NSObject, WKURLSchemeHandler {
         return f
     }
 
-    /// The campus: the towers have a storey per project, a yellow band where something waits (D22, D25).
-    public func campus(_ world: World) async throws -> CampusArt {
+    /// The campus (Spel+, D80): the towers have a storey per project with a blade sign, yellow where something waits;
+    /// the Server room's racks carry the servers' names; the quest pillar counts what waits for you and names the first
+    /// quests. `night` paints it by moonlight, where only real light sources glow (A8).
+    public func campus(_ world: World, night: Bool = false) async throws -> CampusArt {
         func floors(_ p: Provider) -> [[String: Any]] {
             (world.building(p)?.projects ?? []).map { pr in
                 var f: [String: Any] = ["name": pr.name, "wait": pr.waits(now: world.now),
@@ -81,9 +83,18 @@ public final class ArtEngine: NSObject, WKURLSchemeHandler {
             }
         }
         let sum = world.serverSummary
-        let input: [String: Any] = ["R": 3, "claude": floors(.claude), "chatgpt": floors(.chatgpt), "waiting": world.needsYou.count,
+        let racks = world.racks.prefix(6).map { ["name": $0.name, "state": $0.state.rawValue] }
+        let input: [String: Any] = ["R": 2, "claude": floors(.claude), "chatgpt": floors(.chatgpt), "waiting": world.needsYou.count,
+                                    "quests": Array(world.needsYou.compactMap { Self.questLabel($0) }.prefix(2)), "night": night, "racks": racks,
                                     "engine": ["total": sum.total, "warn": sum.warn, "down": sum.down]]
         return CampusArt(try await call("return await window.sf.campus(input)", ["input": input]))
+    }
+
+    /// A quest on the pillar's side (A3): its question when that is short enough to stand there whole (12 letters at
+    /// most, without what is in brackets); nil otherwise: no cut-off lines.
+    static func questLabel(_ n: NeedsYou) -> String? {
+        let t = n.title.replacingOccurrences(of: #"\s*\([^)]*\)"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        return t.count <= 12 && !t.isEmpty ? t.uppercased() : nil
     }
 
     /// A project's logo as a small PNG data URI for its plaque (D58): drawn once per file at 48 px, kept.
@@ -119,7 +130,20 @@ public final class ArtEngine: NSObject, WKURLSchemeHandler {
     public func cachedFigure(_ cast: CastKey) -> Figure? { figures[cast.key] }
 
     /// A name tag, an emote bubble or the stuck cloud: small images centred on their anchor.
-    public func tag(_ text: String, state: String) async -> Overlay? { await overlay("tag|\(state)|\(text)", "return await window.sf.tag(o)", ["text": text, "state": state]) }
+    public func tag(_ text: String, state: String) async -> Overlay? { await tag(text, sub: "", state: state) }
+    /// A name plate (Spel+, B2 B3 B6 B7): the name, a quiet second line, the role's colour; state work, wait, stuck, done
+    /// or back; badge, the colour of a diamond a helper shares with its person (nil: none). Its rect: the tip at (0, 0).
+    public func tag(_ text: String, sub: String, state: String, role: String = "#6a6478", badge: String? = nil) async -> Overlay? {
+        var o: [String: Any] = ["text": text, "sub": sub, "state": state, "role": role]
+        if let badge { o["badge"] = badge }
+        return await overlay("tag|\(state)|\(text)|\(sub)|\(role)|\(badge ?? "")", "return await window.sf.tag(o)", o)
+    }
+    /// The one board on the Planning wall (B1): a card per workstream in its phase's column. A flat board laid on the
+    /// wall's plane; its rect is relative to the board's top-left corner on the wall.
+    public func board(_ cards: [[String: Any]]) async -> Overlay? {
+        let key = "board|" + cards.map { "\($0["id"] ?? "")\($0["phase"] ?? "")\($0["wait"] ?? "")\($0["back"] ?? "")\($0["title"] ?? "")" }.joined(separator: ",")
+        return await overlay(key, "return await window.sf.board(o)", ["cards": cards])
+    }
     public func emote(_ kind: String) async -> Overlay? { await overlay("emote|\(kind)", "return await window.sf.emote(o)", ["kind": kind]) }
     public func cloud() async -> Overlay? { await overlay("cloud", "return await window.sf.cloud(o)", [:]) }
     private var overlays: [String: Overlay] = [:]
@@ -185,10 +209,14 @@ public struct ArtImage {
 public struct Overlay { public var image: CGImage, rect: CGRect }
 
 /// One sign (a room sign, a plaque, a roof board) on its own image, named after what it hangs on.
-public struct SignPart { public var id: String, image: ArtImage }
+public struct SignPart {
+    public var id: String, image: ArtImage
+    /// what it hangs on, as a depth key (a plaque on a wall sorts with the wall); nil: over everything
+    public var key: CGFloat? = nil
+}
 
 func signParts(_ a: Any?) -> [SignPart] {
-    ((a as? [[String: Any]]) ?? []).compactMap { d in ArtImage(d).map { SignPart(id: d["id"] as? String ?? "", image: $0) } }
+    ((a as? [[String: Any]]) ?? []).compactMap { d in ArtImage(d).map { SignPart(id: d["id"] as? String ?? "", image: $0, key: d["key"] is NSNumber ? num(d["key"]) : nil) } }
 }
 
 /// One object of a scene, cut from an atlas page: a sprite sorted by its depth key.
@@ -197,6 +225,8 @@ public struct ArtObject {
     public var key: CGFloat
     public var texture: SKTexture
     public var rect: CGRect
+    /// how see-through it is drawn (a cloud); 1 for most
+    public var alpha: CGFloat = 1
 }
 
 func atlasObjects(_ a: Any?) -> [ArtObject] {
@@ -208,7 +238,8 @@ func atlasObjects(_ a: Any?) -> [ArtObject] {
         let page = pages[k], W = page.size().width, H = page.size().height
         let px = num(it["px"]), py = num(it["py"]), pw = num(it["pw"]), ph = num(it["ph"])
         let tex = SKTexture(rect: CGRect(x: px / W, y: 1 - (py + ph) / H, width: pw / W, height: ph / H), in: page)
-        return ArtObject(id: it["id"] as? String, key: num(it["key"]), texture: tex, rect: CGRect(x: num(it["x"]), y: num(it["y"]), width: num(it["w"]), height: num(it["h"])))
+        return ArtObject(id: it["id"] as? String, key: num(it["key"]), texture: tex, rect: CGRect(x: num(it["x"]), y: num(it["y"]), width: num(it["w"]), height: num(it["h"])),
+                         alpha: it["alpha"] == nil ? 1 : num(it["alpha"]))
     }
 }
 
@@ -260,12 +291,25 @@ public struct FloorArt {
 }
 
 public struct CampusArt {
-    /// kind: "factory", "chats" or "project" (D62); windows: the front windows' quads, so the app can light them
-    public struct Storey { public var building: String, index: Int, faces: [[CGPoint]], kind: String = "project", windows: [[CGPoint]] = [] }
+    /// kind: "factory", "chats" or "project" (D62); windows: the front windows' quads, so the app can light them;
+    /// mount: where an alarm light hangs on its front face (art units)
+    public struct Storey { public var building: String, index: Int, faces: [[CGPoint]], kind: String = "project", windows: [[CGPoint]] = [], mount: CGPoint? = nil }
     /// per tower: the antenna's tip (its lamp blinks) and the chimney's mouth when a factory works there (it smokes)
     public struct Tower { public var building: String, antenna: CGPoint, chimney: CGPoint? }
     public var towers: [Tower] = []
     public var view: CGRect, ground: ArtImage?, objects: [ArtObject], light: ArtImage?, signs: [SignPart], boxes: [Box]
+    /// the island's underside, a coarser image under the ground
+    public var under: ArtImage?
+    /// the island's top with its towers (art units): what the home view fills (A4)
+    public var island: CGRect = .zero
+    /// each rack's front panel (art units) and its box: i0, i1 along the front, the front's j, z0, z1
+    public var rackPanels: [[CGPoint]] = [], rackBoxes: [[CGFloat]] = []
+    /// the way a deploy's packets go from each tower's door to the Server room, in tiles
+    public var streams: [String: [CGPoint]] = [:]
+    /// painted by moonlight (A8)
+    public var night = false
+    /// how long the art engine took: building the scene and painting it (ms)
+    public var timing: [Int] = []
     /// what you can point at besides the buildings, as boxes (tiles, and a height in model units): "fountain"
     public var hits: [String: [(rect: CGRect, height: CGFloat)]]
     public struct Rack { public var c: Int, r: Int, pts: [CGPoint] }
@@ -282,14 +326,24 @@ public struct CampusArt {
         view = v.count == 4 ? CGRect(x: v[0], y: v[1], width: v[2] - v[0], height: v[3] - v[1]) : .zero
         // the buildings come on their own atlas, painted with more pixels
         ground = ArtImage(d["ground"]); objects = atlasObjects(d["objects"]) + atlasObjects(d["buildings"]); light = ArtImage(d["light"])
+        under = ArtImage(d["under"])
         signs = signParts(d["signParts"])
+        for r in (d["rackPanels"] as? [[String: Any]]) ?? [] {
+            rackPanels.append(((r["pts"] as? [Any]) ?? []).map(point)); rackBoxes.append(((r["box"] as? [Any]) ?? []).map(num))
+        }
+        streams = ((d["streams"] as? [String: [Any]]) ?? [:]).mapValues { $0.map(point) }
+        timing = ((d["timing"] as? [Any]) ?? []).map { Int(num($0)) }
+        night = d["night"] as? Bool ?? false
+        let isl = (d["island"] as? [Any] ?? []).map(num)
+        island = isl.count == 4 ? CGRect(x: isl[0], y: isl[1], width: isl[2] - isl[0], height: isl[3] - isl[1]) : view
         boxes = FactoryScenes.boxes(d["boxes"])
         hits = ((d["hits"] as? [String: [[Any]]]) ?? [:]).mapValues { list in
             list.compactMap { b in let v = b.map(num); return v.count == 5 ? (CGRect(x: v[0], y: v[1], width: v[2] - v[0], height: v[3] - v[1]), v[4]) : nil }
         }
         storeys = ((d["storeys"] as? [[String: Any]]) ?? []).map { s in
             Storey(building: s["building"] as? String ?? "", index: Int(num(s["index"])), faces: ((s["faces"] as? [[Any]]) ?? []).map { $0.map(point) },
-                   kind: s["kind"] as? String ?? "project", windows: ((s["windows"] as? [[Any]]) ?? []).map { $0.map(point) })
+                   kind: s["kind"] as? String ?? "project", windows: ((s["windows"] as? [[Any]]) ?? []).map { $0.map(point) },
+                   mount: s["mount"].flatMap { $0 is NSNull ? nil : point($0) })
         }
         fountain = point(d["fountain"])
         towers = ((d["towers"] as? [[String: Any]]) ?? []).map { t in
@@ -322,18 +376,26 @@ public struct Figure {
         Spec(pose: "idle", view: v, mood: "wait", noProp: false), Spec(pose: "stuck", view: v, mood: "stuck", noProp: true),
         Spec(pose: "mug", view: v, mood: "tired", noProp: false), Spec(pose: "cheer", view: v, mood: "happy", noProp: true),
         Spec(pose: "wave", view: v, mood: "happy", noProp: false), Spec(pose: "idle", view: v, mood: "tired", noProp: false),
+        // the loops of someone who stands still (IdleMotion): typing, asking, reading, pointing, dozing
+        Spec(pose: "typeB", view: v, mood: "focus", noProp: true), Spec(pose: "ask", view: v, mood: "wait", noProp: false),
+        Spec(pose: "read", view: v, mood: "calm", noProp: false), Spec(pose: "point", view: v, mood: "calm", noProp: false),
+        Spec(pose: "snooze", view: v, mood: "tired", noProp: true),
     ] }
     public var frames: [String: (texture: SKTexture, rect: CGRect)] = [:]
     public var portrait: CGImage?
 
     init(_ d: [String: Any]) {
-        guard let page = d["page"] as? [String: Any], let cg = decodeImage( page["png"] as? String) else { return }
-        let tex = SKTexture(cgImage: cg), W = CGFloat(cg.width), H = CGFloat(cg.height)
+        // one atlas page, or more when the frames do not fit on one
+        let pages = ((d["pages"] as? [[String: Any]]) ?? [d["page"] as? [String: Any]].compactMap { $0 })
+            .compactMap { decodeImage($0["png"] as? String) }
+        guard !pages.isEmpty else { return }
+        let textures = pages.map { SKTexture(cgImage: $0) }
         for (k, f) in ((d["frames"] as? [[String: Any]]) ?? []).enumerated() where k < Self.specs.count {
+            let n = min(Int(num(f["page"])), pages.count - 1), tex = textures[n], W = CGFloat(pages[n].width), H = CGFloat(pages[n].height)
             let px = num(f["px"]), py = num(f["py"]), pw = num(f["pw"]), ph = num(f["ph"])
             let t = SKTexture(rect: CGRect(x: px / W, y: 1 - (py + ph) / H, width: pw / W, height: ph / H), in: tex)
             frames[Self.specs[k].name] = (t, CGRect(x: num(f["x"]), y: num(f["y"]), width: num(f["w"]), height: num(f["h"])))
-            if k == 0 { portrait = cg.cropping(to: CGRect(x: px, y: py, width: pw, height: ph * 0.62)) }
+            if k == 0 { portrait = pages[n].cropping(to: CGRect(x: px, y: py, width: pw, height: ph * 0.62)) }
         }
     }
 

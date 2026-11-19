@@ -2,7 +2,7 @@ import Foundation
 
 /// The roles you see on a floor (D41): every role its own outfit and something in its hand. The CEO is the main chat of
 /// a project, where the work starts and gets handed out; you are the stakeholder, not one of the cast.
-public enum CastRole: String, Sendable, CaseIterable {
+public enum CastRole: String, Sendable, CaseIterable, Codable {
     case ceo, lead, sales, marketing, pm, dev, designer, tester, devops, researcher
 
     public var label: String {
@@ -23,7 +23,11 @@ public enum CastRole: String, Sendable, CaseIterable {
     /// A sub-agent's type picks the helper's role: an Explore helper reads, a reviewer tests, and so on.
     public init(subAgentType type: String) {
         let t = type.lowercased()
-        if t.contains("explor") || t.contains("research") || t.contains("search") || t.contains("doc") { self = .researcher }
+        // a team profile's name is exact (D79): a helper started as "tester" is the Tester
+        let exact: [String: CastRole] = ["product": .pm, "developer": .dev, "tester": .tester, "designer": .designer, "research": .researcher,
+                                         "researcher": .researcher, "devops": .devops, "marketing": .marketing, "sales": .sales]
+        if let r = exact[t] { self = r }
+        else if t.contains("explor") || t.contains("research") || t.contains("search") || t.contains("doc") { self = .researcher }
         else if t.contains("plan") || t.contains("architect") { self = .pm }
         else if t.contains("review") || t.contains("test") || t.contains("qa") || t.contains("verif") || t.contains("audit") { self = .tester }
         else if t.contains("design") || t.contains("ui") || t.contains("style") { self = .designer }
@@ -48,10 +52,52 @@ public struct Persona: Hashable, Sendable {
     static let names = ["Mira", "Kai", "Rae", "Dex", "Lio", "Fen", "Uma", "Teo", "Ines", "Pax", "Rue", "Sol", "Vik", "Wren", "Yara", "Zia",
                         "Bram", "Cleo", "Duc", "Elif", "Gus", "Hana", "Ivy", "Jos", "Noor", "Otto"]
 
-    public init(id: String) {
+    public init(id: String) { name = Self.names[Self.index(id)] }
+    public init(name: String) { self.name = name }
+
+    /// where a seed lands in the list of names
+    static func index(_ seed: String) -> Int {
         var h: UInt32 = 2166136261
-        for b in id.utf8 { h = (h ^ UInt32(b)) &* 16777619 }
-        name = Self.names[Int(h % UInt32(Self.names.count))]
+        for b in seed.utf8 { h = (h ^ UInt32(b)) &* 16777619 }
+        return Int(h % UInt32(names.count))
+    }
+}
+
+extension World {
+    /// Everyone on the campus gets a name of their own: a name comes from the person's seed, and when two seeds land on
+    /// the same name, the later one takes the next free name in the list. Each factory's CEO chooses first and keeps its
+    /// name; everyone else goes in a fixed order (project, then session), so names stay put between refreshes.
+    public func withUniqueNames() -> World {
+        var taken = Set<String>(), bySeed: [String: String] = [:]
+        func assign(_ seed: String) {
+            guard bySeed[seed] == nil else { return }
+            let pool = Persona.names, start = Persona.index(seed)
+            if let free = (0..<pool.count).map({ pool[(start + $0) % pool.count] }).first(where: { !taken.contains($0) }) {
+                taken.insert(free); bySeed[seed] = free
+            } else {
+                // more people than names: number them
+                var k = 2
+                while taken.contains("\(pool[start]) \(k)") { k += 1 }
+                taken.insert("\(pool[start]) \(k)"); bySeed[seed] = "\(pool[start]) \(k)"
+            }
+        }
+        let ordered = projects.sorted { $0.id < $1.id }
+        // a CEO that has run keeps its name; then everyone in order; a factory's CEO that has not run yet (its resting
+        // stand-in) takes a name nobody uses, so switching a project to a factory renames nobody
+        for p in ordered where !p.isChat { if let id = p.ceoRunID, let s = p.sessions.first(where: { $0.id == id }) { assign(s.personaSeed) } }
+        for p in ordered { for s in p.sessions.sorted(by: { $0.id < $1.id }) { assign(s.personaSeed) } }
+        for p in ordered where p.factory != nil && !p.isChat && p.ceoRunID == nil { assign("ceo:" + p.root) }
+        var w = self
+        for b in w.buildings.indices {
+            for k in w.buildings[b].projects.indices {
+                let root = w.buildings[b].projects[k].root
+                for i in w.buildings[b].projects[k].sessions.indices {
+                    w.buildings[b].projects[k].sessions[i].displayName = bySeed[w.buildings[b].projects[k].sessions[i].personaSeed]
+                }
+                w.buildings[b].projects[k].ceoName = bySeed["ceo:" + root]
+            }
+        }
+        return w
     }
 }
 
@@ -108,8 +154,9 @@ public enum FloorRoom: String, Sendable, CaseIterable {
 
 extension Session {
     /// The heartbeat's CEO is the same person every run: seeded by its project folder, everyone else by their session.
-    public var personaSeed: String { heartbeatRun == true ? "ceo:" + (projectRoot ?? cwd) : id }
-    public var persona: Persona { Persona(id: personaSeed) }
+    /// The CEO is the same person every run, seeded by its project: a heartbeat's run, or a run that says CEO in its title.
+    public var personaSeed: String { heartbeatRun == true || Project.isCEOTitle(title) ? "ceo:" + (projectRoot ?? cwd) : id }
+    public var persona: Persona { displayName.map(Persona.init(name:)) ?? Persona(id: personaSeed) }
 
     /// The role from what the session does (D41), apart from the CEO, which its project decides (`Project.role(of:)`).
     /// The title names marketing, sales and design work; otherwise the actions vote, and pushes and deploys weigh three.
@@ -193,29 +240,50 @@ extension Project {
     public var ceoID: String? {
         // the heartbeat's run is the CEO (one per project); otherwise a factory's CEO run says so in its title
         if let run = sessions.first(where: { $0.heartbeatRun == true }) { return run.id }
-        if factory != nil, let run = sessions.first(where: { $0.title.range(of: #"\bCEO\b"#, options: [.regularExpression, .caseInsensitive]) != nil }) {
+        if factory != nil, let run = sessions.first(where: { Self.isCEOTitle($0.title) }) {
             return run.id
         }
-        guard sessions.count > 1 else { return nil }
-        let scored = sessions.map { s in (s, s.subAgents.count + s.activities.filter { $0.kind == .delegate }.count) }.filter { $0.1 > 0 }
+        return leadID
+    }
+
+    /// The Lead: the main chat of the project, the one that hands work out to helpers (only with more than one session,
+    /// and never a CEO run or its stand-in). It stays the Lead when the project becomes a factory.
+    public var leadID: String? {
+        let people = sessions.filter { $0.heartbeatRun != true && !$0.id.hasPrefix(Self.standingCEOPrefix) && !(factory != nil && Self.isCEOTitle($0.title)) }
+        guard people.count > 1 else { return nil }
+        let scored = people.map { s in (s, s.subAgents.count + s.activities.filter { $0.kind == .delegate }.count) }.filter { $0.1 > 0 }
         return scored.max { $0.1 < $1.1 || ($0.1 == $1.1 && ($0.0.startedAt ?? $0.0.lastAt) > ($1.0.startedAt ?? $1.0.lastAt)) }?.0.id
     }
 
-    /// The main chat's role: a factory's (or a heartbeat run's) is its CEO; a plain project's is its Lead.
-    public func role(of s: Session) -> CastRole {
-        guard s.id == ceoID else { return s.workRole }
-        return factory != nil || s.heartbeatRun == true || s.id.hasPrefix(Self.standingCEOPrefix) ? .ceo : .lead
+    /// A factory's real CEO session: a heartbeat run, or a run that says CEO in its title. A chat of yours is never it.
+    public var ceoRunID: String? {
+        if let run = sessions.first(where: { $0.heartbeatRun == true }) { return run.id }
+        if factory != nil, let run = sessions.first(where: { Self.isCEOTitle($0.title) }) { return run.id }
+        return nil
     }
+
+    /// The CEO is only ever a CEO run or its resting stand-in; the main chat of a project is its Lead, also in a factory:
+    /// switching a project to a factory never turns your own chat (and its question to you) into the CEO.
+    public func role(of s: Session) -> CastRole {
+        if s.heartbeatRun == true || s.id.hasPrefix(Self.standingCEOPrefix) || (factory != nil && Self.isCEOTitle(s.title)) { return .ceo }
+        return s.id == leadID ? .lead : s.workRole
+    }
+
+    /// A factory's CEO run says so in its title ("Pebble factory: CEO run").
+    static func isCEOTitle(_ t: String) -> Bool { t.range(of: #"\bCEO\b"#, options: [.regularExpression, .caseInsensitive]) != nil }
 
     /// The id of a factory's resting CEO, before its first heartbeat run.
     public static let standingCEOPrefix = "ceo-standing:"
     /// A factory always shows its CEO on its floor: before the first heartbeat run, a resting stand-in. It is the same
     /// person as the runs (the CEO is seeded by the project), so the first run takes over that figure.
     public var withStandingCEO: Project {
-        guard factory != nil, !isChat, !sessions.contains(where: { $0.heartbeatRun == true }) else { return self }
+        // a CEO session already there (a heartbeat's run, one that says CEO in its title, the main chat) is the CEO: no
+        // second one beside it
+        guard factory != nil, !isChat, ceoRunID == nil else { return self }
         var s = Session(id: Self.standingCEOPrefix + root, provider: provider, cwd: root, title: "CEO, waiting for the next heartbeat",
                         lastAt: .distantPast, turnOpen: false, projectRoot: root)
         s.heartbeatRun = true
+        s.displayName = ceoName
         var p = self
         p.sessions.append(s)
         return p

@@ -162,7 +162,7 @@ extension Fixture {
                      evidence: "- [Ship history](https://github.com/example/pebble-puzzles/releases)\n- https://status.example.com/pebble-puzzles",
                      onYes: "Set the ship gate to notify and log it in the history.", onNo: "Keep asking before every ship."),
             ("factory/contract.yml", "contract: meatproxy-factory\nversion: 4\nsentry: demo-org/pebble-app\ntracker: pebble\n"),
-            ("factory/mandate.yml", { var m = FactoryMandate(); m.set(level: .hybrid); m.quietHours = "22:00-07:00"; return m.yaml }()),
+            ("factory/mandate.yml", { var m = FactoryMandate(); m.set(level: .hybrid); m.quietHours = "22:00-07:00"; m.ownTeam = true; m.team = AgentTeam(["product": 1, "developer": 2, "tester": 1]); return m.yaml }()),
             // your ideas: one the CEO took (it became D-0007's sibling W-004), one still waiting
             ("factory/ideas/I-0001-colour-blind-pebbles.md", """
             ---

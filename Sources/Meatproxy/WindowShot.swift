@@ -1,5 +1,6 @@
 import AppKit
 import SpriteKit
+import SwiftTerm
 
 /// `SF_WINDOW_SHOT=out.png Meatproxy` (debug aid): after a few seconds the app draws its own window into a PNG
 /// and quits: the world from SpriteKit first, the SwiftUI HUD on top. An environment variable, because AppKit treats
@@ -55,6 +56,19 @@ enum WindowShot {
         } else if let m = ev(.mouseMoved) { sk.mouseMoved(with: m) }
     }
 
+    /// A key press through the app, as from the keyboard: "n", "esc", "1", "cmd-k" (window shots check the HUD's keys).
+    static func key(_ spec: String) {
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }) else { return }
+        let cmd = spec.hasPrefix("cmd-"), k = cmd ? String(spec.dropFirst(4)) : spec
+        let chars = k == "esc" ? "\u{1b}" : k
+        let code: UInt16 = k == "esc" ? 53 : k == "n" ? 45 : k == "1" ? 18 : k == "2" ? 19 : k == "k" ? 40 : 0
+        for t in [NSEvent.EventType.keyDown, .keyUp] {
+            if let e = NSEvent.keyEvent(with: t, location: .zero, modifierFlags: cmd ? .command : [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                        windowNumber: window.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars,
+                                        isARepeat: false, keyCode: code) { NSApp.sendEvent(e) }
+        }
+    }
+
     static func shoot(to out: URL, quit: Bool = true) {
         guard let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }), let content = window.contentView else { NSApp.terminate(nil); return }
         let bounds = content.bounds
@@ -72,10 +86,21 @@ enum WindowShot {
         let k = CGFloat(w) / bounds.width, r = sk.convert(sk.bounds, to: content)
         ctx.interpolationQuality = .none
         if let world { ctx.draw(world, in: CGRect(x: r.minX * k, y: (content.isFlipped ? bounds.height - r.maxY : r.minY) * k, width: r.width * k, height: r.height * k)) }
+        // a terminal paints its background in its layer, which caching the view's display does not draw: lay the
+        // terminal's own charcoal under it, as the screen shows it (checked with a real screen capture)
+        for t in findAll(TerminalView.self, in: content) where !t.isHiddenOrHasHiddenAncestor && t.alphaValue > 0 {
+            let f = t.convert(t.bounds, to: content)
+            ctx.setFillColor(t.nativeBackgroundColor.usingColorSpace(.sRGB)?.cgColor ?? CGColor(gray: 0.07, alpha: 1))
+            ctx.fill(CGRect(x: f.minX * k, y: (content.isFlipped ? bounds.height - f.maxY : f.minY) * k, width: f.width * k, height: f.height * k))
+        }
         if let hudImage = hud.cgImage { ctx.draw(hudImage, in: CGRect(x: 0, y: 0, width: w, height: h)) }
         if let img = ctx.makeImage() { try? NSBitmapImageRep(cgImage: img).representation(using: .png, properties: [:])?.write(to: out) }
         print("Wrote \(out.path) scene \(type(of: scene)) \(Int(scene.size.width))x\(Int(scene.size.height)) camera \(cam.xScale)")
         if quit { NSApp.terminate(nil) }
+    }
+
+    static func findAll<T: NSView>(_ type: T.Type, in v: NSView) -> [T] {
+        ((v as? T).map { [$0] } ?? []) + v.subviews.flatMap { findAll(type, in: $0) }
     }
 
     static func find<T: NSView>(_ type: T.Type, in v: NSView) -> T? {

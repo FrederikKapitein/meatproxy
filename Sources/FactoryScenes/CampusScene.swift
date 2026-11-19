@@ -21,8 +21,8 @@ public final class CampusScene: WorldScene {
 
     /// How many of the team walk the roads.
     public static let walkerCount = 8
-    /// The room the inspector takes on the right once a building is focused, in view points.
-    static let inspectorRoom: CGFloat = 370
+    /// The room the inspector takes on the right once a building is focused, in view points (WorldController.setSafeArea).
+    var inspectorRight: CGFloat = 376
 
     /// What a click at a point would do, and so what lights up under the pointer (one hit test for both).
     enum Target: Equatable { case building(String), storey(String), fountain, walker(String), rack(Int) }
@@ -34,6 +34,11 @@ public final class CampusScene: WorldScene {
     var storeys: [(storey: CampusArt.Storey, project: String)] = []
     private(set) var walkers: [String: Walker] = [:]
     private var skyNode: SKSpriteNode?
+    var starNode: SKSpriteNode?
+    var moonNode: SKNode?
+    /// the campus as painted: by day or by moonlight (A8); a dusk that crosses over asks for the other paint
+    var artNight = false
+    var onNightChange: ((Bool) -> Void)?
     var highlight: SKShapeNode?          // the storey you fly into
     var highlightID: String?
     private var focusMark: SKShapeNode?          // the focused building's footprint
@@ -45,7 +50,7 @@ public final class CampusScene: WorldScene {
     private var leds: [(node: SKShapeNode, glow: SKSpriteNode, state: String, rack: Int, status: Bool)] = []
     private var beacon: (node: SKShapeNode, glow: SKSpriteNode)?
     private var worst: String?
-    private var waitBands: [SKShapeNode] = []
+    private var waitBands: [SKSpriteNode] = []
     /// the towers' life (D62): windows that light up now and then, the antenna lamps, the chimneys of factories
     var windowLights: [(node: SKShapeNode, phase: Double, period: Double, peak: CGFloat, factory: String?)] = []
     private var antennaLamps: [(dot: SKShapeNode, glow: SKSpriteNode, phase: Double)] = []
@@ -84,6 +89,8 @@ public final class CampusScene: WorldScene {
     static let activity = SKColor(red: 0.54, green: 0.71, blue: 1, alpha: 1)
     static let ink = SKColor(red: 0.16, green: 0.1, blue: 0.18, alpha: 1)
     static let night = SKColor(red: 0.09, green: 0.07, blue: 0.18, alpha: 1)
+    /// the colour figures painted by day take on by moonlight
+    static let moonShade = SKColor(red: 0.1, green: 0.12, blue: 0.26, alpha: 1)
 
     // MARK: building the scene
 
@@ -97,12 +104,16 @@ public final class CampusScene: WorldScene {
         effects.removeFromParent(); effects.zPosition = 2990; content.addChild(effects)
         life.ground.removeFromParent(); life.ground.zPosition = -480; content.addChild(life.ground)
         if skyNode == nil {
-            let s = SKSpriteNode(texture: Self.skyTexture); s.zPosition = -1000; cam.addChild(s); skyNode = s; sizeChanged()
+            let s = SKSpriteNode(texture: Self.skyTexture); s.zPosition = -1000; cam.addChild(s); skyNode = s
+            let st = SKSpriteNode(texture: Self.starTexture); st.zPosition = -998; st.blendMode = .add; cam.addChild(st); starNode = st
+            sizeChanged()
         }
+        if let u = place(art.under, z: -510) { content.addChild(u) }
         if let g = place(art.ground, z: -500) { content.addChild(g) }
         var objectZ: [String: CGFloat] = [:]
         for o in art.objects {
             let n = place(o.texture, o.rect, z: o.key * 10, name: o.id)
+            n.alpha = o.alpha
             content.addChild(n)
             if let id = o.id { objectZ[id] = n.zPosition }
             if let id = o.id, id.hasPrefix("building:") {
@@ -131,6 +142,7 @@ public final class CampusScene: WorldScene {
             return (st, b.projects[st.index].id)
         }
         waiting = world.needsYou.count
+        artNight = art.night
         addWaitBands(world)
         addFountainGlow()
         addEngineLights(world)
@@ -139,18 +151,38 @@ public final class CampusScene: WorldScene {
         signHome = signs.map { $0.node.position }
         updateLife(world)
         placeWalkers(figures, fresh: first)
-        setHome(art.view.insetBy(dx: 30, dy: 0), fill: 0.98)  // dy 0: the tower roofs and signs stay in view
+        // the island fills the view and runs out of it (A4): its top with the towers, a little cropped at the sides
+        setHome(art.island.insetBy(dx: art.island.width * 0.07, dy: 0), fill: 0.96)
         if first { cam.setScale(homeScale); cam.position = homeCenter }
         applyFocus(animated: false)
         tick(0)
     }
 
-    /// A sky from deep violet at the top to near black, behind everything and fixed to the camera.
-    static let skyTexture: SKTexture = {
+    /// The night sky (A8): near black at the top to a deep indigo, behind everything and fixed to the camera.
+    static let skyTexture: SKTexture = gradient([(0.02, 0.024, 0.06), (0.043, 0.051, 0.133), (0.082, 0.086, 0.204)])
+
+    /// A vertical gradient, top first (CGContext's y runs up, so the list is drawn from the bottom).
+    static func gradient(_ stops: [(CGFloat, CGFloat, CGFloat)]) -> SKTexture {
         let w = 8, h = 256, cs = CGColorSpaceCreateDeviceRGB()
         let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let g = CGGradient(colorsSpace: cs, colors: [CGColor(red: 0.07, green: 0.06, blue: 0.14, alpha: 1), CGColor(red: 0.2, green: 0.16, blue: 0.36, alpha: 1)] as CFArray, locations: [0, 1])!
+        let colors = stops.reversed().map { CGColor(red: $0.0, green: $0.1, blue: $0.2, alpha: 1) }
+        let locs = (0..<stops.count).map { CGFloat($0) / CGFloat(max(1, stops.count - 1)) }
+        let g = CGGradient(colorsSpace: cs, colors: colors as CFArray, locations: locs)!
         ctx.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: h), options: [])
+        return SKTexture(cgImage: ctx.makeImage()!)
+    }
+
+    /// Stars (A4, A8): small square pixels in the upper part of the sky, more and brighter at night (seeded, so they keep
+    /// their places).
+    static let starTexture: SKTexture = {
+        let w = 1024, h = 640, cs = CGColorSpaceCreateDeviceRGB()
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        var r = SeededRandom("stars")
+        for _ in 0..<420 {
+            let x = r.next() * CGFloat(w), y = CGFloat(h) * (0.3 + 0.7 * r.next()), s: CGFloat = r.next() < 0.15 ? 3 : r.next() < 0.5 ? 2 : 1.4
+            ctx.setFillColor(CGColor(red: 1, green: 0.965, blue: 0.88, alpha: 0.25 + 0.6 * r.next()))
+            ctx.fill(CGRect(x: x, y: y, width: s, height: s))
+        }
         return SKTexture(cgImage: ctx.makeImage()!)
     }()
 
@@ -166,6 +198,7 @@ public final class CampusScene: WorldScene {
 
     override func sizeChanged() {
         skyNode?.size = CGSize(width: size.width * 1.02, height: size.height * 1.02)
+        starNode?.size = CGSize(width: size.width * 1.02, height: size.height * 1.02)
     }
 
     func shape(_ pts: [CGPoint], fill: SKColor, stroke: SKColor = .clear, width: CGFloat = 0) -> SKShapeNode {
@@ -180,19 +213,18 @@ public final class CampusScene: WorldScene {
         return g
     }
 
-    /// A storey that waits for you (D25): a yellow band across both of its faces, drawn in front of them, pulsing.
+    /// A storey that waits for you (D25, Spel+): its blade sign is yellow with a pixel "!" (the one signal, no band
+    /// across the facade); a soft warm glow behind the sign breathes, so it reads from across the campus.
     private func addWaitBands(_ world: World) {
         for (st, id) in storeys {
             guard let p = world.project(id: id), p.waits(now: world.now),
                   let ov = overlays[st.building] else { continue }
             waitingPlaques.insert("\(st.building):\(st.index)")
-            for face in st.faces where face.count == 4 {
-                let a = face[0], b = face[1], lo: CGFloat = 3 * 1.08, hi: CGFloat = 6.4 * 1.08
-                let band = shape([CGPoint(x: a.x, y: a.y - lo), CGPoint(x: b.x, y: b.y - lo), CGPoint(x: b.x, y: b.y - hi), CGPoint(x: a.x, y: a.y - hi)],
-                                 fill: Self.wait, stroke: Self.ink, width: 0.7 * px)
-                band.zPosition = 0.1
-                (layer(st.building, storey: st.index) ?? ov).addChild(band); waitBands.append(band)
-            }
+            guard let sg = signs.first(where: { $0.plaque && $0.owner == st.building && $0.storey == st.index }) else { continue }
+            let f = sg.node.frame, c = artPoint(CGPoint(x: f.midX, y: f.midY))
+            let g = glow(c, size: CGSize(width: f.width / px * 1.5, height: f.height / px * 1.6), color: Self.wait)
+            g.zPosition = 0.08; g.alpha = 0.3
+            (layer(st.building, storey: st.index) ?? ov).addChild(g); waitBands.append(g)
         }
     }
 
@@ -210,7 +242,7 @@ public final class CampusScene: WorldScene {
     private func addEngineLights(_ world: World) {
         guard let art, let ov = overlays["engine"] else { return }
         let racks = world.racks
-        rackCount = min(racks.count, 10)
+        rackCount = min(racks.count, 6)
         worst = world.serverSummary.worst?.rawValue
         for rack in art.racks where rack.c < racks.count && rack.pts.count == 4 {
             let st = racks[rack.c].state.rawValue, status = rack.r == 1
@@ -222,7 +254,8 @@ public final class CampusScene: WorldScene {
             leds.append((led, g, st, rack.c, status))
         }
         if let w = worst, w != "ok", art.beacon.count == 6 {
-            let col = w == "down" ? Self.down : Self.wait, r: CGFloat = w == "down" ? 18 : 16
+            // one amber lamp by the door, whatever is wrong (A5): the racks' strips say which and how
+            let col = Self.warn, r: CGFloat = 16
             let lens = shape(art.beacon, fill: col); lens.zPosition = 0.4
             let g = glow(art.beaconAt, size: CGSize(width: r * 2, height: r * 2), color: col); g.zPosition = 0.5
             ov.addChild(lens); ov.addChild(g)
@@ -459,7 +492,7 @@ public final class CampusScene: WorldScene {
     /// A walker's body as you see it, in scene points: about shoulder wide and head to feet (the sprite's box has an
     /// empty margin round the figure).
     func bodyRect(_ w: Walker) -> CGRect {
-        let foot = scenePoint(project(w.pos.x, w.pos.y))
+        let foot = scenePoint(project(w.pos.x, w.pos.y, CampusRoads.height(w.pos.x, w.pos.y)))
         return CGRect(x: foot.x - Self.body.width / 2 * px, y: foot.y, width: Self.body.width * px, height: Self.body.height * px)
     }
     /// The body's size on screen (art units).
@@ -483,7 +516,9 @@ public final class CampusScene: WorldScene {
         let moving = w.idle <= 0 && !w.path.isEmpty
         let pose = moving && animationsEnabled ? StepCycle.pose(distance: w.walked) : "idle"
         guard let f = w.figure.frame(pose, mood: "calm", dir: w.dir) else { return }
-        let foot = project(w.pos.x, w.pos.y)
+        let foot = project(w.pos.x, w.pos.y, CampusRoads.height(w.pos.x, w.pos.y))
+        // by moonlight they are in the dark too (A8): the figures are painted by day, so they take the night's colour
+        w.node.color = Self.moonShade; w.node.colorBlendFactor = artNight ? 0.55 : 0
         w.node.texture = f.texture
         w.node.size = CGSize(width: f.rect.width * px, height: f.rect.height * px)
         w.node.position = scenePoint(CGPoint(x: foot.x + f.rect.minX, y: foot.y + f.rect.minY))
@@ -529,7 +564,8 @@ public final class CampusScene: WorldScene {
         tickStacks(dt)
         tickLife(dt)
         // close up, the storey plaques keep about their size on screen instead of filling the view
-        let k = max(0.5, min(1, cam.xScale / max(homeScale, 0.0001)))
+        // (the blade signs are part of the facades: they only shrink once you come really close)
+        let k = max(0.5, min(1, 2.2 * cam.xScale / max(homeScale, 0.0001)))
         for sg in signs where sg.plaque && abs(sg.node.xScale - k) > 0.005 { sg.node.setScale(k) }
         animateLights()
         fadePlaques(dt)
@@ -564,16 +600,20 @@ public final class CampusScene: WorldScene {
         let t = clock, on = animationsEnabled
         for l in leds {
             // a deploy on its way (5F): the activity lights answer, three times as fast
-            let a = l.status ? RackLights.status(l.state, rack: l.rack, t: t, animated: on) : RackLights.activity(l.state, rack: l.rack, t: life.streaming ? t * 3 : t, animated: on)
-            l.node.alpha = a; l.glow.alpha = 0.35 * a
+            // the state is a light strip that speaks softly (A5): it breathes, never off; activity flickers below it
+            let a = l.status ? RackLights.strip(l.state, rack: l.rack, t: t, animated: on) : RackLights.activity(l.state, rack: l.rack, t: life.streaming ? t * 3 : t, animated: on)
+            // a server down is the brightest light on the building, with the widest glow (F9)
+            l.node.alpha = a; l.glow.alpha = (l.status && l.state == "down" ? 0.75 : 0.35) * a
+            if l.status && l.state == "down" { l.glow.setScale(1.8) }
             l.node.isHidden = a <= 0.01; l.glow.isHidden = a <= 0.01
         }
         if let b = beacon {
-            let a = RackLights.beacon(worst, t: t, animated: on)
-            b.node.alpha = a; b.glow.alpha = (worst == "down" ? 0.55 : 0.5) * a
+            // the lamp by the door speaks softly (A5): it breathes, a little faster while a server is down
+            let a = RackLights.doorLamp(worst, t: t, animated: on)
+            b.node.alpha = a; b.glow.alpha = 0.6 * a
         }
-        let band = on ? CGFloat(0.775 + 0.225 * sin(t / 1.4 * 2 * .pi)) : 1
-        for n in waitBands { n.alpha = band }
+        let band = on ? CGFloat(0.26 + 0.12 * sin(t / 1.4 * 2 * .pi)) : 0.3
+        for n in waitBands { n.alpha = band * (artNight ? 1.6 : 1) }
         for w in windowLights {
             // a slow swell: off most of the time, on for a while; a still frame shows them half lit
             let v = on ? max(0, sin((t / w.period + w.phase) * 2 * .pi)) : 0.5
@@ -597,7 +637,7 @@ public final class CampusScene: WorldScene {
     func focus(on key: String?, animated: Bool = true) {
         focus = key
         applyFocus(animated: animated)
-        if let key, let r = focusRect(key) { flyClear(r, padding: 1.2, right: Self.inspectorRoom) } else if animated { goHome() }
+        if let key, let r = focusRect(key) { flyClear(r, padding: 1.2, right: inspectorRight) } else if animated { goHome() }
     }
 
     /// A building with its storey plaques, in scene coordinates: what the camera frames at the Provider level.
@@ -605,6 +645,8 @@ public final class CampusScene: WorldScene {
         guard let n = buildings[key] else { return nil }
         var r = n.calculateAccumulatedFrame()
         for p in art?.plaques[key] ?? [] { r = r.union(CGRect(x: p.minX * px, y: -p.maxY * px, width: p.width * px, height: p.height * px)) }
+        // the low pavilion with its yard round it: a building on its own would fill the whole view
+        if key == "engine" { r = r.insetBy(dx: -r.width * 0.3, dy: -r.height * 0.3) }
         return r
     }
 
@@ -616,7 +658,7 @@ public final class CampusScene: WorldScene {
         clearHover()
         let pts = s.storey.faces.flatMap { $0 }.map(scenePoint)
         let r = CGRect(x: pts.map(\.x).min()!, y: pts.map(\.y).min()!, width: pts.map(\.x).max()! - pts.map(\.x).min()!, height: pts.map(\.y).max()! - pts.map(\.y).min()!)
-        flyClear(r, padding: 1.6, right: Self.inspectorRoom, completion: done)
+        flyClear(r, padding: 1.6, right: inspectorRight, completion: done)
     }
 
     /// The focused building stands out; the others dim (a colour blend toward the night, so nothing shows through them).
@@ -698,7 +740,7 @@ public final class CampusScene: WorldScene {
     func target(at p: CGPoint) -> Target? {
         let a = artPoint(p)
         // a rack with a server in it (its whole panel behind the glass)
-        if let c = (0..<rackCount).first(where: { contains(Self.rackPanel($0), a) }) { return .rack(c) }
+        if let c = (0..<rackCount).first(where: { contains(rackPanel($0), a) }) { return .rack(c) }
         // a storey's plaque is its storey (on the campus overview: its building), in front of everything it hangs on
         if let sg = signs.filter({ $0.plaque && $0.storey != nil && $0.node.alpha > 0.3 && $0.node.frame.contains(p) }).max(by: { $0.node.zPosition < $1.node.zPosition }),
            let key = sg.owner, let s = storeys.first(where: { $0.storey.building == key && $0.storey.index == sg.storey }) {
@@ -800,7 +842,7 @@ public final class CampusScene: WorldScene {
                 layer.addChild(lift)
             }
         case .rack(let c):
-            let n = shape(Self.rackPanel(c), fill: Self.cyan.withAlphaComponent(0.12), stroke: Self.cyan.withAlphaComponent(0.9), width: px)
+            let n = shape(rackPanel(c), fill: Self.cyan.withAlphaComponent(0.12), stroke: Self.cyan.withAlphaComponent(0.9), width: px)
             n.zPosition = (buildings["engine"]?.zPosition ?? 0) + 0.6
             layer.addChild(n)
         case .walker(let id):
@@ -896,43 +938,51 @@ public final class CampusScene: WorldScene {
 
     /// The art's projection (blocky-cast.js projWith, S = 1, T = 16): tile i, j and height z to art units.
     static func artP(_ i: CGFloat, _ j: CGFloat, _ z: CGFloat) -> CGPoint { CGPoint(x: (i - j) * 16, y: (i + j) * 8 - z * 1.08) }
-    /// Rack c's panel on the front face (blocky-world.js: 19.6 + c * 0.6, 0.4 wide, height 4 to 17, at j = 8).
-    static func rackPanel(_ c: Int) -> [CGPoint] {
-        let i0 = 19.6 + CGFloat(c) * 0.6, i1 = i0 + 0.4
-        return [artP(i0, 8, 4), artP(i1, 8, 4), artP(i1, 8, 17), artP(i0, 8, 17)]
+    /// Rack c behind the Server room's glass (blocky-campus.js): from i0 to i1 along the front, its front face at j, from
+    /// z0 to z1.
+    func rackBox(_ c: Int) -> (i0: CGFloat, i1: CGFloat, j: CGFloat, z0: CGFloat, z1: CGFloat) {
+        if let b = art?.rackBoxes, c < b.count, b[c].count == 5 { return (b[c][0], b[c][1], b[c][2], b[c][3], b[c][4]) }
+        let i0 = 52.45 + CGFloat(c) * 0.9
+        return (i0, i0 + 0.7, 33.95, 3, 33.8)
+    }
+    /// Rack c's front panel, as you see it (art units).
+    func rackPanel(_ c: Int) -> [CGPoint] {
+        let r = rackBox(c)
+        return [Self.artP(r.i0, r.j, r.z0), Self.artP(r.i1, r.j, r.z0), Self.artP(r.i1, r.j, r.z1), Self.artP(r.i0, r.j, r.z1)]
     }
 
-    /// One pulled-out rack unit: its box faces, the dark opening it leaves, the details on its front, its tag.
-    private struct Slot { var rack: Int; var node: SKNode; var faces: [SKShapeNode]; var front: [SKShapeNode]; var tag: SKNode }
+    /// The picked rack (D52, Spel+ F7): it stays behind its glass; it lights up there (its strip full, a soft glow in
+    /// its state's colour), a cyan outline runs round its front inside the window, and its name hangs above the roof.
+    private struct Slot { var rack: Int; var node: SKNode; var tag: SKNode; var strip: SKShapeNode; var glow: SKSpriteNode }
 
-    /// Pulls a server's whole rack unit out of the Server room (D52): the full-height unit slides towards you on its
-    /// runners, leaving a dark opening, with its state light and vents on the front and its name on a tag above.
-    /// nil slides the open one back in.
+    /// Picks a server's rack in the Server room; nil lets it go.
     public func showSlot(_ c: Int?, name: String = "", state: String = "ok", animated: Bool = true) {
-        // a repaint of the campus took the unit with it: start over
+        // a repaint of the campus took the rack's light with it: start over
         if let s = slot, s.node.scene == nil { slot = nil }
         if let s = slot, s.rack != c || c == nil {
             slot = nil
-            s.tag.run(.fadeOut(withDuration: 0.12))
-            s.node.run(.sequence([slide(s, from: 1, to: 0, duration: animated ? 0.26 : 0), .removeFromParent()]))
+            s.node.run(.sequence([.fadeOut(withDuration: animated ? 0.15 : 0), .removeFromParent()]))
         }
-        guard let c, c < 10, let engine = buildings["engine"] else { return }
+        guard let c, c < 6, let engine = buildings["engine"] else { return }
         let col = state == "down" ? Self.down : state == "warn" ? Self.warn : Self.okGreen
-        if let s = slot, s.rack == c { s.front[0].fillColor = col; return }
-        let node = SKNode(); node.zPosition = engine.zPosition + 0.7
-        func face(_ fill: SKColor, stroke: SKColor = .clear, width: CGFloat = 0) -> SKShapeNode {
-            let n = SKShapeNode(); n.fillColor = fill; n.strokeColor = stroke; n.lineWidth = width; n.lineJoin = .miter; node.addChild(n); return n
-        }
-        // the opening, then the unit's side, top and front (cyan edges: it is the selection)
-        let hole = face(SKColor(red: 0.04, green: 0.035, blue: 0.08, alpha: 1))
-        let edge = Self.cyan.withAlphaComponent(0.9)
-        let side = face(SKColor(red: 0.13, green: 0.11, blue: 0.24, alpha: 1), stroke: edge, width: px * 0.5)
-        let top = face(SKColor(red: 0.33, green: 0.31, blue: 0.50, alpha: 1), stroke: edge, width: px * 0.5)
-        let front = face(SKColor(red: 0.18, green: 0.17, blue: 0.33, alpha: 1), stroke: edge, width: px * 0.5)
-        // on the front: the state light, the activity light, and vents between them
-        let led = face(col), act = face(SKColor(red: 0.36, green: 0.55, blue: 0.94, alpha: 1))
-        let vents = (0..<4).map { _ in face(SKColor(red: 0.10, green: 0.09, blue: 0.20, alpha: 1)) }
-        // the name tag above the unit, in the cream of the signs
+        if let s = slot, s.rack == c { s.strip.fillColor = col; s.glow.color = col; return }
+        let node = SKNode(); node.zPosition = engine.zPosition + 0.5
+        let rb = rackBox(c), P = Self.artP
+        // a glow on the rack in its state's colour, the strip at full, the outline round the rack's front
+        let glow = glow(P((rb.i0 + rb.i1) / 2, rb.j, (rb.z0 + rb.z1) / 2), size: CGSize(width: 46, height: 60), color: col)
+        glow.alpha = 0.45; node.addChild(glow)
+        let u = (rb.z1 - rb.z0) / 13
+        let strip = shape([P(rb.i0 + 0.06, rb.j, rb.z0 + 10.3 * u), P(rb.i1 - 0.06, rb.j, rb.z0 + 10.3 * u), P(rb.i1 - 0.06, rb.j, rb.z0 + 11 * u), P(rb.i0 + 0.06, rb.j, rb.z0 + 11 * u)], fill: col)
+        node.addChild(strip)
+        // one mark: its window bay on the glass in front (the racks stand .55 behind it), from the sill band to above
+        // the rack, a clear cyan frame with a faint fill; it never runs below the sill onto the pavement
+        let g = rb.j + 0.55, a0 = rb.i0 + 0.55 - 0.12, a1 = rb.i1 + 0.55 + 0.12, b0 = rb.z0 + 2.8, b1 = rb.z1 + 4
+        let bay = shape([P(a0, g, b0), P(a1, g, b0), P(a1, g, b1), P(a0, g, b1)], fill: Self.cyan.withAlphaComponent(0.1), stroke: Self.cyan, width: 2 * px)
+        bay.zPosition = 0.2
+        node.addChild(bay)
+        screenLines.append((bay, 2.2))
+        strip.glowWidth = 1.5 * px
+        // the name tag above the pavilion's roof, in the cream of the signs, with a dot in its state's colour
         let tag = SKNode()
         let label = SKLabelNode(text: name.uppercased()); label.fontName = "Menlo-Bold"; label.fontSize = 6 * px
         label.fontColor = SKColor(red: 0.16, green: 0.10, blue: 0.18, alpha: 1); label.verticalAlignmentMode = .center
@@ -942,47 +992,11 @@ public final class CampusScene: WorldScene {
         let dot = SKShapeNode(circleOfRadius: 2 * px); dot.fillColor = col; dot.strokeColor = .clear; dot.position = CGPoint(x: -w / 2 + 5 * px, y: 0)
         label.position = CGPoint(x: 2.5 * px, y: 0)
         tag.addChild(bg); tag.addChild(dot); tag.addChild(label)
-        let i0 = 19.6 + CGFloat(c) * 0.6
-        tag.position = scenePoint(Self.artP(i0 + 0.2, 8 + Self.slotTravel, 30)); tag.zPosition = 2; tag.alpha = 0
+        tag.position = scenePoint(P((rb.i0 + rb.i1) / 2, rb.j - 2.2, rb.z1 + 24)); tag.zPosition = 2
         node.addChild(tag)
         content.addChild(node)
-        let s = Slot(rack: c, node: node, faces: [hole, side, top, front], front: [led, act] + vents, tag: tag)
-        slot = s
-        node.run(slide(s, from: 0, to: 1, duration: animated ? 0.34 : 0))
-        tag.run(.sequence([.wait(forDuration: animated ? 0.22 : 0), .fadeIn(withDuration: animated ? 0.15 : 0)]))
-    }
-
-    /// how far a unit comes out, in tiles
-    static let slotTravel: CGFloat = 1.5
-
-    /// The unit between "in" (0) and "out" (1), eased (a small overshoot going out, like a unit on runners).
-    private func slide(_ s: Slot, from a: CGFloat, to b: CGFloat, duration: TimeInterval) -> SKAction {
-        let i0 = 19.6 + CGFloat(s.rack) * 0.6, i1 = i0 + 0.4, z0: CGFloat = 4, z1: CGFloat = 17
-        let draw: (CGFloat) -> Void = { [weak self] t in
-            guard let self else { return }
-            let j1 = 8 + Self.slotTravel * t, P = Self.artP
-            func path(_ pts: [CGPoint]) -> CGPath { let p = CGMutablePath(); p.addLines(between: pts.map { self.scenePoint($0) }); p.closeSubpath(); return p }
-            func plate(_ u0: CGFloat, _ u1: CGFloat, _ h0: CGFloat, _ h1: CGFloat) -> CGPath { path([P(u0, j1, h0), P(u1, j1, h0), P(u1, j1, h1), P(u0, j1, h1)]) }
-            s.faces[0].path = path([P(i0, 8, z0), P(i1, 8, z0), P(i1, 8, z1), P(i0, 8, z1)])          // the opening
-            s.faces[1].path = path([P(i1, 8, z0), P(i1, j1, z0), P(i1, j1, z1), P(i1, 8, z1)])        // side
-            s.faces[2].path = path([P(i0, 8, z1), P(i1, 8, z1), P(i1, j1, z1), P(i0, j1, z1)])        // top
-            s.faces[3].path = plate(i0, i1, z0, z1)                                                   // front
-            s.front[0].path = plate(i0 + 0.06, i0 + 0.16, 12, 13.2)                                   // state light
-            s.front[1].path = plate(i0 + 0.06, i0 + 0.16, 6, 7)                                       // activity light
-            for (k, v) in s.front.dropFirst(2).enumerated() {
-                let h = 8.2 + CGFloat(k) * 0.9
-                v.path = plate(i0 + 0.05, i1 - 0.05, h, h + 0.35)
-            }
-            let shown: CGFloat = t < 0.02 ? 0 : 1
-            for n in s.faces + s.front { n.alpha = shown }
-        }
-        draw(a)
-        guard duration > 0 else { return .run { draw(b) } }
-        return .customAction(withDuration: duration) { _, e in
-            let x = min(1, e / CGFloat(duration))
-            let k: CGFloat = b > a ? 1 + 2.2 * pow(x - 1, 3) + 1.2 * pow(x - 1, 2) : x * x
-            draw(a + (b - a) * k)
-        }
+        slot = Slot(rack: c, node: node, tag: tag, strip: strip, glow: glow)
+        if animated && animationsEnabled { node.alpha = 0; node.run(.fadeIn(withDuration: 0.2)) }
     }
 
     // MARK: for window shots

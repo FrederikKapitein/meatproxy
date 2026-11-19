@@ -136,7 +136,9 @@ public enum FactoryScaffold {
            the last briefing.
         2. Act on answered decisions first, then new ideas: shape each idea into a workstream in `plan` (goal,
            acceptance criteria, out of scope), set the idea `taken` with the workstream id and a one-line reply.
-        3. Work on at most one workstream per run; small and finished beats big and half-done:
+        3. Hand the work to your team: the `team:` block of `mandate.yml` names the profiles you may call in as
+           sub-agents and how many of each at once. Call in no others, and never more of one at once.
+           Work on at most one workstream per run; small and finished beats big and half-done:
            - on its own branch, with tests added or updated;
            - \(test);
            - commit with a clear message.
@@ -180,6 +182,32 @@ public enum FactoryScaffold {
         }
 
         """
+    }
+}
+
+/// The team's agent files (D79): one Claude Code sub-agent per profile in `.claude/agents/`, shown before anything is
+/// written and never replacing a file that is there (you may have made it your own).
+public enum TeamFiles {
+    /// the agent files the team needs, for the profiles Meatproxy can write (its own and the ones you made in Settings);
+    /// an agent file you wrote yourself is there already
+    public static func plan(root: String, project: String, team: AgentTeam, profiles: [AgentProfile] = AgentProfile.standard) -> [StarterFile] {
+        team.names.compactMap { n in profiles.first { $0.name == n && !$0.tools.isEmpty } }.map { p in
+            let path = ".claude/agents/\(p.name).md"
+            return StarterFile(path: path, text: p.agentFile(project: project),
+                               exists: FileManager.default.fileExists(atPath: (root as NSString).appendingPathComponent(path)),
+                               optional: false, why: "The \(p.label): \(p.may.lowercased()), on \(p.model)")
+        }
+    }
+
+    /// The agent files in the project: name → the model it asks for (nil when it names none).
+    public static func existing(root: String) -> [String: String?] {
+        let dir = (root as NSString).appendingPathComponent(".claude/agents")
+        var out: [String: String?] = [:]
+        for f in (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [] where f.hasSuffix(".md") {
+            let text = try? String(contentsOfFile: (dir as NSString).appendingPathComponent(f), encoding: .utf8)
+            out[String(f.dropLast(3))] = text.flatMap(AgentProfile.model(inAgentFile:))
+        }
+        return out
     }
 }
 

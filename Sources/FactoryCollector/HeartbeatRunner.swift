@@ -84,7 +84,8 @@ public final class HeartbeatRunner: @unchecked Sendable {
         version 1 when that file is missing). Only what that contract says is agreed with Meatproxy. If factory/mandate.yml \
         exists, it is the user's mandate: what you may do on your own (ask, notify, off per item), your role (orchestrator: \
         delegate all work; hands-on: small things yourself) and their preferences. Follow it; it wins over autonomy.yml and \
-        the playbook.
+        the playbook. Its team block names the helpers you may call in as sub-agents (subagent_type is the profile name, \
+        defined in .claude/agents/) and at most how many of each may work at once: call in no others, and never more.
         Work from \(root). First read, in this order, and follow them exactly: factory/CHARTER.md, factory/README.md, \
         factory/CEO.md, then AGENTS.md in that folder and the AGENTS.md of the repos the playbook names.
         The user answers your yes/no questions in Meatproxy, which writes their answer into the decision file (status, \

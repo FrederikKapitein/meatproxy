@@ -14,6 +14,8 @@ public final class FloorScene: WorldScene {
     private(set) var projectID = ""
     private var art: FloorArt?
     private var people: [String: Person] = [:]
+    /// Who stands where with which plate (for tests): room, shown state, and the plate's "name|line|state|role|badge".
+    func plates() -> [String: (room: String, state: SessionState, plate: String)] { people.mapValues { ($0.room, $0.state, $0.tagKey) } }
     private var marker: SKShapeNode?
     private var lastTime: TimeInterval = 0
     private var clock: TimeInterval = 0
@@ -29,9 +31,14 @@ public final class FloorScene: WorldScene {
     final class Person {
         /// the session it shows (a CEO's figure moves on to its next run, so this can change)
         var id: String
-        let owner: String?, figure: Figure, scale: CGFloat
+        /// whose helper it is (nil: a person, or a team member who is free); a team place shows helper `ref` at work
+        var owner: String?, ref: String?
+        let figure: Figure, scale: CGFloat
         let node = SKSpriteNode(), shadow = Blocky.shadow(18, 9, alpha: 0.28)
-        var tag: SKSpriteNode?, emote: SKSpriteNode?, cloud: SKSpriteNode?, ring: SKShapeNode?
+        var tag: SKSpriteNode?, emote: SKSpriteNode?, cloud: SKSpriteNode?, ring: SKNode?
+        /// the plate's box round its tip (art units), and a helper's tie to its person: a dashed line and a faint ring (B3)
+        var tagRect: CGRect = .zero
+        var tie: SKShapeNode?, tieRing: SKShapeNode?
         var pos: CGPoint, spot: FloorArt.Spot, room: String
         var path: [CGPoint] = []
         /// tiles walked, for the step cycle; turns still to make on arrival (side, seconds)
@@ -39,6 +46,8 @@ public final class FloorScene: WorldScene {
         var pose = "idle", mood = "calm", dir = "down", tagKey = "", emoteKey = "", name = ""
         var hoverRing: SKShapeNode?, hoverTag: SKSpriteNode?, hoverLift: SKSpriteNode?
         var state: SessionState = .working
+        /// what they do while not walking (IdleMotion), set when the floor is applied
+        var loop: [IdleMotion.Step] = []
         let phase: Double
         init(id: String, owner: String?, figure: Figure, scale: CGFloat, spot: FloorArt.Spot, room: String) {
             self.id = id; self.owner = owner; self.figure = figure; self.scale = scale; self.spot = spot; self.room = room
@@ -57,20 +66,21 @@ public final class FloorScene: WorldScene {
         projectID = project.id
         self.art = art
         if fresh {
-            content.removeAllChildren(); people = [:]; marker = nil; painted = true; factoryLayer = nil; factoryKey = "-"
+            content.removeAllChildren(); people = [:]; marker = nil; painted = true; factoryLayer = nil; factoryKey = "-"; ceoFigure = nil
             let bg = SKSpriteNode(color: SKColor(red: 0.13, green: 0.11, blue: 0.23, alpha: 1), size: CGSize(width: 40000, height: 40000)); bg.zPosition = -2000
             content.addChild(bg)
             if let g = place(art.ground, z: -500) { content.addChild(g) }
             for o in art.objects { content.addChild(place(o.texture, o.rect, z: o.key * 10)) }
             if let l = place(art.light, z: 3000, blend: .screen) { l.alpha = 0.9; content.addChild(l) }
-            roomSigns = []
+            // each room's plaque hangs on its own wall and sorts with it: people pass in front of it (B4)
             for sg in art.signs {
-                guard let n = place(sg.image, z: 3500) else { continue }
-                // scale round the sign's middle, so it stays where it hangs
-                n.position = CGPoint(x: n.position.x + n.size.width / 2, y: n.position.y - n.size.height / 2); n.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-                content.addChild(n); roomSigns.append(n)
+                guard let n = place(sg.image, z: sg.key.map { $0 * 10 + 0.05 } ?? 3500) else { continue }
+                n.name = "sign:" + sg.id
+                content.addChild(n)
             }
-            setHome(art.view.insetBy(dx: 10, dy: 10), fill: 1.02)
+            // the floor fills the room the panels leave (B9): its plate and walls, not the air round it
+            // the rooms, not the air round them: the outer rims a little cropped (B9)
+            setHome(Self.floorFrame.insetBy(dx: Self.floorFrame.width * 0.025, dy: Self.floorFrame.height * 0.05), fill: 0.98)
         }
         if walkMap == nil { walkMap = Self.walkMap(art.solids) }
         // who stands where: each room hands out its spots in a fixed order (everyone first, so the helpers can keep
@@ -87,14 +97,37 @@ public final class FloorScene: WorldScene {
         }
         ceoFigure = sessions.first(where: { $0.heartbeatRun == true })?.id ?? ceoFigure
         var spots: [String: (spot: FloorArt.Spot, room: FloorRoom)] = [:]
+        // a factory's CEO (its main chat) stands at the board in Planning, whatever its run is doing (B1); it carries the
+        // factory's open questions
+        let ceo = Self.factoryCEO(project)
         for s in sessions {
+            if s.id == ceo, debugRooms[s.id] == nil { spots[s.id] = (art.spots["ceo"]?.first ?? Self.ceoSpot, .planning); continue }
             let room = debugRooms[s.id].flatMap(FloorRoom.init(rawValue:)) ?? s.room(now: now)
             spots[s.id] = (takeSpot(room.rawValue, &used), room)
         }
-        var taken = spots.values.map { CGPoint(x: $0.spot.i, y: $0.spot.j) }
+        // the team (D79): every member is always on the floor; a free one waits in the lounge, one at work stands with
+        // the session it works for (the same person walks over and back)
+        let slots = project.teamSlots
+        let placeOf = Dictionary(slots.compactMap { t in t.helper.map { ($0, t) } }, uniquingKeysWith: { a, _ in a })
+        var free: [(slot: TeamSlot, spot: FloorArt.Spot)] = []
+        let freeSlots = slots.filter { $0.helper == nil }
+        for (t, spot) in zip(freeSlots, loungeSpots(freeSlots.count, &used)) { free.append((t, spot)) }
+        var taken = spots.values.map { CGPoint(x: $0.spot.i, y: $0.spot.j) } + free.map { CGPoint(x: $0.spot.i, y: $0.spot.j) }
+        for (t, spot) in free {
+            guard let fig = figures[t.cast.key] else { continue }
+            let p = person(t.id, owner: nil, figure: fig, scale: Self.helperScale, spot: spot, room: FloorRoom.lounge.rawValue)
+            p.ref = nil; p.state = .done
+            p.name = Persona(id: t.id).name
+            (p.pose, p.mood) = (spot.seat > 0 ? "sit" : spot.pose, ["cheer": "happy", "wave": "happy", "type": "focus"][spot.pose] ?? "tired")
+            if !p.moving { p.dir = spot.dir }
+            setTag(p, text: p.name, sub: Self.pastime(spot), state: "free", role: Self.roleColour(t.role))
+            setEmote(p, nil)
+            p.node.alpha = 1
+            seen.insert(t.id)
+        }
         for s in sessions {
             guard let fig = figures[project.cast(of: s).key], let (spot, room) = spots[s.id] else { continue }
-            let st = s.state(now: now)
+            let st = Self.shownState(s, in: project, now: now)
             let p = person(s.id, owner: nil, figure: fig, scale: 1, spot: spot, room: room.rawValue)
             p.state = st
             switch st {
@@ -105,33 +138,101 @@ public final class FloorScene: WorldScene {
             }
             if !p.moving { p.dir = spot.dir }
             p.name = s.persona.name
-            setTag(p, text: s.persona.name, state: st)
-            setEmote(p, st == .waiting ? "?" : st == .stuck ? "!" : s.wentBack(now: now) ? "back" : nil)
+            let back = st == .working && s.wentBack(now: now), ceo = s.id == Self.factoryCEO(project) || s.heartbeatRun == true || s.id.hasPrefix(Project.standingCEOPrefix)
+            let sub = Self.plateLine(s, in: project, state: st, back: back, seated: spot.seat > 0, now: now)
+            let helped = !s.subAgents.filter { !($0.finished && project.isTeamProfile($0.type)) }.isEmpty
+            setTag(p, text: s.persona.name, sub: sub, state: st == .waiting ? "wait" : st == .stuck ? "stuck" : back ? "back" : st == .done ? "done" : "work",
+                   role: ceo ? "#c9a46a" : Self.roleColour(project.role(of: s)), badge: helped ? Self.helperBadge : nil)
+            setEmote(p, nil)
             seen.insert(s.id)
-            // helpers: beside their person on screen, smaller, facing you; the running ones closest, a finished one
+            // helpers: beside their person on screen, facing you, as big as everyone (every agent counts the same); the running ones closest, a finished one
             // further off and faded
             for sub in s.subAgents.sorted(by: { !$0.finished && $1.finished }) {
-                guard let hf = figures[sub.cast.key] else { continue }
+                // a team member's job done: they are back in the lounge, not standing about here
+                if sub.finished && project.isTeamProfile(sub.type) { continue }
+                let place = placeOf[sub.id]
+                guard let hf = figures[place?.cast.key ?? sub.cast.key] else { continue }
                 let hs = helperSpot(beside: spot, finished: sub.finished, taken: &taken)
-                let hp = person(sub.id, owner: s.id, figure: hf, scale: 0.62, spot: hs, room: room.rawValue)
+                let hp = person(place?.id ?? sub.id, owner: s.id, figure: hf, scale: Self.helperScale, spot: hs, room: room.rawValue)
+                hp.ref = place == nil ? nil : sub.id
                 hp.state = sub.finished ? .done : .working
-                hp.name = sub.type
+                hp.name = place.map { Persona(id: $0.id).name } ?? Self.helperName(sub.type)
+                setTag(hp, text: hp.name, sub: "\(s.persona.name)'s helper" + (sub.finished ? " · done" : ""), state: sub.finished ? "done" : "work",
+                       role: Self.helperBadge, badge: Self.helperBadge)
                 (hp.pose, hp.mood) = sub.finished ? ("idle", "tired") : ("idle", "calm")
                 if !hp.moving { hp.dir = "down" }
-                hp.node.alpha = sub.finished ? 0.45 : 1
-                seen.insert(sub.id)
+                hp.node.alpha = 1
+                seen.insert(place?.id ?? sub.id)
             }
         }
         for (id, p) in people where !seen.contains(id) { remove(p); people[id] = nil }
         if let s = selectedSession, people[s] == nil { selectedSession = nil; selectedSubAgent = nil }
         applyFactory(project.factory, art: art)
-        for p in people.values { layout(p) }
+        for p in people.values {
+            p.loop = IdleMotion.loop(state: p.state, room: p.room, spotPose: p.spot.pose, seated: p.spot.seat > 0, helper: p.owner != nil)
+            layout(p)
+        }
+        declutterPlates()
         updateMarker()
+    }
+
+    /// Plates of people who stand close on screen would cover each other: from the front back, a plate that runs into
+    /// one in front of it goes up just above it (B2). Someone walking keeps their plate where it is.
+    private func declutterPlates() {
+        // the loud plates (waits for you, stuck) stay over their person; quieter ones give way, front first
+        let loud: (Person) -> Bool = { $0.state == .waiting || $0.state == .stuck }
+        let list = people.values.compactMap { p -> (Person, SKSpriteNode)? in p.tag.map { (p, $0) } }
+            .sorted { (loud($0.0) ? 0 : 1, $0.1.position.y) < (loud($1.0) ? 0 : 1, $1.1.position.y) }
+        // the room signs (B4): a plate that would cover one goes up above it, but only a little way (a plate far above its
+        // person reads as someone else's; a sign hidden behind the Planning board is no sign)
+        let signs: [CGRect] = (art?.labels ?? []).map { CGRect(x: $0.minX * px, y: -$0.maxY * px, width: $0.width * px, height: $0.height * px) }
+            .filter { !($0.intersects(boardFrame ?? .null)) }
+        var placed: [CGRect] = []
+        // the free area between the HUD's panels and bars, in the scene: no plate goes under a panel (B9)
+        let v = visibleRect, k = cam.xScale, m: CGFloat = 4 * k
+        let free = CGRect(x: v.minX + insets.left * k + m, y: v.minY + bars.bottom * k + m,
+                          width: max(1, v.width - (insets.left + insets.right) * k - 2 * m), height: max(1, v.height - (bars.top + bars.bottom) * k - 2 * m))
+        func inside(_ f: CGRect) -> CGRect {
+            var g = f
+            if g.minX < free.minX { g.origin.x = free.minX } else if g.maxX > free.maxX { g.origin.x = free.maxX - g.width }
+            if g.maxY > free.maxY { g.origin.y = free.maxY - g.height }
+            return g
+        }
+        // how much of a plate at f would lie over plates already placed and over signs
+        func clash(_ f: CGRect) -> CGFloat {
+            var a: CGFloat = 0
+            for r in placed + signs {
+                let x = r.intersection(f)
+                if !x.isNull, x.width > 0.2 * f.width, x.height > 2 * px { a += x.width * x.height }
+            }
+            return a
+        }
+        for (p, t) in list {
+            var f = t.frame
+            if !p.walking {
+                // where it is, one step up, half a step to either side, or up and to a side: never further, since a plate
+                // far from its person reads as someone else's. The first clear place wins, else the least covered.
+                let w = f.width, h = f.height + 1 * px
+                let moves: [CGPoint] = [.zero, CGPoint(x: 0, y: h), CGPoint(x: -0.6 * w, y: 0), CGPoint(x: 0.6 * w, y: 0),
+                                        CGPoint(x: -0.6 * w, y: h), CGPoint(x: 0.6 * w, y: h)]
+                var best = f, least = CGFloat.infinity
+                for m in moves {
+                    let g = inside(f.offsetBy(dx: m.x, dy: m.y)), c = clash(g)
+                    if c < least - 1 { least = c; best = g }
+                    if c == 0 { break }
+                }
+                f = best
+                t.position = CGPoint(x: f.minX + f.width * t.anchorPoint.x, y: f.minY + f.height * t.anchorPoint.y)
+            }
+            placed.append(f)
+        }
     }
 
     // MARK: a Dark Software Factory
 
-    private var factoryLayer: SKNode?
+    private var factoryLayer: SKNode? { didSet { if factoryLayer == nil { boardFrame = nil } } }
+    /// where the Planning board hangs, once painted (the signs it covers do not count)
+    private var boardFrame: CGRect?
     private var factoryKey = ""
 
     /// A factory's floor: every workstream a card on the back wall of its phase's room (D39: the room says the phase),
@@ -146,6 +247,7 @@ public final class FloorScene: WorldScene {
         guard key != factoryKey else { return }
         factoryKey = key
         factoryLayer?.removeFromParent(); factoryLayer = nil
+        content.childNode(withName: "sign:room:war")?.isHidden = false
         guard let factory else { return }
         let layer = SKNode(); layer.zPosition = 0
         content.addChild(layer); factoryLayer = layer
@@ -159,34 +261,24 @@ public final class FloorScene: WorldScene {
             layer.addChild(shade)
         }
 
-        let byRoom = Dictionary(grouping: streams, by: { $0.phase.room.rawValue })
-        for (roomID, list) in byRoom {
-            guard let room = art.rooms.first(where: { $0.id == roomID }) else { continue }
-            let cards = list.sorted { $0.id < $1.id }
-            let shown = cards.prefix(4)
-            // on the back wall: along the room's far edge (low j), a little in from its corner, at head height
-            let anchor = project(room.rect.minX + room.rect.width * 0.55, room.rect.minY + 0.1, 34)
-            for (k, w) in shown.enumerated() {
-                let card = Self.card(w, px: px)
-                card.position = scenePoint(CGPoint(x: anchor.x - card.calculateAccumulatedFrame().width / px / 2, y: anchor.y + CGFloat(k) * 11))
-                card.zPosition = 3400 + CGFloat(k) * 0.01
-                card.name = "workstream:\(w.id)"
-                layer.addChild(card)
-            }
-            if cards.count > shown.count {
-                let more = Self.card(nil, more: cards.count - shown.count, px: px)
-                more.position = scenePoint(CGPoint(x: anchor.x - 30, y: anchor.y + CGFloat(shown.count) * 11)); more.zPosition = 3400.5
-                layer.addChild(more)
-            }
+        // one calm board on the Planning wall (B1, B5): a card per workstream in its phase's column; it hangs on the wall,
+        // behind everyone (never over a person)
+        let cards: [[String: Any]] = streams.sorted { $0.id < $1.id }.map { w in
+            ["id": w.id, "title": w.title, "phase": w.phase.step ?? 0, "back": w.wentBack, "done": w.phase == .done,
+             "wait": factory.openDecisions.contains { $0.title.contains(w.id) }]
         }
-
-        // the counter waits while a question is open (D25): a yellow ring round it that breathes
-        if !factory.openDecisions.isEmpty, let counter = art.rooms.first(where: { $0.id == "needsYou" }) {
-            let r = Blocky.ring(30 * px * 2.6, 15 * px * 2.6, color: .clear, lineWidth: 2.6 * px / 2)
-            r.strokeColor = SKColor(red: 1, green: 0.847, blue: 0.239, alpha: 1)
-            r.position = scenePoint(project(counter.rect.midX, counter.rect.midY)); r.zPosition = 2995; r.name = "factory:counter"
-            if animationsEnabled { r.run(.repeatForever(.sequence([.fadeAlpha(to: 0.3, duration: 0.8), .fadeAlpha(to: 1, duration: 0.8)]))) }
-            layer.addChild(r)
+        if let e = engine, !cards.isEmpty {
+            Task { @MainActor in
+                guard let o = await e.board(cards), self.factoryLayer === layer else { return }
+                // its top-left corner on the back wall of Planning (i 8.5, at the wall's face, 44 units up)
+                let at = project(8.5, 0.02, 43)
+                let n = self.place(SKTexture(cgImage: o.image), CGRect(x: at.x + o.rect.minX, y: at.y + o.rect.minY, width: o.rect.width, height: o.rect.height), z: -5)
+                n.name = "factory:board"
+                self.boardFrame = n.frame
+                // the board carries the room's name: Planning's plaque would only peek out above it
+                self.content.childNode(withName: "sign:room:war")?.isHidden = true
+                layer.addChild(n)
+            }
         }
 
         if factory.paused, let entrance = art.rooms.first(where: { $0.id == "entrance" }) {
@@ -231,6 +323,20 @@ public final class FloorScene: WorldScene {
         return n
     }
 
+    /// Spots in the lounge for free team members: the standing ones first, the sofa last (whoever rests in front of it
+    /// would hide a small figure sitting there), then beside the others as takeSpot does.
+    private func loungeSpots(_ n: Int, _ used: inout [String: Int]) -> [FloorArt.Spot] {
+        let room = FloorRoom.lounge.rawValue
+        let list = art?.spots[room] ?? []
+        let start = min(used[room, default: 0], list.count)
+        let rest = Array(list[start...])
+        let ordered = rest.filter { $0.seat == 0 } + rest.filter { $0.seat > 0 }
+        var out = Array(ordered.prefix(n))
+        used[room] = start + out.count
+        while out.count < n { out.append(takeSpot(room, &used)) }
+        return out
+    }
+
     private func takeSpot(_ room: String, _ used: inout [String: Int]) -> FloorArt.Spot {
         let list = art?.spots[room] ?? art?.spots["lounge"] ?? [FloorArt.Spot(i: 10, j: 8, pose: "idle", dir: "down", seat: 0)]
         let k = used[room, default: 0]; used[room] = k + 1
@@ -246,19 +352,24 @@ public final class FloorScene: WorldScene {
     /// Where a helper stands: to the right of their person on screen (along +i, a little forward when that is taken),
     /// clear of the person's ring and of everyone else, on a free cell, and not behind anything tall. A finished helper
     /// starts one place further off.
+    /// Helpers are as big as the person they work for: every agent counts the same.
+    static let helperScale: CGFloat = 1
+
     private func helperSpot(beside spot: FloorArt.Spot, finished: Bool, taken: inout [CGPoint]) -> FloorArt.Spot {
-        // to the right first, clear of the person's ring (at least 1.25 tile of i − j: 20 art units on screen); the left
-        // (−i) only when the right is full or hidden
-        let offsets: [CGPoint] = [CGPoint(x: 1.3, y: 0), CGPoint(x: 1.7, y: 0.4), CGPoint(x: 2.1, y: 0.8), CGPoint(x: 2.1, y: 0),
-                                  CGPoint(x: 2.5, y: 0.4), CGPoint(x: 1.0, y: -0.4), CGPoint(x: -1.3, y: 0), CGPoint(x: -1.7, y: -0.4),
-                                  CGPoint(x: -0.9, y: 0.4), CGPoint(x: 2.9, y: 0.8)]
-        let base = CGPoint(x: spot.i, y: spot.j)
+        // to the right first, clear of the person's ring and body (a full-size figure is about 20 art units wide: 1.5
+        // tile of i − j keeps them apart on screen); the left (−i) only when the right is full or hidden
+        // (Spel+, B3: beside their person on screen, one each side, far enough apart that the three plates never overlap:
+        // a step of +i −j is three tiles to the right on screen at the same height)
+        let offsets: [CGPoint] = [CGPoint(x: 1.5, y: -1.5), CGPoint(x: -1.5, y: 1.5), CGPoint(x: 2.0, y: -1.0), CGPoint(x: -1.0, y: 2.0),
+                                  CGPoint(x: 2.5, y: -0.5), CGPoint(x: -0.5, y: 2.5), CGPoint(x: 1.6, y: -2.2), CGPoint(x: -2.2, y: 1.6),
+                                  CGPoint(x: 3.0, y: 0), CGPoint(x: 0, y: 3.0)]
+        let base = CGPoint(x: spot.i, y: spot.j), k = Self.helperScale / 0.62, gap = 0.65 * k * 0.85
         func ok(_ p: CGPoint) -> Bool {
             guard let map = walkMap, let art else { return true }
-            guard map.free(p), taken.allSatisfy({ hypot($0.x - p.x, $0.y - p.y) >= 0.65 }) else { return false }
-            // nothing drawn in front of the little figure (about 12 × 26 art units above its feet; the feet may touch)
+            guard map.free(p), taken.allSatisfy({ hypot($0.x - p.x, $0.y - p.y) >= gap }) else { return false }
+            // nothing drawn in front of the figure (its body above its feet; the feet may touch)
             let foot = project(p.x, p.y), z = depthKey(p.x, p.y, boxes: art.boxes)
-            let body = CGRect(x: foot.x - 6, y: foot.y - 26, width: 12, height: 21)
+            let body = CGRect(x: foot.x - 6 * k, y: foot.y - 26 * k, width: 12 * k, height: 21 * k)
             // (an object's rect is its bounding box, so a corner of it over the figure does not count)
             let hid = art.objects.filter { o in
                 let x = o.rect.intersection(body)
@@ -267,13 +378,14 @@ public final class FloorScene: WorldScene {
             // and not in front of or behind anyone else on screen
             let byPeople = taken.contains { q in
                 let f = project(q.x, q.y)
-                return abs(f.x - foot.x) < 14 && abs(f.y - foot.y) < 30
+                // their bodies, or their name plates (about 44 wide, 20 high) over each other
+                return (abs(f.x - foot.x) < 14 * k && abs(f.y - foot.y) < 30 * k) || (abs(f.x - foot.x) < 44 * plateScale && abs(f.y - foot.y) < 20 * plateScale)
             }
             return hid.isEmpty && !byPeople
         }
         let list = offsets.dropFirst(finished ? 1 : 0).map { CGPoint(x: base.x + $0.x, y: base.y + $0.y) }
         let pick = list.first(where: ok)
-            ?? list.first { p in walkMap?.free(p) != false && taken.allSatisfy { hypot($0.x - p.x, $0.y - p.y) >= 0.65 } }
+            ?? list.first { p in walkMap?.free(p) != false && taken.allSatisfy { hypot($0.x - p.x, $0.y - p.y) >= gap } }
             ?? CGPoint(x: base.x + 1.0, y: base.y + (spot.seat > 0 ? 0.1 : 0))
         taken.append(pick)
         return FloorArt.Spot(i: pick.x, j: pick.y, pose: "idle", dir: "down", seat: 0)
@@ -291,11 +403,12 @@ public final class FloorScene: WorldScene {
                 p.pos = from
                 if !animationsEnabled { p.pos = CGPoint(x: spot.i, y: spot.j) }
             }
-            p.spot = spot; p.room = room
+            p.spot = spot; p.room = room; p.owner = owner
+            p.node.name = (owner == nil && !id.hasPrefix("team:") ? "person:" : "helper:") + id
             return p
         }
         let p = Person(id: id, owner: owner, figure: figure, scale: scale, spot: spot, room: room)
-        p.node.anchorPoint = CGPoint(x: 0, y: 1); p.node.name = (owner == nil ? "person:" : "helper:") + id
+        p.node.anchorPoint = CGPoint(x: 0, y: 1); p.node.name = (owner == nil && !id.hasPrefix("team:") ? "person:" : "helper:") + id
         p.shadow.setScale(px * scale / 2 * 1.1)
         content.addChild(p.shadow); content.addChild(p.node)
         people[id] = p
@@ -304,36 +417,147 @@ public final class FloorScene: WorldScene {
 
     private func remove(_ p: Person) {
         if hoverTarget == .person(p.id) { hoverTarget = nil }
-        [p.node, p.shadow, p.tag, p.emote, p.cloud, p.ring, p.hoverRing, p.hoverTag, p.hoverLift].forEach { $0?.removeFromParent() } }
+        [p.node, p.shadow, p.tag, p.emote, p.cloud, p.ring, p.hoverRing, p.hoverTag, p.hoverLift, p.tie, p.tieRing].forEach { $0?.removeFromParent() } }
 
-    private func setTag(_ p: Person, text: String, state: SessionState) {
-        let st = state == .waiting ? "wait" : state == .stuck ? "stuck" : "work", key = state == .done ? "" : "\(text)|\(st)"
-        // the ring on the floor for waiting and stuck
-        if state == .waiting || state == .stuck {
-            if p.ring == nil {
-                let r = Blocky.ring(28 * px, 14 * px, color: .clear, lineWidth: 2.6 * px / 2); r.zPosition = 3000
-                if animationsEnabled { r.run(.repeatForever(.sequence([.fadeAlpha(to: 0.35, duration: 0.7), .fadeAlpha(to: 1, duration: 0.7)]))) }
+    /// A plate for everyone (B2, B6): the name, a quiet second line, the role's colour. Waiting: yellow with a pixel "!";
+    /// stuck: red with a storm cloud; sent back: a small blue bubble; done or free: dimmed. Waiting and stuck also get a
+    /// ring on the floor, filled and edged so it shows on any floor colour (B8).
+    private func setTag(_ p: Person, text: String, sub: String, state: String, role: String, badge: String? = nil) {
+        let key = "\(text)|\(sub)|\(state)|\(role)|\(badge ?? "")"
+        if state == "wait" || state == "stuck" {
+            let col = state == "wait" ? SKColor(red: 1, green: 0.847, blue: 0.239, alpha: 1) : SKColor(red: 1, green: 0.29, blue: 0.29, alpha: 1)
+            if p.ring == nil || p.ring?.name != state {
+                p.ring?.removeFromParent()
+                let r = Self.stateRing(col, px: px); r.name = state; r.zPosition = 3000
+                if animationsEnabled { r.run(.repeatForever(.sequence([.fadeAlpha(to: 0.6, duration: 0.8), .fadeAlpha(to: 1, duration: 0.8)]))) }
                 content.addChild(r); p.ring = r
             }
-            p.ring?.strokeColor = state == .waiting ? SKColor(red: 1, green: 0.847, blue: 0.239, alpha: 1) : SKColor(red: 1, green: 0.29, blue: 0.29, alpha: 1)
         } else { p.ring?.removeFromParent(); p.ring = nil }
-        if state == .stuck, p.cloud == nil, let e = engine {
-            Task { @MainActor in
-                guard let o = await e.cloud(), p.cloud == nil, p.state == .stuck else { return }
-                let n = self.place(SKTexture(cgImage: o.image), o.rect, z: 4100); self.content.addChild(n); p.cloud = n
-                if self.animationsEnabled { n.run(.repeatForever(.sequence([.moveBy(x: 0, y: 2, duration: 0.6), .moveBy(x: 0, y: -2, duration: 0.6)])), withKey: "bob") }
-                self.layout(p)
-            }
-        } else if state != .stuck { p.cloud?.removeFromParent(); p.cloud = nil }
+        p.cloud?.removeFromParent(); p.cloud = nil
         guard key != p.tagKey else { return }
         p.tagKey = key
         p.tag?.removeFromParent(); p.tag = nil
-        guard !key.isEmpty, let e = engine else { return }
+        guard let e = engine else { return }
         Task { @MainActor in
-            guard let o = await e.tag(text, state: st), p.tagKey == key else { return }
-            let n = self.place(SKTexture(cgImage: o.image), o.rect, z: 4000); n.name = "tag:" + p.id
+            guard let o = await e.tag(text, sub: sub, state: state == "free" ? "done" : state, role: role, badge: badge), p.tagKey == key else { return }
+            // the loud ones (waits for you, stuck) on top of any quiet one they meet
+            let n = self.place(SKTexture(cgImage: o.image), o.rect, z: state == "wait" || state == "stuck" ? 4002 : state == "done" || state == "free" ? 3999 : 4000)
+            n.name = "tag:" + p.id
+            // done and free plates are quieter
+            n.alpha = state == "done" || state == "free" ? 0.82 : 1
+            p.tagRect = o.rect
+            // it hangs from its tip (the image's (0, 0)), so it can grow and shrink round it
+            n.anchorPoint = CGPoint(x: -o.rect.minX / o.rect.width, y: o.rect.maxY / o.rect.height)
             self.content.addChild(n); p.tag = n; self.layout(p)
         }
+    }
+
+    /// How big the plates are drawn: so their second line is at least 11 pt on screen (B9), at home and closer in; never
+    /// smaller than half their size.
+    var plateScale: CGFloat { max(0.5, Self.plateLinePoints * cam.xScale / (Self.plateLineUnits * px)) }
+    /// a plate's second line: 11 pt on screen; its size in the plate's own art units (engine.js tag: ss)
+    static let plateLinePoints: CGFloat = 11, plateLineUnits: CGFloat = 4.4
+
+    /// The floor's plate with its walls and the launch balcony, in art units: what the home view fills (B9).
+    static let floorFrame = CGRect(x: -262, y: -58, width: 652, height: 396)
+
+    /// A helper's tie to its person (B3), quiet and clear: a thin dashed line over the floor from their feet to its, and
+    /// a faint ring at its feet, in the colour they share.
+    private func tie(_ p: Person) {
+        guard let o = p.owner, let q = people[o] else {
+            p.tie?.removeFromParent(); p.tie = nil; p.tieRing?.removeFromParent(); p.tieRing = nil; return
+        }
+        let a = scenePoint(project(q.pos.x, q.pos.y)), b = scenePoint(project(p.pos.x, p.pos.y))
+        let line = CGMutablePath(); line.move(to: a); line.addLine(to: b)
+        if p.tie == nil {
+            let t = SKShapeNode(); t.strokeColor = Self.helperTie.withAlphaComponent(0.95); t.lineWidth = 1.7 * px / 2; t.lineCap = .round; t.zPosition = -480
+            content.addChild(t); p.tie = t
+            let r = 0.46, pts = [CGPoint(x: 0, y: -r * 8), CGPoint(x: r * 16, y: 0), CGPoint(x: 0, y: r * 8), CGPoint(x: -r * 16, y: 0)].map { CGPoint(x: $0.x * px, y: -$0.y * px) }
+            let path = CGMutablePath(); path.addLines(between: pts); path.closeSubpath()
+            let ring = SKShapeNode(path: path); ring.fillColor = Self.helperTie.withAlphaComponent(0.14); ring.strokeColor = Self.helperTie.withAlphaComponent(0.8)
+            ring.lineWidth = 1.4 * px / 2; ring.zPosition = -479
+            content.addChild(ring); p.tieRing = ring
+        }
+        p.tie?.path = line.copy(dashingWithPhase: 0, lengths: [3 * px, 2.5 * px])
+        p.tieRing?.position = b
+    }
+
+    /// The factory's CEO on its floor: its main chat (a heartbeat's run, the run named CEO, or the resting stand-in).
+    static func factoryCEO(_ p: Project) -> String? {
+        guard p.factory != nil, let id = p.ceoID, let s = p.sessions.first(where: { $0.id == id }), p.role(of: s) == .ceo else { return nil }
+        return id
+    }
+    /// Where the CEO stands when the art says nothing: under the board's left end in Planning, facing you.
+    static let ceoSpot = FloorArt.Spot(i: 8.65, j: 1.15, pose: "point", dir: "down", seat: 0)
+
+    /// How a session shows on its floor: as its state; a factory's CEO also waits for you while the factory has an open
+    /// question (it is the one who asks them). A CEO that waits for you itself always shows it.
+    static func shownState(_ s: Session, in p: Project, now: Date) -> SessionState {
+        let st = s.state(now: now)
+        guard s.id == factoryCEO(p) else { return st }
+        if !(p.factory?.openDecisions.isEmpty ?? true) { return .waiting }
+        return st
+    }
+
+    /// The second line of a plate: what waits for you comes first, and a CEO says it is the CEO.
+    static func plateLine(_ s: Session, in p: Project, state st: SessionState, back: Bool, seated: Bool, now: Date) -> String {
+        let ceo = s.id == factoryCEO(p) || s.heartbeatRun == true || s.id.hasPrefix(Project.standingCEOPrefix)
+        let questions = s.id == factoryCEO(p) ? p.factory?.openDecisions.count ?? 0 : 0
+        if questions > 0 { return "CEO · \(questions) question\(questions == 1 ? "" : "s")" }
+        if st == .waiting { return ceo ? "CEO · waits for you" : "Waits for you" }
+        if st == .stuck { return ceo ? "CEO · stuck" : "Stuck" }
+        if ceo { return "CEO" }
+        if back { return "Sent back" }
+        if st == .done { return seated ? "Parked" : "Done" }
+        return p.role(of: s).label
+    }
+
+    /// A diamond on the floor round someone who waits (yellow) or is stuck (red): a soft fill, a dark under-edge and the
+    /// colour on top, so it reads on cream, mint and blue floors alike.
+    static func stateRing(_ col: SKColor, px: CGFloat) -> SKNode {
+        let n = SKNode(), r: CGFloat = 0.72
+        let pts = [CGPoint(x: 0, y: -r * 8), CGPoint(x: r * 16, y: 0), CGPoint(x: 0, y: r * 8), CGPoint(x: -r * 16, y: 0)].map { CGPoint(x: $0.x * px, y: -$0.y * px) }
+        let path = CGMutablePath(); path.addLines(between: pts); path.closeSubpath()
+        let under = SKShapeNode(path: path); under.strokeColor = SKColor(red: 0.08, green: 0.05, blue: 0.12, alpha: 0.7); under.lineWidth = 3.6 * px / 2; under.fillColor = col.withAlphaComponent(0.2)
+        let top = SKShapeNode(path: path); top.strokeColor = col; top.lineWidth = 2.2 * px / 2; top.fillColor = .clear; top.lineJoin = .miter
+        n.addChild(under); n.addChild(top)
+        return n
+    }
+
+    /// The colour of a role's plate edge (B2): the same colours as the HUD's role chips.
+    static func roleColour(_ r: CastRole) -> String {
+        switch r {
+        case .ceo: "#c9a46a"
+        case .lead: "#e0a04a"
+        case .sales: "#3fae6a"
+        case .marketing: "#ff8a2a"
+        case .pm: "#2fb0a8"
+        case .dev: "#4a74d8"
+        case .designer: "#ff6ad5"
+        case .tester: "#e05a86"
+        case .devops: "#7a5ce0"
+        case .researcher: "#6a8a4a"
+        }
+    }
+    /// A helper and its person share this colour: the tie, the ring, the diamond on both plates (B3).
+    static let helperBadge = "#9a7cf0"
+    static let helperTie = SKColor(red: 0.6, green: 0.49, blue: 0.94, alpha: 1)
+
+    /// What a free team member is doing in the break room, from where they are (B2).
+    static func pastime(_ spot: FloorArt.Spot) -> String {
+        switch spot.pose {
+        case "mug": "Coffee break"
+        case "cheer", "wave": "Ping-pong"
+        case "type": "High score"
+        case "snooze", "sit": "Napping"
+        default: "Free"
+        }
+    }
+
+    /// A helper's name from its type: "code-review" → "Review", "Explore" → "Explore".
+    static func helperName(_ type: String) -> String {
+        let last = type.split(whereSeparator: { $0 == "-" || $0 == "_" || $0 == " " }).last.map(String.init) ?? type
+        return last.prefix(1).uppercased() + last.dropFirst()
     }
 
     private func setEmote(_ p: Person, _ kind: String?) {
@@ -353,16 +577,20 @@ public final class FloorScene: WorldScene {
         guard let art else { return }
         let i = p.pos.x, j = p.pos.y, foot = project(i, j)
         let walking = p.walking, moving = p.moving, seat = moving ? 0 : p.spot.seat
+        // standing still is never a statue: the loop of what they are doing (typing, reading, asking, dozing, …)
+        let still = animationsEnabled && !p.loop.isEmpty ? IdleMotion.frame(p.loop, t: clock + p.phase * 7) : (pose: p.pose, mood: p.mood)
         let f = walking ? p.figure.frame(StepCycle.pose(distance: p.walked), mood: "calm", dir: p.dir)
             : moving ? p.figure.frame("idle", mood: "calm", dir: p.turns.first?.dir ?? p.dir)
-            : p.figure.frame(p.pose, mood: p.mood, dir: p.dir)
+            : p.figure.frame(still.pose, mood: still.mood, dir: p.dir)
         // the one nearer you in front, also when two stand in front of the same box
         let z = depthKey(i, j, boxes: art.boxes) * 10 + 0.5 + (i + j) * 0.001
         if let f {
             p.node.texture = f.texture
             p.node.size = CGSize(width: f.rect.width * px * p.scale, height: f.rect.height * px * p.scale)
             var y = foot.y + f.rect.minY * p.scale - seat * 1.08
-            if !moving && p.pose == "type" && animationsEnabled { y += CGFloat(sin(clock * 16 + p.phase)) * 0.25 }
+            if !moving && still.pose.hasPrefix("type") && animationsEnabled { y += CGFloat(sin(clock * 16 + p.phase)) * 0.25 }
+            // standing: a slow breath
+            else if !moving && seat == 0 && animationsEnabled { y += CGFloat(sin(clock * 2.1 + p.phase)) * 0.22 }
             p.node.position = scenePoint(CGPoint(x: foot.x + f.rect.minX * p.scale, y: y))
         }
         p.node.zPosition = z
@@ -370,7 +598,11 @@ public final class FloorScene: WorldScene {
         p.shadow.position = scenePoint(foot); p.shadow.zPosition = z - 0.2; p.shadow.isHidden = seat > 0
         let head = foot.y - (35 + seat) * 1.08 * p.scale
         let bob = animationsEnabled ? CGFloat(sin(clock * 3.2 + p.phase)) * 1.2 : 0
-        if let t = p.tag { t.position = scenePoint(CGPoint(x: foot.x - t.size.width / px / 2, y: head - 10.5)) }
+        if let t = p.tag {
+            t.setScale(plateScale)
+            t.position = scenePoint(CGPoint(x: foot.x, y: head - 2))
+        }
+        tie(p)
         if let t = p.hoverTag { t.position = scenePoint(CGPoint(x: foot.x - t.size.width / px / 2, y: head - 10.5)) }
         // rings lie round the feet; round someone seated, round the seat under them (at the floor it would sit on the
         // table in front of them and read as a mark on the table)
@@ -427,13 +659,9 @@ public final class FloorScene: WorldScene {
         }
     }
 
-    /// the room signs: they keep about their size on screen as you zoom in, so close up they don't fill the view
-    private var roomSigns: [SKSpriteNode] = []
 
     public override func update(_ currentTime: TimeInterval) {
         let dt = lastTime == 0 ? 0 : min(0.1, currentTime - lastTime); lastTime = currentTime
-        let k = max(0.45, min(1, cam.xScale / max(homeScale, 0.0001)))
-        for n in roomSigns where abs(n.xScale - k) > 0.005 { n.setScale(k) }
         guard animationsEnabled else { return }
         clock += dt
         for p in people.values {
@@ -444,7 +672,8 @@ public final class FloorScene: WorldScene {
             }
             layout(p)
         }
-        if let m = marker, let id = selectedSubAgent ?? selectedSession, let p = people[id] { placeMarker(m, p) }
+        declutterPlates()
+        if let m = marker, let id = selectedSubAgent ?? selectedSession, let p = who(id) { placeMarker(m, p) }
         hoverRoom?.lineWidth = screenWidth(1.5)
         if pointer != nil { hover(at: pointerInScene) }
     }
@@ -467,7 +696,7 @@ public final class FloorScene: WorldScene {
 
     /// Where a person's body is now, in view points from the top left (a debug aid for hover shots).
     public func personViewPoint(_ id: String) -> CGPoint? {
-        guard let p = people[id], let v = view else { return nil }
+        guard let p = who(id), let v = view else { return nil }
         let f = p.node.frame, q = convertPoint(toView: CGPoint(x: f.midX, y: f.midY))
         return CGPoint(x: q.x, y: v.bounds.height - q.y)
     }
@@ -480,10 +709,13 @@ public final class FloorScene: WorldScene {
 
     // MARK: selection
 
+    /// the person showing a session or helper: a helper at work in a team place shows under that place's id
+    private func who(_ id: String) -> Person? { people[id] ?? people.values.first { $0.ref == id } }
+
     func select(session: String?, subAgent: String? = nil) {
         selectedSession = session; selectedSubAgent = subAgent
         updateMarker()
-        if let id = subAgent ?? session, let n = people[id]?.node { flyClear(n.calculateAccumulatedFrame().insetBy(dx: -130 * px, dy: -80 * px), padding: 1.0) }
+        if let id = subAgent ?? session, let p = who(id) { flyMiddle(p) }
         else { goHome() }
     }
 
@@ -491,7 +723,7 @@ public final class FloorScene: WorldScene {
         marker?.removeFromParent(); marker = nil
         selectRing?.removeFromParent(); selectRing = nil
         for q in people.values { q.ring?.isHidden = false }
-        guard let id = selectedSubAgent ?? selectedSession, let p = people[id] else { return }
+        guard let id = selectedSubAgent ?? selectedSession, let p = who(id) else { return }
         if hoverTarget == .person(id) { clearHover() }
         // over a waiting or stuck ring the selection takes its exact size and place: one ring, not two
         let big = p.ring != nil, w: CGFloat = (big ? 28 : 24) * p.scale, h: CGFloat = (big ? 14 : 12) * p.scale
@@ -506,6 +738,15 @@ public final class FloorScene: WorldScene {
 
     private var selectRing: SKShapeNode?
 
+    /// B10: a middle zoom on someone (plates and signs stay in proportion), them and their plate in the middle of the
+    /// free area between the panels and bars.
+    private func flyMiddle(_ p: Person) {
+        var r = p.node.calculateAccumulatedFrame()
+        if let t = p.tag { r = r.union(t.frame) }
+        let k = homeScale * 0.72, usable = max(size.width - insets.left - insets.right, size.width * 0.5)
+        flyClear(CGRect(x: r.midX - usable * k / 2, y: r.midY - 1, width: usable * k, height: 2), padding: 1.0)
+    }
+
     /// Where a person's ring goes (art units): round the feet, or for someone seated on the seat under them.
     static func ringPoint(_ foot: CGPoint, seat: CGFloat, scale: CGFloat) -> CGPoint {
         seat > 0 ? CGPoint(x: foot.x, y: foot.y - seat * 1.08 * scale) : foot
@@ -516,10 +757,9 @@ public final class FloorScene: WorldScene {
         selectRing?.position = scenePoint(Self.ringPoint(foot, seat: seat, scale: p.scale))
         selectRing?.zPosition = seat > 0 ? p.node.zPosition - 0.13 : 3000.05
         p.ring?.isHidden = selectRing != nil
-        let at = CGPoint(x: foot.x, y: foot.y - (35 + seat) * 1.08 * p.scale - (p.tag != nil ? 14 : 2) - (p.emote != nil ? 20 : 0) - 12)
+        let at = CGPoint(x: foot.x, y: foot.y - (35 + seat) * 1.08 * p.scale - 2 + (p.tag != nil ? p.tagRect.minY * plateScale : 0) - 12)
         // a room sign hangs there: no mark over the head (the ring at the feet already says who is selected; beside the
         // tag it read as loose, belonging to nobody)
-        m.isHidden = art?.labels.contains(where: { $0.insetBy(dx: -3, dy: -3).intersects(CGRect(x: at.x - 4, y: at.y, width: 8, height: 10)) }) ?? false
         m.position = scenePoint(at)
         if animationsEnabled { m.position.y += CGFloat(sin(clock * 4)) * 2 * px }
     }
@@ -549,6 +789,7 @@ public final class FloorScene: WorldScene {
     override func contextTarget(at p: CGPoint) -> ContextTarget? {
         if case .person(let id)? = target(at: p) {
             if id.hasPrefix(Project.standingCEOPrefix) { return .project(projectID) }
+            if id.hasPrefix("team:") { return people[id]?.owner.map { .session($0) } ?? .project(projectID) }
             return .session(people[id]?.owner ?? id)
         }
         return .project(projectID)
@@ -557,7 +798,8 @@ public final class FloorScene: WorldScene {
     override func click(at p: CGPoint) {
         switch target(at: p) {
         case .person(let id)?:
-            if let owner = people[id]?.owner { select(session: owner, subAgent: id); onSelect?(owner, id) }
+            if let p = people[id], let owner = p.owner { let sub = p.ref ?? id; select(session: owner, subAgent: sub); onSelect?(owner, sub) }
+            else if id.hasPrefix("team:") { break }        // a free team member: nothing to open (hover says who)
             else { select(session: id); onSelect?(id, nil) }
         case .room(let id)?:
             clearHover()
@@ -586,7 +828,7 @@ public final class FloorScene: WorldScene {
         var t = p.flatMap(target(at:))
         if cam.hasActions() { t = nil }
         hovering = t != nil
-        if case .person(let id)? = t, id == (selectedSubAgent ?? selectedSession) { t = nil }
+        if case .person(let id)? = t, let sel = selectedSubAgent ?? selectedSession, people[id] === who(sel) { t = nil }
         guard t != hoverTarget else { return }
         let had = hoverTarget != nil
         if let old = hoverTarget { unhover(old, swap: t != nil) }
