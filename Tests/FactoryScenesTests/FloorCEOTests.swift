@@ -39,18 +39,24 @@ struct FloorCEOTests {
 
     /// Shopfront set up as a factory (shot 28): its lead, who waits for you, becomes the CEO. The CEO plate must keep the
     /// waiting state (yellow, "!"), not hide it.
-    @Test func aCEOThatWaitsForYouStillShowsIt() throws {
+    /// Switching a project to a factory renames and promotes nobody: its lead (who waits for you) stays the lead, with
+    /// the yellow plate, and a resting stand-in is the CEO until the first run.
+    @Test func aNewFactoryKeepsItsLeadAndGetsAStandInCEO() throws {
         let world = Fixture.world()
         var shop = try #require(world.projects.first { $0.root == "/demo/shopfront" })
+        let lead = try #require(shop.ceoID)
         var f = try #require(world.projects.first { $0.root == Fixture.factoryRoot }?.factory)
         f.decisions = []
         shop.factory = f
         let p = shop.withStandingCEO
-        let ceo = try #require(p.ceoID)
-        let run = try #require(p.sessions.first { $0.id == ceo })
-        #expect(run.state(now: world.now) == .waiting, "the fixture's lead waits for you")
-        #expect(FloorScene.shownState(run, in: p, now: world.now) == .waiting)
-        #expect(FloorScene.plateLine(run, in: p, state: .waiting, back: false, seated: false, now: world.now) == "CEO · waits for you")
+        let leadSession = try #require(p.sessions.first { $0.id == lead })
+        #expect(p.role(of: leadSession) == .lead)
+        #expect(p.sessions.contains { $0.id.hasPrefix(Project.standingCEOPrefix) })
+        #expect(p.ceoID?.hasPrefix(Project.standingCEOPrefix) == true)
+        #expect(leadSession.state(now: world.now) == .waiting, "the fixture's lead waits for you")
+        #expect(FloorScene.shownState(leadSession, in: p, now: world.now) == .waiting)
+        let line = FloorScene.plateLine(leadSession, in: p, state: .waiting, back: false, seated: false, now: world.now)
+        #expect(!line.contains("CEO"), "the lead is plated as a CEO: \(line)")
     }
 
     @Test func aFactoryWithoutACEORunShowsItsStandIn() throws {

@@ -82,10 +82,11 @@ extension World {
             }
         }
         let ordered = projects.sorted { $0.id < $1.id }
-        for p in ordered where p.factory != nil && !p.isChat {
-            if let id = p.ceoID, let s = p.sessions.first(where: { $0.id == id }) { assign(s.personaSeed) } else { assign("ceo:" + p.root) }
-        }
+        // a CEO that has run keeps its name; then everyone in order; a factory's CEO that has not run yet (its resting
+        // stand-in) takes a name nobody uses, so switching a project to a factory renames nobody
+        for p in ordered where !p.isChat { if let id = p.ceoRunID, let s = p.sessions.first(where: { $0.id == id }) { assign(s.personaSeed) } }
         for p in ordered { for s in p.sessions.sorted(by: { $0.id < $1.id }) { assign(s.personaSeed) } }
+        for p in ordered where p.factory != nil && !p.isChat && p.ceoRunID == nil { assign("ceo:" + p.root) }
         var w = self
         for b in w.buildings.indices {
             for k in w.buildings[b].projects.indices {
@@ -242,15 +243,30 @@ extension Project {
         if factory != nil, let run = sessions.first(where: { Self.isCEOTitle($0.title) }) {
             return run.id
         }
-        guard sessions.count > 1 else { return nil }
-        let scored = sessions.map { s in (s, s.subAgents.count + s.activities.filter { $0.kind == .delegate }.count) }.filter { $0.1 > 0 }
+        return leadID
+    }
+
+    /// The Lead: the main chat of the project, the one that hands work out to helpers (only with more than one session,
+    /// and never a CEO run or its stand-in). It stays the Lead when the project becomes a factory.
+    public var leadID: String? {
+        let people = sessions.filter { $0.heartbeatRun != true && !$0.id.hasPrefix(Self.standingCEOPrefix) && !(factory != nil && Self.isCEOTitle($0.title)) }
+        guard people.count > 1 else { return nil }
+        let scored = people.map { s in (s, s.subAgents.count + s.activities.filter { $0.kind == .delegate }.count) }.filter { $0.1 > 0 }
         return scored.max { $0.1 < $1.1 || ($0.1 == $1.1 && ($0.0.startedAt ?? $0.0.lastAt) > ($1.0.startedAt ?? $1.0.lastAt)) }?.0.id
     }
 
-    /// The main chat's role: a factory's (or a heartbeat run's) is its CEO; a plain project's is its Lead.
+    /// A factory's real CEO session: a heartbeat run, or a run that says CEO in its title. A chat of yours is never it.
+    public var ceoRunID: String? {
+        if let run = sessions.first(where: { $0.heartbeatRun == true }) { return run.id }
+        if factory != nil, let run = sessions.first(where: { Self.isCEOTitle($0.title) }) { return run.id }
+        return nil
+    }
+
+    /// The CEO is only ever a CEO run or its resting stand-in; the main chat of a project is its Lead, also in a factory:
+    /// switching a project to a factory never turns your own chat (and its question to you) into the CEO.
     public func role(of s: Session) -> CastRole {
-        guard s.id == ceoID else { return s.workRole }
-        return factory != nil || s.heartbeatRun == true || s.id.hasPrefix(Self.standingCEOPrefix) ? .ceo : .lead
+        if s.heartbeatRun == true || s.id.hasPrefix(Self.standingCEOPrefix) || (factory != nil && Self.isCEOTitle(s.title)) { return .ceo }
+        return s.id == leadID ? .lead : s.workRole
     }
 
     /// A factory's CEO run says so in its title ("Pebble factory: CEO run").
@@ -263,7 +279,7 @@ extension Project {
     public var withStandingCEO: Project {
         // a CEO session already there (a heartbeat's run, one that says CEO in its title, the main chat) is the CEO: no
         // second one beside it
-        guard factory != nil, !isChat, ceoID == nil else { return self }
+        guard factory != nil, !isChat, ceoRunID == nil else { return self }
         var s = Session(id: Self.standingCEOPrefix + root, provider: provider, cwd: root, title: "CEO, waiting for the next heartbeat",
                         lastAt: .distantPast, turnOpen: false, projectRoot: root)
         s.heartbeatRun = true
