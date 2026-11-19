@@ -188,6 +188,16 @@ public final class FloorScene: WorldScene {
         let signs: [CGRect] = (art?.labels ?? []).map { CGRect(x: $0.minX * px, y: -$0.maxY * px, width: $0.width * px, height: $0.height * px) }
             .filter { !($0.intersects(boardFrame ?? .null)) }
         var placed: [CGRect] = []
+        // the free area between the HUD's panels and bars, in the scene: no plate goes under a panel (B9)
+        let v = visibleRect, k = cam.xScale, m: CGFloat = 4 * k
+        let free = CGRect(x: v.minX + insets.left * k + m, y: v.minY + bars.bottom * k + m,
+                          width: max(1, v.width - (insets.left + insets.right) * k - 2 * m), height: max(1, v.height - (bars.top + bars.bottom) * k - 2 * m))
+        func inside(_ f: CGRect) -> CGRect {
+            var g = f
+            if g.minX < free.minX { g.origin.x = free.minX } else if g.maxX > free.maxX { g.origin.x = free.maxX - g.width }
+            if g.maxY > free.maxY { g.origin.y = free.maxY - g.height }
+            return g
+        }
         // how much of a plate at f would lie over plates already placed and over signs
         func clash(_ f: CGRect) -> CGFloat {
             var a: CGFloat = 0
@@ -207,7 +217,7 @@ public final class FloorScene: WorldScene {
                                         CGPoint(x: -0.6 * w, y: h), CGPoint(x: 0.6 * w, y: h)]
                 var best = f, least = CGFloat.infinity
                 for m in moves {
-                    let g = f.offsetBy(dx: m.x, dy: m.y), c = clash(g)
+                    let g = inside(f.offsetBy(dx: m.x, dy: m.y)), c = clash(g)
                     if c < least - 1 { least = c; best = g }
                     if c == 0 { break }
                 }

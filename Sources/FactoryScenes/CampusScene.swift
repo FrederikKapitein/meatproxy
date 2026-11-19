@@ -974,12 +974,10 @@ public final class CampusScene: WorldScene {
         let u = (rb.z1 - rb.z0) / 13
         let strip = shape([P(rb.i0 + 0.06, rb.j, rb.z0 + 10.3 * u), P(rb.i1 - 0.06, rb.j, rb.z0 + 10.3 * u), P(rb.i1 - 0.06, rb.j, rb.z0 + 11 * u), P(rb.i0 + 0.06, rb.j, rb.z0 + 11 * u)], fill: col)
         node.addChild(strip)
-        let outline = shape(rackPanel(c), fill: .clear, stroke: Self.cyan.withAlphaComponent(0.6), width: 1 * px)
-        node.addChild(outline)
-        screenLines.append((outline, 1.2))
-        // its window bay on the glass in front (the racks stand .55 behind it): a clear cyan frame with a faint fill
-        let g = rb.j + 0.55, a0 = rb.i0 + 0.55 - 0.12, a1 = rb.i1 + 0.55 + 0.12
-        let bay = shape([P(a0, g, rb.z0 - 2), P(a1, g, rb.z0 - 2), P(a1, g, rb.z1 + 4), P(a0, g, rb.z1 + 4)], fill: Self.cyan.withAlphaComponent(0.1), stroke: Self.cyan, width: 2 * px)
+        // one mark: its window bay on the glass in front (the racks stand .55 behind it), from the sill band to above
+        // the rack, a clear cyan frame with a faint fill; it never runs below the sill onto the pavement
+        let g = rb.j + 0.55, a0 = rb.i0 + 0.55 - 0.12, a1 = rb.i1 + 0.55 + 0.12, b0 = rb.z0 + 2.8, b1 = rb.z1 + 4
+        let bay = shape([P(a0, g, b0), P(a1, g, b0), P(a1, g, b1), P(a0, g, b1)], fill: Self.cyan.withAlphaComponent(0.1), stroke: Self.cyan, width: 2 * px)
         bay.zPosition = 0.2
         node.addChild(bay)
         screenLines.append((bay, 2.2))
