@@ -130,6 +130,9 @@ public final class WorldController {
     static func signature(_ w: World) -> String {
         w.buildings.map { b in b.provider.rawValue + ":" + b.projects.map { signature($0, now: w.now) }.joined(separator: ",") }.joined(separator: "|")
             + "|servers:" + w.servers.map { "\($0.id)=\($0.kind.rawValue)/\($0.state.rawValue)" }.joined(separator: ",")
+            // what waits for you is painted into the campus (the pillar's count, a storey's yellow blade sign): a factory
+            // question answered or asked, also the Server room's, repaints it, as a session that starts waiting does
+            + "|waits:" + w.needsYou.map(\.id).joined(separator: ",")
     }
     static func signature(_ p: Project, now: Date) -> String {
         p.id + "=" + p.sessions.map { "\($0.id.prefix(8))\($0.state(now: now).rawValue.prefix(2))\($0.subAgents.count)\($0.subAgents.filter(\.finished).count)\($0.room(now: now).rawValue.prefix(3))" }.joined()
