@@ -1,6 +1,7 @@
 import AppKit
 import SpriteKit
 import SwiftTerm
+import FactoryScenes
 
 /// `SF_WINDOW_SHOT=out.png Meatproxy` (debug aid): after a few seconds the app draws its own window into a PNG
 /// and quits: the world from SpriteKit first, the SwiftUI HUD on top. An environment variable, because AppKit treats
@@ -16,7 +17,9 @@ import SwiftTerm
 /// shots a quarter second apart (out-0.png … out-3.png), to judge motion. SF_WINDOW_SHOT_RECORD="10@15" records the world
 /// instead (no HUD): ten seconds at 15 frames a second into out-0000.png …, with each frame's time in out-times.txt. A
 /// window that is covered draws no frames, so while it records it floats above the other windows. "10@15@0.5" records
-/// at half the full size, which draws faster (cut out what you need afterwards).
+/// at half the full size, which draws faster (cut out what you need afterwards). "10@15@1@0.25" also runs the world at a
+/// quarter speed (its clock, its actions): ten seconds of the world's time, sharp and on an even beat, in forty seconds;
+/// the times in out-times.txt are the world's. Flights land early there (their watchdog runs on the wall clock).
 enum WindowShot {
     static var active: Bool { ProcessInfo.processInfo.environment["SF_WINDOW_SHOT"] != nil }
     static var action: String? { ProcessInfo.processInfo.environment["SF_WINDOW_SHOT_ACTION"] }
@@ -29,8 +32,9 @@ enum WindowShot {
         let rec = recSpec.prefix(2).compactMap { Double($0) }
         if rec.count == 2, rec[0] > 0, rec[1] > 0 {
             let scale = recSpec.count > 2 ? min(max(Double(recSpec[2]) ?? 1, 0.1), 1) : 1
+            let speed = recSpec.count > 3 ? min(max(Double(recSpec[3]) ?? 1, 0.05), 1) : 1
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { float() }
-            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { Recorder.start(to: URL(fileURLWithPath: path), seconds: rec[0], fps: rec[1], scale: scale) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { Recorder.start(to: URL(fileURLWithPath: path), seconds: rec[0], fps: rec[1], scale: scale, speed: speed) }
             return
         }
         let burst = (env["SF_WINDOW_SHOT_BURST"] ?? "").split(separator: "@").map(String.init)
@@ -57,28 +61,30 @@ enum WindowShot {
     /// ends up in it. Frames are written off the main thread so the scene keeps its pace.
     final class Recorder {
         static var current: Recorder?
-        let base: String, seconds: Double, fps: Double, scale: Double
+        let base: String, seconds: Double, fps: Double, scale: Double, speed: Double
         let start = CACurrentMediaTime()
         let queue = DispatchQueue(label: "window-shot-record", qos: .userInitiated)
         let group = DispatchGroup()
         var times: [String] = []
         var timer: Timer?
 
-        init(base: String, seconds: Double, fps: Double, scale: Double) { self.base = base; self.seconds = seconds; self.fps = fps; self.scale = scale }
+        init(base: String, seconds: Double, fps: Double, scale: Double, speed: Double) { self.base = base; self.seconds = seconds; self.fps = fps; self.scale = scale; self.speed = speed }
 
-        static func start(to out: URL, seconds: Double, fps: Double, scale: Double) {
-            let r = Recorder(base: out.deletingPathExtension().path, seconds: seconds, fps: fps, scale: scale)
+        static func start(to out: URL, seconds: Double, fps: Double, scale: Double, speed: Double) {
+            let r = Recorder(base: out.deletingPathExtension().path, seconds: seconds, fps: fps, scale: scale, speed: speed)
+            WorldScene.timeScale = speed
             current = r
-            let t = Timer(timeInterval: 1 / fps, repeats: true) { _ in r.tick() }
+            let t = Timer(timeInterval: speed / fps, repeats: true) { _ in r.tick() }
             r.timer = t
             RunLoop.main.add(t, forMode: .common)
         }
 
         func tick() {
-            let now = CACurrentMediaTime() - start
+            let now = (CACurrentMediaTime() - start) * speed     // the world's time
             guard now < seconds, let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }),
                   let content = window.contentView, let sk = WindowShot.find(SKView.self, in: content),
                   let scene = sk.scene, let cam = scene.camera else { finish(); return }
+            scene.speed = CGFloat(speed)
             // the crop's size sets the texture's size: it always shows what the camera shows, smaller sizes draw faster
             let crop = CGRect(x: cam.position.x - scene.size.width * cam.xScale / 2, y: cam.position.y - scene.size.height * cam.yScale / 2,
                               width: scene.size.width * cam.xScale * scale, height: scene.size.height * cam.yScale * scale)

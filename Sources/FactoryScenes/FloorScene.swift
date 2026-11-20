@@ -671,7 +671,7 @@ public final class FloorScene: WorldScene {
 
 
     public override func update(_ currentTime: TimeInterval) {
-        let dt = lastTime == 0 ? 0 : min(0.1, currentTime - lastTime); lastTime = currentTime
+        let dt = lastTime == 0 ? 0 : min(0.1, (currentTime - lastTime) * WorldScene.timeScale); lastTime = currentTime
         guard animationsEnabled else { return }
         clock += dt
         for p in people.values {

@@ -12,6 +12,9 @@ public class WorldScene: SKScene {
     let px: CGFloat = 2
     var dragged = false
     public var animationsEnabled = true
+    /// How fast the world's own clock runs (1 is real time). Window-shot recordings slow it down, so a frame that takes
+    /// long to draw still lands on an even beat of the world's time.
+    public static var timeScale: Double = 1
     /// Room the HUD panels take on the left and right, in view points: home framing keeps the world clear of them.
     public var insets: (left: CGFloat, right: CGFloat) = (330, 0) { didSet { recomputeHome() } }
     /// Room the HUD bars take at the top (breadcrumb, world switch) and bottom (levels, zoom dock), in view points.
