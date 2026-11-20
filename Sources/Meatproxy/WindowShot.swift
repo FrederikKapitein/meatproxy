@@ -13,7 +13,10 @@ import SwiftTerm
 /// person on the open floor), "apart:<tower>" / "mark:<k>" (a tower held apart, storey k marked, D65), "life:demo"
 /// (all of the campus's life at night, D66), "hour:<h>" (the campus clock), "layer:status" (D69),
 /// "commands", "search:<text>" and "context:x,y" (a right-click; D72) and "wait:<seconds>". SF_WINDOW_SHOT_BURST="4@0.25" takes four
-/// shots a quarter second apart (out-0.png … out-3.png), to judge motion.
+/// shots a quarter second apart (out-0.png … out-3.png), to judge motion. SF_WINDOW_SHOT_RECORD="10@15" records the world
+/// instead (no HUD): ten seconds at 15 frames a second into out-0000.png …, with each frame's time in out-times.txt. A
+/// window that is covered draws no frames, so while it records it floats above the other windows. "10@15@0.5" records
+/// at half the full size, which draws faster (cut out what you need afterwards).
 enum WindowShot {
     static var active: Bool { ProcessInfo.processInfo.environment["SF_WINDOW_SHOT"] != nil }
     static var action: String? { ProcessInfo.processInfo.environment["SF_WINDOW_SHOT_ACTION"] }
@@ -22,6 +25,14 @@ enum WindowShot {
         let env = ProcessInfo.processInfo.environment
         guard let path = env["SF_WINDOW_SHOT"], !path.isEmpty else { return }
         let wait = env["SF_WINDOW_SHOT_AFTER"].flatMap(Double.init) ?? 6
+        let recSpec = (env["SF_WINDOW_SHOT_RECORD"] ?? "").split(separator: "@").map(String.init)
+        let rec = recSpec.prefix(2).compactMap { Double($0) }
+        if rec.count == 2, rec[0] > 0, rec[1] > 0 {
+            let scale = recSpec.count > 2 ? min(max(Double(recSpec[2]) ?? 1, 0.1), 1) : 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { float() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { Recorder.start(to: URL(fileURLWithPath: path), seconds: rec[0], fps: rec[1], scale: scale) }
+            return
+        }
         let burst = (env["SF_WINDOW_SHOT_BURST"] ?? "").split(separator: "@").map(String.init)
         guard burst.count == 2, let n = Int(burst[0]), let dt = Double(burst[1]), n > 1 else {
             DispatchQueue.main.asyncAfter(deadline: .now() + wait) { shoot(to: URL(fileURLWithPath: path)) }
@@ -31,6 +42,64 @@ enum WindowShot {
         for k in 0..<n {
             DispatchQueue.main.asyncAfter(deadline: .now() + wait + Double(k) * dt) {
                 shoot(to: URL(fileURLWithPath: "\(base)-\(k).png"), quit: k == n - 1)
+            }
+        }
+    }
+
+    /// Above the other windows, so it is not covered and keeps drawing frames while it records.
+    static func float() {
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }) else { return }
+        window.level = .floating
+        window.orderFrontRegardless()
+    }
+
+    /// Records the world, frame by frame, from the scene itself: no screen recording, so nothing else on the screen
+    /// ends up in it. Frames are written off the main thread so the scene keeps its pace.
+    final class Recorder {
+        static var current: Recorder?
+        let base: String, seconds: Double, fps: Double, scale: Double
+        let start = CACurrentMediaTime()
+        let queue = DispatchQueue(label: "window-shot-record", qos: .userInitiated)
+        let group = DispatchGroup()
+        var times: [String] = []
+        var timer: Timer?
+
+        init(base: String, seconds: Double, fps: Double, scale: Double) { self.base = base; self.seconds = seconds; self.fps = fps; self.scale = scale }
+
+        static func start(to out: URL, seconds: Double, fps: Double, scale: Double) {
+            let r = Recorder(base: out.deletingPathExtension().path, seconds: seconds, fps: fps, scale: scale)
+            current = r
+            let t = Timer(timeInterval: 1 / fps, repeats: true) { _ in r.tick() }
+            r.timer = t
+            RunLoop.main.add(t, forMode: .common)
+        }
+
+        func tick() {
+            let now = CACurrentMediaTime() - start
+            guard now < seconds, let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }),
+                  let content = window.contentView, let sk = WindowShot.find(SKView.self, in: content),
+                  let scene = sk.scene, let cam = scene.camera else { finish(); return }
+            // the crop's size sets the texture's size: it always shows what the camera shows, smaller sizes draw faster
+            let crop = CGRect(x: cam.position.x - scene.size.width * cam.xScale / 2, y: cam.position.y - scene.size.height * cam.yScale / 2,
+                              width: scene.size.width * cam.xScale * scale, height: scene.size.height * cam.yScale * scale)
+            guard let image = sk.texture(from: scene, crop: crop)?.cgImage() else { return }
+            let n = times.count
+            times.append(String(format: "%.4f", now))
+            let url = URL(fileURLWithPath: String(format: "%@-%04d.png", base, n))
+            group.enter()
+            queue.async { [group] in
+                try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: url)
+                group.leave()
+            }
+        }
+
+        func finish() {
+            timer?.invalidate(); timer = nil
+            let times = times, base = base
+            group.notify(queue: .main) {
+                try? (times.joined(separator: "\n") + "\n").write(toFile: base + "-times.txt", atomically: true, encoding: .utf8)
+                print("Recorded \(times.count) frames to \(base)-NNNN.png")
+                NSApp.terminate(nil)
             }
         }
     }
