@@ -118,6 +118,7 @@ extension Fixture {
             ## Needs you
             1. Ship offline streak sync (W-002) to production?
             2. Let the factory ship without asking (ship gate to notify)?
+            3. To-do D-0010: allow the error tracker's read tools in this project's allowlist.
 
             ## Delivered
             - Undo after a hint (W-001), released in 3.2.1 on web, App Store and Google Play.
@@ -161,7 +162,39 @@ extension Fixture {
                      why: "The last five ship questions were all a yes, with no revert or hotfix after them. On notify the CEO ships after green checks and an independent tester pass, and reports it in the briefing.",
                      evidence: "- [Ship history](https://github.com/example/pebble-puzzles/releases)\n- https://status.example.com/pebble-puzzles",
                      onYes: "Set the ship gate to notify and log it in the history.", onNo: "Keep asking before every ship."),
-            ("factory/contract.yml", "contract: meatproxy-factory\nversion: 4\nsentry: demo-org/pebble-app\ntracker: pebble\n"),
+            // a release you held back (D81): W-006 waits for your Release now; and a to-do only you can do
+            workstream("W-006", "sharper-hint-arrows", title: "Sharper hint arrows", type: "feature", phase: "ship", source: "product",
+                       pr: "https://github.com/example/pebble-puzzles/pull/44", release: nil, opened: 5, decisions: "D-0009",
+                       log: ["\(day(5)) plan: proposed by product.", "\(day(4)) build: developer started.", "\(day(3)) test: tester passed it.",
+                             "\(day(2)) ship: you said no on D-0009 (not before the weekend); it waits for your release."]),
+            decision("D-0009", "ship-sharper-hint-arrows", title: "Ship sharper hint arrows (W-006) to production?", kind: "ship", gate: "ship",
+                     status: "no", ws: "W-006", asked: 60, answered: 50, why: "Hint arrows are easier to see on small phones.",
+                     evidence: "- [PR #44](https://github.com/example/pebble-puzzles/pull/44)", onYes: "Release it.", onNo: "Hold it.",
+                     answer: "Not before the weekend."),
+            ("factory/decisions/D-0010-allow-error-tracker-reads.md", """
+            ---
+            id: D-0010
+            title: Allow the error tracker's read tools in this project's allowlist
+            kind: todo
+            gate: always-ask
+            status: open
+            workstream: null
+            asked: \(at(0.5))
+            answered: null
+            ---
+
+            ## Why
+            The CEO cannot read new crashes: the error tracker's tools are not in the allowlist, so every search is denied.
+
+            ## How
+            1. Open .claude/settings.json in this project.
+            2. Add the error tracker's read tools (search issues, issue details, stack traces) to permissions.allow.
+            3. Press Done; the CEO checks it on its next run.
+
+            ## Answer
+
+            """),
+            ("factory/contract.yml", "contract: meatproxy-factory\nversion: 5\nsentry: demo-org/pebble-app\ntracker: pebble\n"),
             ("factory/mandate.yml", { var m = FactoryMandate(); m.set(level: .hybrid); m.quietHours = "22:00-07:00"; m.ownTeam = true; m.team = AgentTeam(["product": 1, "developer": 2, "tester": 1]); return m.yaml }()),
             // your ideas: one the CEO took (it became D-0007's sibling W-004), one still waiting
             ("factory/ideas/I-0001-colour-blind-pebbles.md", """
