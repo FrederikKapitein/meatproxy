@@ -11,7 +11,7 @@ import FactoryScenes
 /// "zoom:<factor>" (below 1 zooms in), "hover:x,y" or "click:x,y" (the pointer at x, y view points from the top left, as
 /// a real mouse event, so the HUD panels still catch it), "uiclick:x,y" (a click through the window: HUD buttons), "move:<session>:<room>" (a person on the open floor walks to
 /// another room), "walker:<k>" / "clickwalker:<k>" (the pointer on campus walker k), "person:<id>" / "clickperson:<id>" (the pointer on a
-/// person on the open floor), "apart:<tower>" / "mark:<k>" (a tower held apart, storey k marked, D65), "life:demo"
+/// person on the open floor), "apart:<tower>" / "mark:<k>" (a tower held apart, storey k marked, D65), "leave:<project id>" (a floor leaves its tower, D82), "life:demo"
 /// (all of the campus's life at night, D66), "hour:<h>" (the campus clock), "layer:status" (D69),
 /// "commands", "search:<text>" and "context:x,y" (a right-click; D72) and "wait:<seconds>". SF_WINDOW_SHOT_BURST="4@0.25" takes four
 /// shots a quarter second apart (out-0.png … out-3.png), to judge motion. SF_WINDOW_SHOT_RECORD="10@15" records the world
