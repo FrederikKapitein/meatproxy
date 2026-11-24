@@ -84,6 +84,8 @@ extension AppModel {
             switch n {
             case .decision(let p, let d):
                 c.append(AppCommand(id: "d:" + p.id + d.id, title: d.title, detail: "\(p.name) · \(d.kind) · \(d.asked?.ago ?? "")", icon: p.id == World.opsID ? "server" : "bang", group: .questions) { [weak self] in self?.controller.open(n) })
+            case .release(let p, let ws):
+                c.append(AppCommand(id: "r:" + p.id, title: n.title, detail: "\(p.name) · \(ws.count) ready to release", icon: "ship", group: .questions) { [weak self] in self?.controller.open(n) })
             case .session(let p, let s):
                 c.append(AppCommand(id: "w:" + s.id, title: s.title, detail: "\(p.name) · \(s.persona.name) · \(s.lastAt.ago)", icon: "help", group: .questions) { [weak self] in self?.controller.open(n) })
             }

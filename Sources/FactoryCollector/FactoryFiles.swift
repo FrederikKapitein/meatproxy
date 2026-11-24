@@ -196,6 +196,81 @@ public enum IdeaInbox {
     }
 }
 
+/// Your release of finished work (contract v5, D81): a new decision in `factory/decisions/` that you started yourself,
+/// already answered yes (`kind: ship`, `from: you`). It is your own instruction, so it holds where the mandate keeps
+/// shipping off. The next free D-number; an existing file is never overwritten.
+public enum ReleaseRequest {
+    public enum Failure: Error, LocalizedError {
+        case nothing, notWritten(String)
+        public var errorDescription: String? {
+            switch self {
+            case .nothing: "There is nothing to release."
+            case .notWritten(let why): "The release could not be written: \(why)"
+            }
+        }
+    }
+
+    /// Writes the request and returns its id ("D-0015").
+    @discardableResult
+    public static func send(root: String, workstreams: [Workstream], note: String = "", at now: Date = Date(),
+                            timeZone: TimeZone = .current) throws -> String {
+        guard !workstreams.isEmpty else { throw Failure.nothing }
+        let fm = FileManager.default, dir = URL(fileURLWithPath: root).appendingPathComponent("factory/decisions")
+        do { try fm.createDirectory(at: dir, withIntermediateDirectories: true) } catch { throw Failure.notWritten(error.localizedDescription) }
+        let used = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).compactMap { name -> Int? in
+            guard name.hasPrefix("D-") else { return nil }
+            return Int(name.dropFirst(2).prefix(while: \.isNumber))
+        }
+        let ids = workstreams.map(\.id)
+        let f = ISO8601DateFormatter(); f.timeZone = timeZone; f.formatOptions = [.withInternetDateTime]
+        let when = f.string(from: now)
+        let slug = "release-" + ids.joined(separator: "-").lowercased().replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
+        let list = workstreams.map { "- \($0.id): \($0.title.replacingOccurrences(of: "\n", with: " "))" }.joined(separator: "\n")
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let start = (used.max() ?? 0) + 1
+        for n in start..<(start + 20) {
+            let id = String(format: "D-%04d", n)
+            let url = dir.appendingPathComponent("\(id)-\(String(slug.prefix(60))).md")
+            let file = """
+            ---
+            id: \(id)
+            title: Release \(NeedsYou.list(ids)) to production
+            kind: ship
+            gate: ship
+            status: yes
+            from: you             # you started this release in Meatproxy (contract v5)
+            workstream: \(ids[0])
+            workstreams: [\(ids.joined(separator: ", "))]
+            replaces: null
+            asked: \(when)
+            answered: \(when)
+            ---
+
+            ## Why
+            You released this work yourself in Meatproxy. It is your own instruction: it holds even where the mandate
+            keeps shipping off. Release it the way this factory ships, and log it on each workstream.
+
+            \(list)
+
+            ## Answer
+            \(trimmed.isEmpty ? "Release it." : trimmed)
+
+            """
+            let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o644)
+            if fd < 0 {
+                if errno == EEXIST { continue }
+                throw Failure.notWritten(String(cString: strerror(errno)))
+            }
+            let data = Data(file.utf8)
+            let ok = data.withUnsafeBytes { write(fd, $0.baseAddress, data.count) == data.count }
+            close(fd)
+            if ok { return id }
+            throw Failure.notWritten("short write")
+        }
+        throw Failure.notWritten("no free id")
+    }
+}
+
 /// Writes your mandate into a factory (contract v3): factory/mandate.yml, atomically. Besides your answers and your ideas
 /// this is the only file Meatproxy writes in a factory, and only in one that declares version 3.
 public enum MandateFile {

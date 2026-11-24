@@ -56,6 +56,13 @@ struct FactoryOverview: View {
         }
     }
 
+    /// "1 decision waits for you", "2 to-dos wait for you", "3 things wait for you"
+    static func waiting(_ open: [FactoryDecision]) -> String {
+        let todos = open.filter(\.isTodo).count
+        let noun = todos == 0 ? "decision" : todos == open.count ? "to-do" : "thing"
+        return "\(open.count) \(noun)\(open.count == 1 ? " waits" : "s wait") for you"
+    }
+
     @ViewBuilder private var overview: some View {
         if model.justSetUp == project.root { FirstBeatCard(project: project) }
         if factory.paused {
@@ -71,20 +78,21 @@ struct FactoryOverview: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     QuestMarker(size: 20)
-                    Text("\(open.count) decision\(open.count == 1 ? " waits" : "s wait") for you").font(.s15b).foregroundStyle(Color.inkText)
+                    Text(Self.waiting(open)).font(.s15b).foregroundStyle(Color.inkText)
                 }
                 ForEach(open) { d in
                     HStack(spacing: 10) {
                         Text(d.title).font(.s13).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 6)
-                        Button { model.controller.select(decision: d.id, in: project.id) } label: { Text("Answer") }
+                        Button { model.controller.select(decision: d.id, in: project.id) } label: { Text(d.isTodo ? "Open" : "Answer") }
                             .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
-                            .accessibilityLabel("Answer: \(d.title)")
+                            .accessibilityLabel("\(d.isTodo ? "Open" : "Answer"): \(d.title)")
                     }
                 }
             }
             .spelCard(flag: .signal)
         }
+        if !factory.readyToRelease.isEmpty { ReleaseCard(project: project, workstreams: factory.readyToRelease) }
         if factory.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text("No briefing yet").font(.s15).foregroundStyle(Color.inkText)
@@ -209,9 +217,12 @@ private struct WorkTab: View {
             if dropped > 0 { Text("\(dropped) dropped").font(.s11n).foregroundStyle(Color.muted) }
         }
         if streams.isEmpty { Text("No workstream yet: the CEO opens one for each piece of work.").font(.s13).foregroundStyle(Color.muted) }
+        let ready = factory.readyToRelease
+        if !ready.isEmpty { ReleaseCard(project: project, workstreams: ready) }
         ForEach(streams) { w in
             Button { model.controller.select(workstream: w.id, in: project.id) } label: {
-                WorkstreamRow(workstream: w, waits: factory.openDecisions.contains { $0.workstream == w.id || w.decisions.contains($0.id) }).contentShape(Rectangle())
+                WorkstreamRow(workstream: w, waits: factory.openDecisions.contains { $0.workstreams.contains(w.id) || w.decisions.contains($0.id) },
+                              ready: ready.contains { $0.id == w.id }).contentShape(Rectangle())
             }.buttonStyle(CardPressStyle())
         }
         Eyebrow("Sessions · \(project.sessions.count)").padding(.top, 4)
@@ -222,10 +233,12 @@ private struct WorkTab: View {
     }
 }
 
-/// A workstream on the Work tab: its id and title once, and its road (E9); a yellow edge when a question waits.
+/// A workstream on the Work tab: its id and title once, its road (E9), and where it stands in the CEO's words (its
+/// latest log line), so a phase nobody works on says why (D81); a yellow edge when it waits for you.
 private struct WorkstreamRow: View {
     let workstream: Workstream
     var waits = false
+    var ready = false
     var body: some View {
         let w = workstream
         VStack(alignment: .leading, spacing: 10) {
@@ -236,9 +249,91 @@ private struct WorkstreamRow: View {
                 if w.wentBack { Tag("↩ back").help(w.backSteps.last?.text ?? "") }
             }
             PhaseTrack(phases: WorkstreamCard.phases, current: WorkstreamCard.current(w))
+            if ready {
+                HStack(spacing: 6) {
+                    PixelIcon("ship", color: .inkText, size: 9)
+                    Text("Waits for your release").font(.s13m).foregroundStyle(Color.inkText)
+                }
+            } else if let last = w.log.last, w.phase != .done {
+                Text(Self.gist(last)).font(.s13).foregroundStyle(Color.muted).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    .help(last.text)
+            }
         }
-        .spelCard(flag: waits ? .signal : nil)
+        .spelCard(flag: waits || ready ? .signal : nil)
         .accessibilityElement(children: .combine)
+    }
+}
+
+extension WorkstreamRow {
+    /// "24 Nov · No change: DevOps #222 … still open." The log line in plain words, with its day.
+    static func gist(_ e: WorkLogEntry) -> String {
+        let text = BriefingCard.plain(e.text).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let out = DateFormatter(); out.dateFormat = "d MMM"
+        let day = f.date(from: e.date).map { out.string(from: $0) } ?? e.date
+        return day.isEmpty ? text : "\(day) · \(text)"
+    }
+}
+
+/// Finished work in ship that nobody asked to release (D81): what it is, why it waits, and Release now. That asks once
+/// more, then writes your release into factory/decisions/ (`from: you`, already yes); the CEO acts on it at its next run.
+struct ReleaseCard: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    let workstreams: [Workstream]
+    @State private var confirming = false
+    @State private var sending = false
+    @State private var failure: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                QuestMarker(glyph: "ship", size: 20)
+                Text(workstreams.count == 1 ? "Ready to release" : "\(workstreams.count) ready to release").font(.s15b).foregroundStyle(Color.inkText)
+            }
+            Text(reason).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(workstreams) { w in
+                    HStack(spacing: 8) {
+                        Tag(w.id)
+                        Text(w.title).font(.s13).foregroundStyle(Color.inkText).lineLimit(1)
+                    }
+                }
+            }
+            if confirming {
+                HStack(spacing: 8) {
+                    Button { send() } label: { SpelLabel(sending ? "Sending…" : "Send release", key: "⌘↩", onYellow: true) }
+                        .buttonStyle(SpelButtonStyle(kind: .primary, wide: true)).disabled(sending)
+                        .keyboardShortcut(.return, modifiers: .command)
+                    Button { confirming = false } label: { Text("Cancel") }.buttonStyle(SpelButtonStyle(kind: .secondary)).disabled(sending)
+                }
+                Text("Writes your release into factory/decisions/. The CEO releases it \(model.pickUp(project)), the way this factory ships.")
+                    .font(.s13m).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
+            } else {
+                Button { confirming = true; failure = nil } label: { SpelLabel("Release now", icon: "ship", onYellow: true) }
+                    .buttonStyle(SpelButtonStyle(kind: .primary))
+            }
+            if let failure { Text(failure).font(.s13m).foregroundStyle(Color.stuck).fixedSize(horizontal: false, vertical: true) }
+        }
+        .spelCard(flag: .signal)
+    }
+
+    private var reason: String {
+        let shipping = project.factory?.takesMandate == true ? model.mandate(project.root).items[.ship] : nil
+        if shipping == .off { return "Done and tested. Shipping is off in your mandate, so the CEO will not ask: it waits for you." }
+        if let no = project.factory?.decisions.last(where: { $0.kind.lowercased() == "ship" && $0.status == .no && !Set($0.workstreams).isDisjoint(with: workstreams.map(\.id)) }) {
+            return "Done and tested. You said no on \(no.id)\(no.answer.isEmpty ? "" : " (“\(BriefingCard.plain(no.answer))”)"); it waits until you release it."
+        }
+        return "Done and tested, and no release question is open for it."
+    }
+
+    private func send() {
+        sending = true
+        Task {
+            let error = await model.release(workstreams, in: project)
+            sending = false
+            if let error { failure = error } else { confirming = false }
+        }
     }
 }
 
@@ -1059,7 +1154,8 @@ struct DecisionCard: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 6) {
                 Tag(d.id)
-                Tag(d.kind)
+                Tag(d.isTodo ? "to-do" : d.kind)
+                if d.fromYou { Tag("from you") }
                 if let w = d.workstream, let ws = project.factory?.workstreams.first(where: { $0.id == w }) {
                     Button { model.controller.select(workstream: w, in: project.id) } label: {
                         HStack(spacing: 4) { Text("\(ws.id) \(ws.title)").font(.s13m).lineLimit(1); PixelIcon("chev", color: .muted, size: 9) }
@@ -1077,6 +1173,7 @@ struct DecisionCard: View {
                 }
             }
             if !d.why.isEmpty { Part(title: "Why") { Prose(text: d.why) } }
+            if !d.how.isEmpty { Part(title: "How") { Prose(text: d.how) } }
             if !d.evidence.isEmpty { Part(title: "Evidence") { Evidence(text: d.evidence, root: project.factory?.root ?? project.root) } }
             if !d.onYes.isEmpty || !d.onNo.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
@@ -1085,8 +1182,17 @@ struct DecisionCard: View {
                 }
                 .fixedSize(horizontal: false, vertical: true)
             }
-            if d.status == .open { AnswerForm(project: project, decision: d) } else { answered(d) }
+            if d.status == .open {
+                if d.isTodo { AnswerForm(project: project, decision: d, yesTitle: "Done", noTitle: "Not now") }
+                else { AnswerForm(project: project, decision: d) }
+            } else { answered(d) }
         }
+    }
+
+    /// Yes, No, … ; a to-do says Done and Not now.
+    static func statusWord(_ d: FactoryDecision) -> String {
+        guard d.isTodo else { return d.status.rawValue.capitalized }
+        return d.status == .yes ? "Done" : d.status == .no ? "Not now" : d.status.rawValue.capitalized
     }
 
     @ViewBuilder private func answered(_ d: FactoryDecision) -> some View {
@@ -1094,7 +1200,7 @@ struct DecisionCard: View {
         HStack(alignment: .top, spacing: 12) {
             if d.status == .yes || d.status == .no { AnswerStamp(yes: d.status == .yes) }
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(d.status.rawValue.capitalized)\(d.answered.map { " · \($0.ago)" } ?? "")").font(.s15b).foregroundStyle(color)
+                Text("\(Self.statusWord(d))\(d.answered.map { " · \($0.ago)" } ?? "")").font(.s15b).foregroundStyle(color)
                 if !d.answer.isEmpty { Text(d.answer).font(.s13).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true) }
                 if d.status == .yes || d.status == .no {
                     Text(model.receipt(for: d, in: project)).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
@@ -1126,7 +1232,7 @@ struct AnswerForm: View {
             if let pending {
                 HStack(spacing: 8) {
                     Button { send(pending) } label: {
-                        SpelLabel(sending ? "Sending…" : pending ? "Send yes" : "Send no", key: "⌘↩", onYellow: pending)
+                        SpelLabel(sending ? "Sending…" : decision.isTodo ? (pending ? "Mark done" : "Send not now") : pending ? "Send yes" : "Send no", key: "⌘↩", onYellow: pending)
                     }
                     .buttonStyle(SpelButtonStyle(kind: pending ? .primary : .secondary, wide: true, pulse: sendPulse)).disabled(sending)
                     .background { Button("") { sendPulse += 1; send(pending) }.keyboardShortcut(.return, modifiers: .command).opacity(0).disabled(sending) }

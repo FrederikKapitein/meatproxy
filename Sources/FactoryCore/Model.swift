@@ -313,7 +313,8 @@ public struct World: Sendable, Hashable {
     public var needsYou: [NeedsYou] {
         let sessions = waitingSessions.map { NeedsYou.session($0.project, $0.session) }
         let questions = (projects + [ops].compactMap { $0 }).flatMap { p in (p.factory?.openDecisions ?? []).map { NeedsYou.decision(p, $0) } }
-        return (questions + sessions).enumerated().sorted {
+        let releases = projects.compactMap { p in p.factory.flatMap { f in f.readyToRelease.isEmpty ? nil : NeedsYou.release(p, f.readyToRelease) } }
+        return (questions + releases + sessions).enumerated().sorted {
             ($0.element.group.rawValue, $0.element.since, $0.offset) < ($1.element.group.rawValue, $1.element.since, $1.offset)
         }.map(\.element)
     }
@@ -325,25 +326,33 @@ public struct World: Sendable, Hashable {
     }
 }
 
-/// One thing that waits for you: a session, or a yes/no question from a factory's CEO.
+/// One thing that waits for you: a session, a yes/no question or to-do from a factory's CEO, or finished work that
+/// waits for your release (D81).
 public enum NeedsYou: Sendable, Identifiable {
     case session(Project, Session)
     case decision(Project, FactoryDecision)
+    case release(Project, [Workstream])
 
     public var id: String {
         switch self {
         case .session(_, let s): "session:" + s.id
         case .decision(let p, let d): "decision:" + p.id + "/" + d.id
+        case .release(let p, _): "release:" + p.id
         }
     }
     public var project: Project {
-        switch self { case .session(let p, _), .decision(let p, _): p }
+        switch self { case .session(let p, _), .decision(let p, _), .release(let p, _): p }
     }
     public var title: String {
         switch self {
         case .session(_, let s): s.title
         case .decision(_, let d): d.title
+        case .release(_, let ws): "Release " + NeedsYou.list(ws.map(\.id))
         }
+    }
+    /// "W-002", "W-002 and W-003", "W-002, W-003 and W-004"
+    public static func list(_ ids: [String]) -> String {
+        ids.count <= 1 ? ids.first ?? "" : ids.dropLast().joined(separator: ", ") + " and " + ids.last!
     }
     /// The groups of Needs you, in their order.
     public enum Group: Int, Sendable, Comparable {
@@ -354,6 +363,7 @@ public enum NeedsYou: Sendable, Identifiable {
     public var group: Group {
         switch self {
         case .decision(let p, _): p.id == World.opsID ? .serverRoom : .factories
+        case .release: .factories
         case .session: .chats
         }
     }
@@ -362,6 +372,7 @@ public enum NeedsYou: Sendable, Identifiable {
         switch self {
         case .session(_, let s): s.lastAt
         case .decision(_, let d): d.asked ?? .distantPast
+        case .release(_, let ws): ws.compactMap(\.lastMoved).max() ?? .distantPast
         }
     }
 }

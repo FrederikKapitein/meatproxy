@@ -85,4 +85,17 @@ struct FloorCEOTests {
             #expect(v.state != .waiting, "\(id) waits: \(v.plate)")
         }
     }
+
+    /// Between runs the CEO rests (D81): its plate says so, instead of a bare "CEO" pointing at the board.
+    @Test func aCEOBetweenRunsIsPlatedAsResting() throws {
+        let world = Fixture.world()
+        var p = try #require(world.projects.first { $0.root == Fixture.factoryRoot })
+        p.sessions = []
+        p.factory?.decisions = []
+        p = p.withStandingCEO
+        let ceo = try #require(p.sessions.first { $0.id.hasPrefix(Project.standingCEOPrefix) })
+        #expect(FloorScene.resting(ceo, in: p, now: world.now))
+        let st = FloorScene.shownState(ceo, in: p, now: world.now)
+        #expect(FloorScene.plateLine(ceo, in: p, state: st, back: false, seated: false, now: world.now) == "CEO · resting")
+    }
 }
