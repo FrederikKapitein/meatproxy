@@ -20,6 +20,8 @@ import FactoryScenes
 /// at half the full size, which draws faster (cut out what you need afterwards). "10@15@1@0.25" also runs the world at a
 /// quarter speed (its clock, its actions): ten seconds of the world's time, sharp and on an even beat, in forty seconds;
 /// the times in out-times.txt are the world's. Flights land early there (their watchdog runs on the wall clock).
+/// SF_WINDOW_SHOT_HUD="0.5" puts the HUD on every frame too: it is captured again every half second of the world's time
+/// (a capture hides the world for a moment, so not every frame), and each frame is the world with the latest HUD on top.
 enum WindowShot {
     static var active: Bool { ProcessInfo.processInfo.environment["SF_WINDOW_SHOT"] != nil }
     static var action: String? { ProcessInfo.processInfo.environment["SF_WINDOW_SHOT_ACTION"] }
@@ -34,7 +36,8 @@ enum WindowShot {
             let scale = recSpec.count > 2 ? min(max(Double(recSpec[2]) ?? 1, 0.1), 1) : 1
             let speed = recSpec.count > 3 ? min(max(Double(recSpec[3]) ?? 1, 0.05), 1) : 1
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { float() }
-            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { Recorder.start(to: URL(fileURLWithPath: path), seconds: rec[0], fps: rec[1], scale: scale, speed: speed) }
+            let hud = env["SF_WINDOW_SHOT_HUD"].flatMap(Double.init) ?? 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { Recorder.start(to: URL(fileURLWithPath: path), seconds: rec[0], fps: rec[1], scale: scale, speed: speed, hudEvery: hud) }
             return
         }
         let burst = (env["SF_WINDOW_SHOT_BURST"] ?? "").split(separator: "@").map(String.init)
@@ -61,17 +64,21 @@ enum WindowShot {
     /// ends up in it. Frames are written off the main thread so the scene keeps its pace.
     final class Recorder {
         static var current: Recorder?
-        let base: String, seconds: Double, fps: Double, scale: Double, speed: Double
+        let base: String, seconds: Double, fps: Double, scale: Double, speed: Double, hudEvery: Double
         let start = CACurrentMediaTime()
+        /// the latest HUD (transparent where the world shows) and where the world goes under it, in its pixels
+        var hud: CGImage?, hudAt = -1.0, worldRect = CGRect.zero
         let queue = DispatchQueue(label: "window-shot-record", qos: .userInitiated)
         let group = DispatchGroup()
         var times: [String] = []
         var timer: Timer?
 
-        init(base: String, seconds: Double, fps: Double, scale: Double, speed: Double) { self.base = base; self.seconds = seconds; self.fps = fps; self.scale = scale; self.speed = speed }
+        init(base: String, seconds: Double, fps: Double, scale: Double, speed: Double, hudEvery: Double) {
+            self.base = base; self.seconds = seconds; self.fps = fps; self.scale = scale; self.speed = speed; self.hudEvery = hudEvery
+        }
 
-        static func start(to out: URL, seconds: Double, fps: Double, scale: Double, speed: Double) {
-            let r = Recorder(base: out.deletingPathExtension().path, seconds: seconds, fps: fps, scale: scale, speed: speed)
+        static func start(to out: URL, seconds: Double, fps: Double, scale: Double, speed: Double, hudEvery: Double = 0) {
+            let r = Recorder(base: out.deletingPathExtension().path, seconds: seconds, fps: fps, scale: scale, speed: speed, hudEvery: hudEvery)
             WorldScene.timeScale = speed
             current = r
             let t = Timer(timeInterval: speed / fps, repeats: true) { _ in r.tick() }
@@ -89,12 +96,36 @@ enum WindowShot {
             let crop = CGRect(x: cam.position.x - scene.size.width * cam.xScale / 2, y: cam.position.y - scene.size.height * cam.yScale / 2,
                               width: scene.size.width * cam.xScale * scale, height: scene.size.height * cam.yScale * scale)
             guard let image = sk.texture(from: scene, crop: crop)?.cgImage() else { return }
+            if hudEvery > 0, hud == nil || now - hudAt >= hudEvery {
+                // the HUD alone, as a window shot takes it: the world hidden for a moment, the rest drawn into a bitmap
+                let bounds = content.bounds
+                sk.isHidden = true; content.layoutSubtreeIfNeeded(); content.display()
+                if let rep = content.bitmapImageRepForCachingDisplay(in: bounds) { content.cacheDisplay(in: bounds, to: rep); hud = rep.cgImage }
+                sk.isHidden = false; sk.isPaused = false
+                hudAt = now
+                let k = CGFloat(hud?.width ?? 0) / bounds.width, r = sk.convert(sk.bounds, to: content)
+                worldRect = CGRect(x: r.minX * k, y: (content.isFlipped ? bounds.height - r.maxY : r.minY) * k, width: r.width * k, height: r.height * k)
+            }
             let n = times.count
             times.append(String(format: "%.4f", now))
             let url = URL(fileURLWithPath: String(format: "%@-%04d.png", base, n))
+            let hud = hudEvery > 0 ? self.hud : nil, worldRect = worldRect, scale = scale
             group.enter()
             queue.async { [group] in
-                try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: url)
+                var out = image
+                if let hud {
+                    // the world under the HUD, both at the recording's scale
+                    let w = Int(Double(hud.width) * scale), h = Int(Double(hud.height) * scale), s = CGFloat(scale)
+                    if let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                           bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                        ctx.setFillColor(CGColor(red: 7 / 255, green: 7 / 255, blue: 12 / 255, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+                        ctx.interpolationQuality = .high
+                        ctx.draw(image, in: CGRect(x: worldRect.minX * s, y: worldRect.minY * s, width: worldRect.width * s, height: worldRect.height * s))
+                        ctx.draw(hud, in: CGRect(x: 0, y: 0, width: w, height: h))
+                        if let made = ctx.makeImage() { out = made }
+                    }
+                }
+                try? NSBitmapImageRep(cgImage: out).representation(using: .png, properties: [:])?.write(to: url)
                 group.leave()
             }
         }

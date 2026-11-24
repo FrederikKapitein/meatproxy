@@ -42,8 +42,9 @@ Two variables change what a shot captures:
 
 - `SF_WINDOW_SHOT_BURST="4@0.25"` takes four shots a quarter second apart.
 - `SF_WINDOW_SHOT_RECORD="sec@fps[@scale[@speed]]"` records the world as frames (`f-NNNN.png` and `f-times.txt`).
-  Speed below 1 slows the world down, so every frame lands on an even beat. That is how the trailer and the README
-  loop were made.
+  Speed below 1 slows the world down, so every frame lands on an even beat. `SF_WINDOW_SHOT_HUD="0.4"` puts the HUD
+  on every frame too, captured again every 0.4 seconds of the world's time. That is how the trailer and the README loops
+  were made.
 
 Screenshots and recordings for anything public use `--fixture`: real sessions, projects, servers and alerts never go
 in this repository.
