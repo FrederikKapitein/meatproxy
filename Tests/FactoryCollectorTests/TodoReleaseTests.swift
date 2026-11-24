@@ -271,4 +271,26 @@ struct SendToDevOpsTests {
         #expect(ops.contains("kind: request"))
         #expect(EngineRoom.readme.contains("kind: request"))
     }
+
+    /// D87: the campus puts the DevOps agent at the server of its latest ops action in the run that goes now.
+    @Test func lastActionIsTheNewestLineOfThisRun() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sf-actions-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("journal"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let iso = ISO8601DateFormatter(), start = iso.date(from: "2026-11-24T13:00:00Z")!
+        // nothing logged yet: no server
+        #expect(EngineRoom.lastAction(since: start, at: dir) == nil)
+        let log = """
+        2026-11-24T12:40:00Z web-01 status → exit 0
+        2026-11-24T13:02:10Z api-01 disk → exit 0
+        2026-11-24T13:05:44Z db-01 logs postgres → exit 0
+
+        """
+        try log.write(to: dir.appendingPathComponent("journal/actions.log"), atomically: true, encoding: .utf8)
+        let last = try #require(EngineRoom.lastAction(since: start, at: dir))
+        #expect(last.server == "db-01")
+        #expect(last.at == iso.date(from: "2026-11-24T13:05:44Z"))
+        // a line from before this run belongs to an earlier one: the agent has not touched a server yet
+        #expect(EngineRoom.lastAction(since: iso.date(from: "2026-11-24T13:10:00Z")!, at: dir) == nil)
+    }
 }

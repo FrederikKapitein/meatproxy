@@ -118,9 +118,13 @@
     const rackGeo = [];
     for (let k = 0; k < nR; k++) { const a = si0 + .85 + k * .9; rackGeo.push({i0: a, i1: a + .7, j0: sj1 - 1.6, j1: sj1 - .55, z0: zs + 1.2, z1: zs + 32}); }
     obj(w => serverRoom(w, {zs, si0, sj0, si1, sj1, racks: racksIn, rackGeo, NIGHT}), {id: "building:engine"});
+    obj(w => serverFront(w, {zs, si0, sj0, si1, sj1}), {id: "engine:front"});
     footprints["building:engine"] = [si0 - .1, sj0 - .1, si1 + .6, sj1 + .2];
     // each rack's light strip (r 1, the state) and its row of activity lights (r 0), on its front face, for the app to light
     const racks = [], rackPanels = [];
+    // where someone squats to work on a rack (D87): inside, between its front and the glass, on the floor
+    // (i: seen through the glass, midway between two mullions, which stand .55 further on than the racks)
+    const rackSpots = rackGeo.map(g => ({i: g.i0 + .66, j: sj1 - .24, z: zs + 1.2, i0: g.i0, i1: g.i1, front: g.j1, z0: g.z0}));
     rackGeo.forEach((g, c) => {
       const q = (a0, a1, z0, z1) => [P(a0, g.j1, z0), P(a1, g.j1, z0), P(a1, g.j1, z1), P(a0, g.j1, z1)];
       racks.push({c, r: 1, pts: q(g.i0 + .06, g.i1 - .06, g.z0 + 25.2, g.z0 + 26.4)});
@@ -255,7 +259,7 @@
     /* ---------- the view: the island and the towers, for the camera ---------- */
     const tall = objs.filter(o => (o.id || "").startsWith("building:")).flatMap(o => o.ops);
     const view = K.opsBounds([...W.under, ...W.base, ...tall], 16), island = K.opsBounds([...W.base, ...tall], 4);
-    return {P, parts: {island,under: W.under, base: W.base, water: W.water, shadows: W.shadowP, light: [...W.pools, ...W.halos], objs: out, boxes, topParts, hits, racks, rackPanels, beacon, labels, storeys, towers, footprints, streams, lanes: LANES, npcs,
+    return {P, parts: {island,under: W.under, base: W.base, water: W.water, shadows: W.shadowP, light: [...W.pools, ...W.halos], objs: out, boxes, topParts, hits, racks, rackPanels, beacon, labels, storeys, towers, footprints, streams, lanes: LANES, npcs, rackSpots,
       fountain: P(ci, cj, zp + 20), view: [view[0], view[1] - 20, view[2], view[3]]}};
   }
 
@@ -374,6 +378,18 @@
     return {markup: g, rect: [xs[0], ys[0], xs[1] - xs[0], ys[1] - ys[0]]};
   }
 
+  /* the Server room's glass front, mullions, sill and transom: a sprite of its own over the room (D87), so someone at
+     work inside, between the racks and the glass, is seen through it */
+  function serverFront(W, o) {
+    const {zs, si0, sj0, si1, sj1} = o, SH = 42, SD = "#3a3550";
+    // the glass front with mullions in the gaps between racks, a sill band, a transom
+    W.box(si0 + .3, sj1 - .06, zs + 1.2, si1 - .4, sj1, zs + SH - 2, "#bfe3ff", {opacity: .18});
+    // (the racks stand .55 behind the glass: seen from here a mullion in the gap between two racks sits .55 further on)
+    for (let k = 0; k <= 6; k++) { const a = k === 0 ? si0 + .32 : si0 + .85 + k * .9 - .1 + .55; if (a > si1 - .45) continue; W.box(a - .05, sj1 - .06, zs + 4, a + .05, sj1 + .12, zs + SH - 2, SD); }
+    W.box(si0 - .08, sj1 - .06, zs, si1 + .08, sj1 + .14, zs + 4, "#4a4468", {deco: {front: [[si0, zs + 3.2, si1, zs + 4, "#5a5478"]]}}); W.box(si1 - .06, sj0 - .08, zs, si1 + .14, sj1 - .06, zs + 4, "#4a4468");
+    W.box(si0 + .3, sj1 - .08, zs + 36, si1 - .4, sj1, zs + 37, SD);
+  }
+
   /* ---------- the Server room (A5): a low pavilion; racks right behind the glass front, a lamp on a bracket ---------- */
   function serverRoom(W, o) {
     const {zs, si0, sj0, si1, sj1, rackGeo, racks} = o, SH = 42, SW = "#5a5478", SD = "#3a3550";
@@ -393,12 +409,6 @@
         text: nm ? [{f: "front", a: (g.i0 + g.i1) / 2, z: g.z0 + 3.6, t: nm, s: Math.min(1.6, 8.4 / (nm.length * .62)), c: "!#c9c4dc", wt: 600, font: MONO}] : []});
     });
     W.pool(si0 + 4, sj1 - 1, zs + 1.2, 70, "#8ab4ff", .22);
-    // the glass front with mullions in the gaps between racks, a sill band, a transom
-    W.box(si0 + .3, sj1 - .06, zs + 1.2, si1 - .4, sj1, zs + SH - 2, "#bfe3ff", {opacity: .18});
-    // (the racks stand .55 behind the glass: seen from here a mullion in the gap between two racks sits .55 further on)
-    for (let k = 0; k <= 6; k++) { const a = k === 0 ? si0 + .32 : si0 + .85 + k * .9 - .1 + .55; if (a > si1 - .45) continue; W.box(a - .05, sj1 - .06, zs + 4, a + .05, sj1 + .12, zs + SH - 2, SD); }
-    W.box(si0 - .08, sj1 - .06, zs, si1 + .08, sj1 + .14, zs + 4, "#4a4468", {deco: {front: [[si0, zs + 3.2, si1, zs + 4, "#5a5478"]]}}); W.box(si1 - .06, sj0 - .08, zs, si1 + .14, sj1 - .06, zs + 4, "#4a4468");
-    W.box(si0 + .3, sj1 - .08, zs + 36, si1 - .4, sj1, zs + 37, SD);
     W.group(R => {
       R.box(si0 - .1, sj0 - .1, zs + SH - 2, si1 + .1, sj1 + .1, zs + SH + 1.4, "#4a4468", {deco: {top: [[si0 + .3, sj0 + .3, si1 - .3, sj1 - .3, "#55507a"]], front: [[si0 - .1, zs + SH - 2, si1 + .1, zs + SH - 1.2, "#2e2a44"]]}});
       const zr = zs + SH + 1.4;

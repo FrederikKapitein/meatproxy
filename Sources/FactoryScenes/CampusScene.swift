@@ -141,6 +141,8 @@ public final class CampusScene: WorldScene {
                 n.addChild(ov); overlays[key] = ov
             }
         }
+        // the Server room's glass front over the room and whoever works inside it (D87)
+        if let b = buildings["engine"], let fz = content.childNode(withName: "engine:front") { fz.zPosition = b.zPosition + 0.9 }
         if let l = place(art.light, z: 3000, blend: .screen) { l.alpha = 0.9; l.name = "lamplight"; content.addChild(l) }
         // each sign just in front of what it hangs on (a building's roof sign and plaques, the Server room's board, the
         // plot's board, the fountain's count): people in front of a building pass in front of its plaques too
@@ -170,6 +172,7 @@ public final class CampusScene: WorldScene {
         placeWalkers(figures, fresh: first)
         placeLocals(art, npcFigures)
         collectAmbient()
+        placeDevOpsNodes()
         // the island fills the view and runs out of it (A4): its top with the towers, a little cropped at the sides
         setHome(art.island.insetBy(dx: art.island.width * 0.07, dy: 0), fill: 0.96)
         if first { cam.setScale(homeScale); cam.position = homeCenter }
@@ -255,6 +258,102 @@ public final class CampusScene: WorldScene {
                 a.node.position = CGPoint(x: a.base.x + CGFloat(sin(x * 0.025)) * 30 * u, y: a.base.y)
             default: break
             }
+        }
+    }
+
+    // MARK: the DevOps agent at work (D87)
+
+    /// Who works in the Server room right now, at which rack, with its plate; nil while the agent does not run.
+    private var devopsWork: (figure: Figure, rack: Int, tag: Overlay?)?
+    private var devopsNode: SKSpriteNode?, devopsTag: SKSpriteNode?, devopsCables: SKNode?
+    /// cables it pulls out of the rack and tosses over its shoulder: the node, where it left, its spin and how fast
+    private var flyingCables: [(node: SKShapeNode, from: CGPoint, v: CGVector, spin: CGFloat, born: Double)] = []
+    private var nextCable = 0.0
+    private static let cableColours: [SKColor] = [
+        SKColor(red: 0.98, green: 0.82, blue: 0.22, alpha: 1), SKColor(red: 0.3, green: 0.55, blue: 0.95, alpha: 1),
+        SKColor(red: 0.9, green: 0.32, blue: 0.3, alpha: 1), SKColor(red: 0.3, green: 0.75, blue: 0.45, alpha: 1),
+        SKColor(red: 0.62, green: 0.4, blue: 0.92, alpha: 1)]
+
+    /// While its run goes, the DevOps agent squats inside the Server room at the rack of the server it works on, its back
+    /// to you (and, the shirt riding up, a little more than its back): hands in the cables, a tangle hanging out of the
+    /// rack, and now and then a cable flying over its shoulder. A plate says where. Gone when the run ends.
+    public func showDevOps(figure: Figure?, rack: Int?, tag: Overlay?) {
+        devopsWork = figure.flatMap { f in rack.map { (f, $0, tag) } }
+        placeDevOpsNodes()
+    }
+
+    private func placeDevOpsNodes() {
+        devopsNode?.removeFromParent(); devopsTag?.removeFromParent(); devopsCables?.removeFromParent()
+        devopsNode = nil; devopsTag = nil; devopsCables = nil
+        flyingCables.forEach { $0.node.removeFromParent() }; flyingCables = []
+        // inside the building: on its overlay, so it sits over the racks and under whatever stands in front of the room
+        guard let w = devopsWork, let spot = devopsSpot(w), let ov = overlays["engine"] else { return }
+        let cables = SKNode(); cables.zPosition = 0.5; ov.addChild(cables); devopsCables = cables
+        // the tangle: loops hanging from the rack's open front down to the floor by its feet
+        var rng = SeededRandom("cables:\(w.rack)")
+        for k in 0..<5 {
+            let a = spot.i0 + 0.12 + CGFloat(k) * (spot.i1 - spot.i0 - 0.24) / 4
+            let top = project(a, spot.front, spot.z0 + rng.range(9, 19))
+            let floor = project(a + rng.range(-0.25, 0.3), spot.front + rng.range(0.12, 0.3), spot.z0 + 0.3)
+            let path = CGMutablePath()
+            path.move(to: scenePoint(top))
+            path.addQuadCurve(to: scenePoint(floor), control: scenePoint(CGPoint(x: (top.x + floor.x) / 2 + rng.range(-5, 5), y: floor.y + 2)))
+            let c = SKShapeNode(path: path)
+            c.strokeColor = Self.cableColours[k % Self.cableColours.count]; c.lineWidth = 1.3 * px; c.lineCap = .round
+            cables.addChild(c)
+        }
+        let n = SKSpriteNode(); n.anchorPoint = CGPoint(x: 0, y: 1); n.name = "devops"; n.zPosition = 0.6
+        ov.addChild(n); devopsNode = n
+        if let o = w.tag {
+            let t = SKSpriteNode(texture: SKTexture(cgImage: o.image))
+            t.size = CGSize(width: o.rect.width * px * 0.85, height: o.rect.height * px * 0.85)
+            // it hangs from its tip, above the room's roof, where you can see it from the plaza
+            t.anchorPoint = CGPoint(x: -o.rect.minX / o.rect.width, y: o.rect.maxY / o.rect.height)
+            t.zPosition = 4005
+            t.position = scenePoint(project(spot.i, spot.j, spot.z0 + 44))
+            content.addChild(t); devopsTag = t
+        }
+        placeDevOps(at: clock, dt: 0)
+    }
+
+    private func devopsSpot(_ w: (figure: Figure, rack: Int, tag: Overlay?)) -> CampusArt.RackSpot? {
+        guard let art, !art.rackSpots.isEmpty else { return nil }
+        return art.rackSpots[min(max(w.rack, 0), art.rackSpots.count - 1)]
+    }
+
+    private func placeDevOps(at t: Double, dt: Double) {
+        guard let w = devopsWork, let n = devopsNode, let spot = devopsSpot(w) else { return }
+        // rummaging: hands in the rack, then a turn with a cable held up, and back in
+        let pose = animationsEnabled && t.truncatingRemainder(dividingBy: 1.9) >= 1.25 ? "crouchB" : "crouch"
+        guard let f = w.figure.frame(pose, mood: "focus", dir: "up") else { return }
+        let foot = project(spot.i, spot.j, spot.z)
+        n.color = Self.moonShade; n.colorBlendFactor = artNight ? 0.3 : 0
+        n.texture = f.texture
+        n.size = CGSize(width: f.rect.width * px, height: f.rect.height * px)
+        n.position = scenePoint(CGPoint(x: foot.x + f.rect.minX, y: foot.y + f.rect.minY))
+        guard animationsEnabled, let ov = overlays["engine"] else { return }
+        // now and then a cable comes out of the rack and flies over its shoulder, tumbling, and is gone
+        if t >= nextCable {
+            nextCable = t + Double.random(in: 0.7...1.8)
+            let path = CGMutablePath(), len = CGFloat.random(in: 7...11) * px
+            path.move(to: CGPoint(x: -len / 2, y: 0))
+            path.addCurve(to: CGPoint(x: len / 2, y: 0), control1: CGPoint(x: -len / 6, y: len / 2.5), control2: CGPoint(x: len / 6, y: -len / 2.5))
+            let c = SKShapeNode(path: path)
+            c.strokeColor = Self.cableColours.randomElement()!; c.lineWidth = 1.2 * px; c.lineCap = .round; c.zPosition = 0.7
+            let from = scenePoint(project(spot.i + CGFloat.random(in: -0.15...0.15), spot.front + 0.15, spot.z + 12))
+            c.position = from
+            ov.addChild(c)
+            // up and back over its shoulder: towards you and to either side
+            let side: CGFloat = Bool.random() ? 1 : -1
+            flyingCables.append((c, from, CGVector(dx: side * CGFloat.random(in: 14...30) * px, dy: CGFloat.random(in: 38...52) * px), CGFloat.random(in: -9...9), t))
+        }
+        flyingCables.removeAll { cable in
+            let a = CGFloat(t - cable.born)
+            if a > 1.1 { cable.node.removeFromParent(); return true }
+            cable.node.position = CGPoint(x: cable.from.x + cable.v.dx * a, y: cable.from.y + cable.v.dy * a - 0.5 * 90 * px * a * a)
+            cable.node.zRotation = cable.spin * a
+            cable.node.alpha = a < 0.8 ? 1 : max(0, 1 - (a - 0.8) / 0.3)
+            return false
         }
     }
 
@@ -757,7 +856,7 @@ public final class CampusScene: WorldScene {
         if !poofs.isEmpty { advancePoofs(dt) }
         if animationsEnabled {
             clock += dt
-            moveAmbient(clock); placeLocals(at: clock)
+            moveAmbient(clock); placeLocals(at: clock); placeDevOps(at: clock, dt: dt)
             // in a fixed order: who moves first decides who waits, so the walk is the same on every machine and run
             for w in walkers.values.sorted(by: { $0.key < $1.key }) {
                 if w.idle > 0 {

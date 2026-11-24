@@ -82,7 +82,7 @@ password. If that fails, it says why (for a missing key: `ssh-copy-id`).
 now**. It reaches a server only through `Meatproxy --ops <server> <action>`, a fixed set of read actions and safe
 fixes. What it may do is set per server: *Leave alone*, *Diagnose and ask* (reads only, every fix is a question for
 you), or *Safe fixes* (restart a known service, prune old images and logs). It writes a journal of every run, shown in
-the Server room. The details: [docs/contracts/engine-room.md](docs/contracts/engine-room.md).
+the Server room. While a run goes, its person squats inside the Server room at the rack of the server it works on. The details: [docs/contracts/engine-room.md](docs/contracts/engine-room.md).
 
 ## 5. Optional connections
 

@@ -48,7 +48,8 @@ the mandate you set. He only bothers you when he needs a yes. He always needs a 
 ![The Server room: racks with blinking lights, one server down, one warning](docs/images/server.webp)
 
 **The Server room.** Your servers and sites, checked over SSH with your own keys. A DevOps agent looks into them,
-does only what each server allows, and writes a journal. It's basically you, but awake.
+does only what each server allows, and writes a journal. While it works, you can watch it squat at the rack, plumber-style.
+It's basically you, but awake.
 
 ## Abandoned a project? Poof.
 

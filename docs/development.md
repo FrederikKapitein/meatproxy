@@ -35,7 +35,7 @@ step is one of:
   `decision:<project id>|<D-id>`, `workstream:<project id>|<W-id>`, `zoom:<factor>`.
 - **Mouse and keys:** `hover:x,y`, `click:x,y` and `uiclick:x,y` (the last through the window, so HUD buttons get it).
 - **The campus:** `hour:<h>`, `apart:<tower>`, `mark:<k>`, `life:demo`, `leave:<project id>` (a floor leaves its
-  tower).
+  tower), `devops:<server>` (the DevOps agent at work at that server's rack; `devops:off` ends it).
 - **Waiting:** `wait:<seconds>`.
 
 Two variables change what a shot captures:

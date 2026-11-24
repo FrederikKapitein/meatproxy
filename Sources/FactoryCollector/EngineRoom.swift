@@ -197,6 +197,18 @@ public enum EngineRoom {
             }
     }
 
+    /// The newest ops action at or after `since` (D87): which server the DevOps agent works on right now.
+    public static func lastAction(since: Date, at folder: URL = folder) -> (server: String, at: Date)? {
+        guard let t = try? String(contentsOf: folder.appendingPathComponent("journal/actions.log"), encoding: .utf8) else { return nil }
+        let iso = ISO8601DateFormatter()
+        for line in t.split(separator: "\n").reversed() {
+            let parts = line.split(separator: " ", maxSplits: 2).map(String.init)
+            guard parts.count == 3, let at = iso.date(from: parts[0]) else { continue }
+            return at >= since ? (parts[1], at) : nil
+        }
+        return nil
+    }
+
     /// The last ops actions on a server, newest first ("22:40 restart nginx → exit 0").
     public static func recentActions(server name: String, limit: Int, at folder: URL = folder) -> [String] {
         guard let t = try? String(contentsOf: folder.appendingPathComponent("journal/actions.log"), encoding: .utf8) else { return [] }

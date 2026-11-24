@@ -431,6 +431,11 @@ final class AppModel: ObservableObject {
         world = withTeams(w).withUniqueNames()
         lastRead = w.now
         controller.show(world)
+        // the DevOps agent on the campus while its run goes, at the server of its latest ops action (D87)
+        if !fixture, let st = devopsState {
+            let server = st.running ? st.last.flatMap { EngineRoom.lastAction(since: $0.started)?.server } : nil
+            controller.showDevOps(running: st.running, server: server)
+        }
         Task { await controller.ensurePortraits(w.projects.flatMap { p in p.sessions.map { p.cast(of: $0) } }); objectWillChange.send() }
     }
 

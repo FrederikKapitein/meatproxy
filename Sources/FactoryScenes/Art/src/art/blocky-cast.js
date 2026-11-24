@@ -135,7 +135,10 @@
     ask:   {armL: [10, 28, 70], armR: [-10, 146, -26], legL: 0, legR: 0, head: 8},
     stuck: {armL: [0, 140, 95], armR: [0, 140, 95], legL: 0, legR: 0, head: -10},
     mug:   {armL: [0, 6, 0], armR: [40, 10, 90], legL: 0, legR: 0},
-    cheer: {armL: [0, 160, 10], armR: [0, 160, 10], legL: 0, legR: 0, head: 10, hop: 1.2}
+    cheer: {armL: [0, 160, 10], armR: [0, 160, 10], legL: 0, legR: 0, head: 10, hop: 1.2},
+    // squatting at a rack (D87): knees bent, leaning in, hands in the cables, the shirt riding up at the back
+    crouch:  {armL: [74, 10, 34], armR: [104, 8, 12], legL: 80, legR: 72, crouch: true, splay: 34, lean: 24, head: 4, twist: -8},
+    crouchB: {armL: [96, 8, 18], armR: [150, 30, 40], legL: 74, legR: 80, crouch: true, splay: 30, lean: 30, head: 10, twist: 12}
   };
 
   /* a person added to scene sc with their feet at world point `at`; returns their ground shadow as SVG */
@@ -144,12 +147,24 @@
     const C = typeof name === "string" ? CAST[name] : name, pose = POSES[o.pose || "idle"] || POSES.idle, mood = o.mood || "calm";
     const T = C.tall || 1, Wd = C.wide || 1;
     const root = frame(rz((VIEWS[o.view || "SW"] || 0) * D), [at[0], at[1], at[2] + (pose.bob || 0) + (pose.hop || 0) + (o.seat || 0)]);
-    const legH = 6.6 * T, hipZ = pose.sit ? 4.2 : legH + 1.6, torsoH = 8.2 * T, torsoW = 9 * Wd, torsoD = 5.4 * Wd;
-    const body = child(root, rx(0), [0, 0, hipZ]);
+    const legH = 6.6 * T, torsoH = 8.2 * T, torsoW = 9 * Wd, torsoD = 5.4 * Wd, lean = pose.lean || 0;
+    // a crouch has knees: a thigh nearly level and a shin straight down, so the hips sit low over the heels
+    const thigh = legH * .6, hipZ = pose.sit ? 4.2 : pose.crouch ? thigh * (1 + Math.cos(76 * D)) + 1.8 : legH + 1.6;
+    const body = child(root, mm(rz((pose.twist || 0) * D), rx(-lean * D)), [0, 0, hipZ]);
     const shoes = {base: C.shoes};
 
     /* legs: a block each with a shoe; sitting puts them straight out in front */
     for (const side of [-1, 1]) {
+      if (pose.crouch) {
+        const a = side < 0 ? pose.legL : pose.legR;
+        // knees out to the sides, so the squat reads from behind too
+        const hip = child(body, mm(ry(-side * (pose.splay || 0) * D), rx((a + lean) * D)), [side * 2.25 * Wd, 0, 0]);
+        sc.box(hip, [-1.9 * Wd, -1.9, -thigh], [1.9 * Wd, 1.9, 0], C.legs);
+        const knee = child(hip, rx(-a * D), [0, 0, -thigh]);
+        sc.box(knee, [-1.9 * Wd, -1.9, -thigh], [1.9 * Wd, 1.9, 0], C.legs);
+        sc.box(knee, [-2 * Wd, -2.1, -thigh - 1.8], [2 * Wd, 2.9, -thigh], shoes, {front: [[-2 * Wd, -thigh - 1.8, 2 * Wd, -thigh - 1.2, "!#e8e2d4"]]});
+        continue;
+      }
       const pitch = (side < 0 ? pose.legL : pose.legR) * D;
       const hip = child(body, rx(pitch), [side * 2.25 * Wd, 0, 0]);
       sc.box(hip, [-1.9 * Wd, -1.9, -legH], [1.9 * Wd, 1.9, 0], C.legs);
@@ -189,7 +204,10 @@
     if (C.outfit === "labcoat") F.push([-1.2, 0, 1.2, torsoH, "!" + (C.under || "#3fae6a")], [[[-1.2, torsoH], [1.2, torsoH], [0, torsoH - 2.6]], "!#f4f4f0", "poly"], [2.2, 4.6, 3.8, 6.4, "#dcdcd6"], [2.5, 6.2, 2.8, 7.4, "!#3f6fd8"], [3.1, 6.2, 3.4, 7.2, "!#e05a5a"]);
     if (C.extra === "lanyard") F.push([[[-2.6, torsoH], [-2, torsoH], [-.2, torsoH - 4.6], [-.8, torsoH - 4.6]], "#e05a86", "poly"], [[[2.6, torsoH], [2, torsoH], [.2, torsoH - 4.6], [.8, torsoH - 4.6]], "#e05a86", "poly"], [-1.2, torsoH - 6.8, 1.2, torsoH - 4.4, "!#f4f4f0"], [-.9, torsoH - 5.6, .9, torsoH - 5.2, "!#3f6fd8"]);
     if (C.outfit === "cardigan") F.push([-1.5, 0, 1.5, torsoH, "!" + C.under], [-2.3, 2, -1.7, 2.6, "#f2c94c"], [-2.3, 4.2, -1.7, 4.8, "#f2c94c"], [-2.3, 6.4, -1.7, 7, "#f2c94c"]);
+    // squatting, the shirt rides up: a band of lower back above the trousers, and the crack, as is tradition
+    if (pose.crouch) tdeco.back.push([x0 + .4, 0, x1 - .4, 1.9, "!" + C.skin], [-.3, 0, .3, 1.6, "!#1e1418"]);
     sc.box(body, [x0, -torsoD / 2, 0], [x1, torsoD / 2, torsoH], C.top, tdeco);
+    if (pose.crouch) sc.box(body, [x0 + .2, -torsoD / 2 + .1, -2.4], [x1 - .2, torsoD / 2 - .1, .02], C.legs, {back: [[-.3, -1.2, .3, .02, "!#1e1418"], [-.2, -2.4, .2, -1.2, shade(C.legs, .6)]]});
     if (C.outfit === "overalls") sc.box(body, [x0 + .1, -torsoD / 2 + .1, -.2], [x1 - .1, torsoD / 2 - .1, 1.6], C.top);   // the seat of the overalls under the belt
     if (C.outfit === "labcoat" && !pose.sit) sc.box(body, [x0 - .15, -torsoD / 2 - .15, -3.6], [x1 + .15, torsoD / 2 + .15, .2], C.top, {front: [[-.15, -3.6, .15, .2, "#cfcfc8"]]});
     if (C.outfit === "suit" || C.outfit === "blazer") sc.box(body, [-2.6, -1.8, torsoH], [2.6, 1.8, torsoH + .9], C.shirt || (C.outfit === "suit" ? "#f4f4f0" : "#cfe0ff"));
