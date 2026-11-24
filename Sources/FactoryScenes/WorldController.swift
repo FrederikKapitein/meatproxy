@@ -159,7 +159,10 @@ public final class WorldController {
             await loadFigures(walkers)
             var fig: [CastKey: Figure] = [:]
             for k in walkers { if let f = figures[k.key] { fig[k] = f } }
-            campus.apply(art, world: world, figures: fig)
+            // the campus's own people (D84): the same faces every time, seeded by their place in the art
+            let npcKeys = art.npcs.map { CastKey(role: CastRole(rawValue: $0.role) ?? .dev, seed: "npc:" + $0.seed) }
+            await loadFigures(npcKeys)
+            campus.apply(art, world: world, figures: fig, npcFigures: npcKeys.map { figures[$0.key] })
             // the campus was drawn anew: the open slot comes back where its server now sits (racks go problems first)
             if !inOrbit, let id = selection.serverID, let k = world.racks.firstIndex(where: { $0.id == id }) {
                 campus.showSlot(k, name: world.racks[k].name, state: world.racks[k].state.rawValue, animated: false)

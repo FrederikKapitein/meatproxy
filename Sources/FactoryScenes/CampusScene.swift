@@ -57,6 +57,10 @@ public final class CampusScene: WorldScene {
     private var chimneys: [SKEmitterNode] = []
     /// the poofs of floors that just left (D82): its children carry their own z, over the towers
     private let poofLayer = SKNode()
+    /// the campus's own people (D84), each with its loop of poses and a phase of its own
+    private var locals: [(node: SKSpriteNode, shadow: SKNode?, npc: CampusArt.Npc, figure: Figure, loop: [IdleMotion.Step], phase: Double)] = []
+    /// what moves by itself (D84): ducks, birds, squirrels, the balloon and the clouds, from where the art put them
+    private var ambient: [(node: SKNode, kind: String, base: CGPoint, phase: Double)] = []
     /// what moves in a poof, run by the campus's own clock (its steps are at most 0.1 s, so the repaint's long frame
     /// cannot skip half of it)
     private struct Poof {
@@ -103,7 +107,7 @@ public final class CampusScene: WorldScene {
 
     // MARK: building the scene
 
-    func apply(_ art: CampusArt, world: World, figures: [CastKey: Figure]) {
+    func apply(_ art: CampusArt, world: World, figures: [CastKey: Figure], npcFigures: [Figure?] = []) {
         let first = self.art == nil
         // a floor whose project left goes with a poof, not in one frame (D82): what it looked like, before it is gone
         let gone = leaving(for: world)
@@ -164,12 +168,94 @@ public final class CampusScene: WorldScene {
         signHome = signs.map { $0.node.position }
         updateLife(world)
         placeWalkers(figures, fresh: first)
+        placeLocals(art, npcFigures)
+        collectAmbient()
         // the island fills the view and runs out of it (A4): its top with the towers, a little cropped at the sides
         setHome(art.island.insetBy(dx: art.island.width * 0.07, dy: 0), fill: 0.96)
         if first { cam.setScale(homeScale); cam.position = homeCenter }
         applyFocus(animated: false)
         tick(0)
         poof(gone)
+    }
+
+    // MARK: life that is always there (D84)
+
+    /// The campus's own people: real figures with a loop of poses, where the art seats or stands them.
+    private func placeLocals(_ art: CampusArt, _ figs: [Figure?]) {
+        locals = []
+        for (k, n) in art.npcs.enumerated() {
+            guard k < figs.count, let f = figs[k] else { continue }
+            let node = SKSpriteNode(); node.anchorPoint = CGPoint(x: 0, y: 1); node.name = "local:\(k)"
+            content.addChild(node)
+            var rng = SeededRandom("local:\(n.seed):\(n.pose)")
+            locals.append((node, nil, n, f, Self.loop(n), Double(rng.range(0, 12))))
+        }
+        placeLocals(at: clock)
+    }
+
+    /// What each of them does, on repeat: a sitter rests and dozes off, a waver waves now and then, a coffee is sipped.
+    static func loop(_ n: CampusArt.Npc) -> [IdleMotion.Step] {
+        switch n.pose {
+        case "sit": return [("sit", "calm", 5), ("sit", "tired", 2.5), ("snooze", "tired", 4.5), ("sit", "calm", 3)]
+        case "mug": return [("mug", "tired", 2.6), ("idle", "calm", 1.8), ("mug", "tired", 1.6), ("idle", "happy", 2.2)]
+        case "wave": return [("wave", "happy", 0.6), ("idle", "happy", 0.5), ("wave", "happy", 0.6), ("idle", "calm", 3.2)]
+        case "read": return [("read", "calm", 3.4), ("idle", "calm", 1.0), ("read", "calm", 2.6), ("mug", "tired", 1.4)]
+        case "point": return [("point", "calm", 1.4), ("idle", "calm", 1.4), ("wave", "happy", 0.6), ("idle", "calm", 2.0)]
+        default: return [(n.pose, n.mood, 3), ("idle", "calm", 2)]
+        }
+    }
+
+    private func placeLocals(at t: Double) {
+        guard let art else { return }
+        let dir = ["SW": "down", "SE": "right", "NE": "up", "NW": "left"]
+        for l in locals {
+            let (pose, mood) = animationsEnabled ? IdleMotion.frame(l.loop, t: t + l.phase) : (l.npc.pose, l.npc.mood)
+            guard let f = l.figure.frame(pose, mood: mood, dir: dir[l.npc.view] ?? "down") else { continue }
+            let foot = project(l.npc.i, l.npc.j, l.npc.z)
+            l.node.color = Self.moonShade; l.node.colorBlendFactor = artNight ? 0.55 : 0
+            l.node.texture = f.texture
+            l.node.size = CGSize(width: f.rect.width * px, height: f.rect.height * px)
+            l.node.position = scenePoint(CGPoint(x: foot.x + f.rect.minX, y: foot.y + f.rect.minY))
+            l.node.zPosition = depthKey(l.npc.i, l.npc.j, boxes: art.boxes) * 10 + 0.5 + (l.npc.i + l.npc.j) * 0.001
+        }
+    }
+
+    /// The art's animals, the balloon and the clouds, found by their names, each from where it was drawn.
+    private func collectAmbient() {
+        ambient = []
+        for n in content.children {
+            guard let name = n.name else { continue }
+            let kind = ["duck:", "bird:", "flyer:", "squirrel:", "cloud:"].first { name.hasPrefix($0) }.map { String($0.dropLast()) } ?? (name == "balloon" ? "balloon" : nil)
+            guard let kind else { continue }
+            var rng = SeededRandom(name)
+            ambient.append((n, kind, n.position, Double(rng.range(0, 40))))
+        }
+    }
+
+    /// One clock for all of them: ducks paddle small loops and bob, perched birds hop now and then, birds in the sky
+    /// glide round and beat their wings, squirrels dart, the balloon rises and sinks, clouds drift. In scene points.
+    private func moveAmbient(_ t: Double) {
+        let u = px
+        for a in ambient {
+            let x = t + a.phase
+            switch a.kind {
+            case "duck":
+                a.node.position = CGPoint(x: a.base.x + CGFloat(cos(x * 0.35)) * 5 * u, y: a.base.y + CGFloat(sin(x * 0.35)) * 2.5 * u + CGFloat(sin(x * 2.1)) * 0.4 * u)
+            case "bird", "squirrel":
+                // a hop every few seconds: up and back down in a quarter second
+                let period = a.kind == "bird" ? 4.5 : 6.0, k = x.truncatingRemainder(dividingBy: period)
+                let hop = k < 0.28 ? CGFloat(sin(k / 0.28 * .pi)) * (a.kind == "bird" ? 3 : 2) * u : 0
+                a.node.position = CGPoint(x: a.base.x, y: a.base.y + hop)
+            case "flyer":
+                a.node.position = CGPoint(x: a.base.x + CGFloat(cos(x * 0.18)) * 26 * u, y: a.base.y + CGFloat(sin(x * 0.18)) * 9 * u + CGFloat(sin(x * 0.9)) * 2 * u)
+                a.node.yScale = 1 - 0.35 * CGFloat(abs(sin(x * 5)))
+            case "balloon":
+                a.node.position = CGPoint(x: a.base.x + CGFloat(sin(x * 0.07)) * 14 * u, y: a.base.y + CGFloat(sin(x * 0.31)) * 6 * u)
+            case "cloud":
+                a.node.position = CGPoint(x: a.base.x + CGFloat(sin(x * 0.025)) * 30 * u, y: a.base.y)
+            default: break
+            }
+        }
     }
 
     // MARK: a floor that leaves (D82)
@@ -414,6 +500,11 @@ public final class CampusScene: WorldScene {
         }
         for t in art.towers {
             guard let ov = layer(t.building, storey: nil) else { continue }
+            // an empty tower (D84): its antenna lamp is out too, and the field guide says why
+            if t.empty {
+                onEffect?("empty", "An empty tower", "No chat with \(Provider(rawValue: t.building)?.displayName ?? t.building) in the last 8 hours: its tower stands empty until the next one.")
+                continue
+            }
             let dot = SKShapeNode(circleOfRadius: 1.3 * px); dot.fillColor = Self.down; dot.strokeColor = .clear
             dot.position = scenePoint(t.antenna); dot.zPosition = 0.6
             let g = glow(t.antenna, size: CGSize(width: 14, height: 14), color: Self.down); g.zPosition = 0.61
@@ -666,6 +757,7 @@ public final class CampusScene: WorldScene {
         if !poofs.isEmpty { advancePoofs(dt) }
         if animationsEnabled {
             clock += dt
+            moveAmbient(clock); placeLocals(at: clock)
             // in a fixed order: who moves first decides who waits, so the walk is the same on every machine and run
             for w in walkers.values.sorted(by: { $0.key < $1.key }) {
                 if w.idle > 0 {

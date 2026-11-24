@@ -295,8 +295,11 @@ public struct CampusArt {
     /// mount: where an alarm light hangs on its front face (art units)
     public struct Storey { public var building: String, index: Int, faces: [[CGPoint]], kind: String = "project", windows: [[CGPoint]] = [], mount: CGPoint? = nil }
     /// per tower: the antenna's tip (its lamp blinks) and the chimney's mouth when a factory works there (it smokes)
-    public struct Tower { public var building: String, antenna: CGPoint, chimney: CGPoint? }
+    public struct Tower { public var building: String, antenna: CGPoint, chimney: CGPoint?, empty: Bool = false }
     public var towers: [Tower] = []
+    /// people who live on the campus (D84): who they are, how they stand and where (tile i, j and height z)
+    public struct Npc { public var role: String, seed: String, pose: String, view: String, i: CGFloat, j: CGFloat, z: CGFloat, mood: String }
+    public var npcs: [Npc] = []
     public var view: CGRect, ground: ArtImage?, objects: [ArtObject], light: ArtImage?, signs: [SignPart], boxes: [Box]
     /// the island's underside, a coarser image under the ground
     public var under: ArtImage?
@@ -347,7 +350,12 @@ public struct CampusArt {
         }
         fountain = point(d["fountain"])
         towers = ((d["towers"] as? [[String: Any]]) ?? []).map { t in
-            Tower(building: t["building"] as? String ?? "", antenna: point(t["antenna"]), chimney: t["chimney"].flatMap { $0 is NSNull ? nil : point($0) })
+            Tower(building: t["building"] as? String ?? "", antenna: point(t["antenna"]), chimney: t["chimney"].flatMap { $0 is NSNull ? nil : point($0) },
+                  empty: t["empty"] as? Bool ?? false)
+        }
+        npcs = ((d["npcs"] as? [[String: Any]]) ?? []).map { n in
+            Npc(role: n["role"] as? String ?? "dev", seed: n["seed"] as? String ?? "0", pose: n["pose"] as? String ?? "idle",
+                view: n["view"] as? String ?? "SW", i: num(n["i"]), j: num(n["j"]), z: num(n["z"]), mood: n["mood"] as? String ?? "calm")
         }
         footprints = ((d["footprints"] as? [String: [Any]]) ?? [:]).mapValues { a in
             let v = a.map(num); return v.count == 4 ? CGRect(x: v[0], y: v[1], width: v[2] - v[0], height: v[3] - v[1]) : .zero
