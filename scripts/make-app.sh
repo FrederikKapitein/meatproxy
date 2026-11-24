@@ -49,14 +49,25 @@ echo "$app ($version)"
 # install it in /Applications, so Spotlight, Launchpad and the Dock find it; MEATPROXY_INSTALL=0 only builds.
 # A running copy from /Applications is quit first and opened again afterwards.
 if [[ "${MEATPROXY_INSTALL:-1}" != 0 ]]; then
+  exe="^/Applications/Meatproxy.app/Contents/MacOS/Meatproxy"
   running=false
-  if pgrep -f "^/Applications/Meatproxy.app/Contents/MacOS/Meatproxy" >/dev/null; then
+  if pgrep -f "$exe" >/dev/null; then
     running=true
-    pkill -f "^/Applications/Meatproxy.app/Contents/MacOS/Meatproxy" || true
-    for _ in $(seq 50); do pgrep -f "^/Applications/Meatproxy.app/Contents/MacOS/Meatproxy" >/dev/null || break; sleep 0.1; done
+    pkill -f "$exe" || true
+    # up to ten seconds to close; one that hangs is stopped, so the new copy never opens next to a dying one
+    for _ in $(seq 100); do pgrep -f "$exe" >/dev/null || break; sleep 0.1; done
+    if pgrep -f "$exe" >/dev/null; then pkill -9 -f "$exe" || true; sleep 0.5; fi
   fi
   rm -rf "/Applications/Meatproxy.app"
   ditto "$app" "/Applications/Meatproxy.app"
   echo "installed in /Applications/Meatproxy.app"
-  if $running; then open "/Applications/Meatproxy.app"; fi
+  if $running; then
+    # open it again, and check that it is up: LaunchServices can still be busy with the old copy for a moment
+    for attempt in 1 2 3; do
+      open "/Applications/Meatproxy.app" || true
+      for _ in $(seq 30); do pgrep -f "$exe" >/dev/null && break 2; sleep 0.2; done
+      echo "not up yet (attempt $attempt)"
+    done
+    if pgrep -f "$exe" >/dev/null; then echo "reopened"; else echo "could not reopen it: open /Applications/Meatproxy.app" >&2; fi
+  fi
 fi
