@@ -9,7 +9,7 @@ import Foundation
 public enum FactoryContract {
     public static let name = "meatproxy-factory"
     /// the newest version this Meatproxy knows
-    public static let current = 5
+    public static let current = 6
     /// the first version with ideas (factory/ideas/)
     public static let ideas = 2
     /// the first version with your mandate (factory/mandate.yml), written by Meatproxy
@@ -18,6 +18,8 @@ public enum FactoryContract {
     public static let sources = 4
     /// the first version with to-dos (`kind: todo`) and decisions you start yourself (`from: you`), D81
     public static let todos = 5
+    /// the first version with to-dos for the Server room's DevOps agent (`for: devops`), D86
+    public static let devopsTodos = 6
 }
 
 /// Where a factory's bugs and stories come from (contract v4, D61): its Sentry project and its Tracker project. Meatproxy
@@ -207,6 +209,8 @@ public struct FactoryDecision: Identifiable, Sendable, Hashable {
     public var how: String
     /// who started it: nil for the CEO, "you" for one you started in Meatproxy (v5)
     public var from: String?
+    /// who it is for (v6): "devops" for work on shared infrastructure, which Meatproxy sends to the Server room's agent
+    public var forWhom: String?
     /// every workstream it is about (`workstreams: [W-002, W-003]`, v5); at least `workstream` when that is set
     public var workstreams: [String]
     /// the file's path relative to the project folder, "factory/decisions/D-0001-….md"
@@ -227,6 +231,9 @@ public struct FactoryDecision: Identifiable, Sendable, Hashable {
     public var isTodo: Bool { kind.lowercased() == "todo" }
     /// You started it in Meatproxy (v5): your own instruction, already answered.
     public var fromYou: Bool { from?.lowercased() == "you" }
+    func with(_ change: (inout FactoryDecision) -> Void) -> FactoryDecision { var d = self; change(&d); return d }
+    /// A to-do for the Server room's DevOps agent (v6, D86): Meatproxy can send it there.
+    public var forDevOps: Bool { forWhom?.lowercased() == "devops" }
 
     /// The links under Evidence, in order.
     public var links: [FactoryLink] { FactoryText.links(evidence) }
@@ -455,6 +462,7 @@ public enum FactoryText {
                                answered: date(fm["answered"]), why: s["why"] ?? "", evidence: s["evidence"] ?? "",
                                onYes: s["on yes"] ?? "", onNo: s["on no"] ?? "", answer: s["answer"] ?? "", how: s["how"] ?? "",
                                from: optional(fm["from"]), workstreams: list(fm["workstreams"]), file: file)
+            .with { $0.forWhom = optional(fm["for"]) }
     }
 
     public static func idea(_ text: String, file: String) -> FactoryIdea? {

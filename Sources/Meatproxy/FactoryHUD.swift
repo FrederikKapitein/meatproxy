@@ -1154,7 +1154,7 @@ struct DecisionCard: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 6) {
                 Tag(d.id)
-                Tag(d.isTodo ? "to-do" : d.kind)
+                Tag(d.isTodo ? (d.forDevOps ? "to-do · DevOps" : "to-do") : d.kind)
                 if d.fromYou { Tag("from you") }
                 if let w = d.workstream, let ws = project.factory?.workstreams.first(where: { $0.id == w }) {
                     Button { model.controller.select(workstream: w, in: project.id) } label: {
@@ -1183,7 +1183,10 @@ struct DecisionCard: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
             if d.status == .open {
-                if d.isTodo { AnswerForm(project: project, decision: d, yesTitle: "Done", noTitle: "Not now") }
+                if d.isTodo && d.forDevOps { SendToDevOps(project: project, decision: d) }
+                // one yellow action per card: with Send to DevOps there, Done is a plain button
+                if d.isTodo { AnswerForm(project: project, decision: d, yesTitle: "Done", noTitle: "Not now",
+                                         yesPrimary: !(d.forDevOps && model.projectSettings.devops.enabled)) }
                 else { AnswerForm(project: project, decision: d) }
             } else { answered(d) }
         }
@@ -1211,6 +1214,34 @@ struct DecisionCard: View {
     }
 }
 
+/// A to-do for DevOps (D86): one button that sends it to the Server room's agent, on the runtime set there; below it,
+/// Done and Not now stay for when you handle it yourself.
+private struct SendToDevOps: View {
+    @EnvironmentObject private var model: AppModel
+    let project: Project
+    let decision: FactoryDecision
+    @State private var sending = false
+    @State private var failure: String?
+    var body: some View {
+        let on = model.projectSettings.devops.enabled, runtime = model.projectSettings.devops.heartbeat.runtime.label
+        VStack(alignment: .leading, spacing: 8) {
+            Button { send() } label: { SpelLabel(sending ? "Sending…" : "Send to DevOps", icon: "server", onYellow: true) }
+                .buttonStyle(SpelButtonStyle(kind: .primary, wide: true)).disabled(!on || sending)
+            Text(on ? "The Server room's DevOps agent (\(runtime)) takes it on, within what each server allows, and asks you about the rest."
+                    : "Switch on the DevOps agent in Settings › Server room to send it there.")
+                .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            if let failure { Text(failure).font(.s13m).foregroundStyle(Color.stuck).fixedSize(horizontal: false, vertical: true) }
+        }
+    }
+    private func send() {
+        sending = true
+        Task {
+            failure = await model.sendToDevOps(decision, in: project)
+            sending = false
+        }
+    }
+}
+
 /// Yes and No with their keys (1 and 2), a note, and the confirm step: the send is the one primary action, and its
 /// words stay literal in meme mode too. The server card (C9) uses it without the note.
 struct AnswerForm: View {
@@ -1220,6 +1251,7 @@ struct AnswerForm: View {
     var yesTitle: String? = nil
     var noTitle: String? = nil
     var withNote = true
+    var yesPrimary = true
     @State private var note = ""
     @State private var pending: Bool?
     @State private var sending = false
@@ -1243,8 +1275,8 @@ struct AnswerForm: View {
                     .font(.s11n).foregroundStyle(Color.muted).lineLimit(2)
             } else {
                 HStack(spacing: 8) {
-                    Button { pending = true; failure = nil } label: { SpelLabel(yesTitle ?? (model.memeMode ? "LGTM" : "Yes"), key: "1", onYellow: true) }
-                        .buttonStyle(SpelButtonStyle(kind: .primary, wide: withNote))
+                    Button { pending = true; failure = nil } label: { SpelLabel(yesTitle ?? (model.memeMode ? "LGTM" : "Yes"), key: "1", onYellow: yesPrimary) }
+                        .buttonStyle(SpelButtonStyle(kind: yesPrimary ? .primary : .secondary, wide: withNote))
                     Button { pending = false; failure = nil } label: { SpelLabel(noTitle ?? (model.memeMode ? "Not today" : "No"), key: "2") }
                         .buttonStyle(SpelButtonStyle(kind: .secondary, wide: withNote))
                     if !withNote { Spacer(minLength: 0) }

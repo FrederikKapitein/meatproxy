@@ -64,7 +64,7 @@ struct FactoryTests {
         #expect(f.problems.isEmpty)
         #expect(f.workstreams.map(\.id) == ["W-001", "W-002", "W-003", "W-004", "W-005", "W-006"])
         #expect(f.activeWorkstreams.count == 5)
-        #expect(f.openDecisions.map(\.id) == ["D-0007", "D-0008", "D-0010"])
+        #expect(f.openDecisions.map(\.id) == ["D-0007", "D-0008", "D-0010", "D-0011"])
         #expect(f.readyToRelease.map(\.id) == ["W-006"])
         #expect(f.autonomy?.level == .hybrid)
         #expect(f.autonomy?.gates.map { "\($0.name)=\($0.notify ? "notify" : "ask")/\($0.streak)" } == ["plan=notify/5", "ship=ask/5", "store=ask/0"])
@@ -72,7 +72,7 @@ struct FactoryTests {
         // the latest of two briefings, its three sections
         let b = try #require(f.briefing)
         #expect(b.briefing.count == 4)
-        #expect(b.needsYou.count == 3)
+        #expect(b.needsYou.count == 4)
         #expect(b.delivered.first?.hasPrefix("Undo after a hint") == true)
         let d = try #require(f.decision(id: "D-0007"))
         #expect(d.kind == "ship" && d.gate == "ship" && d.workstream == "W-002")
@@ -194,10 +194,10 @@ struct FactoryTests {
         let w = Collector(home: home, resolver: ProjectResolver(home: home.path)).world(factories: [root.path])
         let p = try #require(w.projects.first { $0.root == root.path })
         #expect(p.provider == .claude && p.name == "Pebble" && p.sessions.isEmpty)
-        #expect(p.factory?.openDecisions.count == 3)
+        #expect(p.factory?.openDecisions.count == 4)
         #expect(p.waits(now: w.now))
         // oldest first: the release has waited two days
-        #expect(w.needsYou.map(\.id) == ["release:\(p.id)", "decision:\(p.id)/D-0007", "decision:\(p.id)/D-0008", "decision:\(p.id)/D-0010"])
+        #expect(w.needsYou.map(\.id) == ["release:\(p.id)", "decision:\(p.id)/D-0007", "decision:\(p.id)/D-0008", "decision:\(p.id)/D-0010", "decision:\(p.id)/D-0011"])
         #expect(w.decision(project: p.id, "D-0008")?.decision.kind == "promote")
     }
 

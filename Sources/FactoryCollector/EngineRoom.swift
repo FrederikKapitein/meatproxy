@@ -5,7 +5,7 @@ import FactoryCore
 /// the servers snapshot, the alerts, the agent's decisions and its journal.
 public enum EngineRoom {
     public static let contract = "meatproxy-engine-room"
-    public static let version = 1
+    public static let version = 2
     public static let displayName = "Server room"
 
     public static var folder: URL { AppSupport.folder.appendingPathComponent("engine-room") }
@@ -85,6 +85,11 @@ public enum EngineRoom {
 
     When you have looked at it: set `status: handled` and write what you found and did under `## Agent`.
 
+    `kind: request` (v2) is not a check that failed but work a factory's CEO needs on shared infrastructure, sent by the
+    user (subject: the factory; `## Why` and `## How` say what and how). Do what the ops tool and each server allow.
+    What is beyond that (code in a repository, a setting you cannot reach) becomes a question or a to-do for the user,
+    with the exact steps. Then handle the alert like any other.
+
     ## The journal: journal/YYYY-MM-DD.md (a second run that day -2)
 
     `## Briefing` (at most 5 items), `## Needs you` (your open decisions, by id), `## Done`.
@@ -131,6 +136,54 @@ public enum EngineRoom {
             guard fm.createFile(atPath: url.path, contents: Data(text.utf8)) else { throw CocoaError(.fileWriteUnknown) }
             return id
         }
+    }
+
+    /// A factory's to-do for the DevOps agent (D86): a request in alerts/ (`kind: request`, the factory as its subject)
+    /// with the to-do's why and steps, then the to-do answered with where it went. Returns the request's id.
+    @discardableResult
+    public static func request(_ d: FactoryDecision, factory name: String, root: String, at folder: URL = folder,
+                               now: Date = Date(), timeZone: TimeZone = .current) throws -> String {
+        let fm = FileManager.default, dir = folder.appendingPathComponent("alerts")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let used = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).compactMap { n -> Int? in
+            n.hasPrefix("A-") ? Int(n.dropFirst(2).prefix(while: \.isNumber)) : nil
+        }
+        let f = ISO8601DateFormatter(); f.timeZone = timeZone; f.formatOptions = [.withInternetDateTime]
+        let slug = d.title.lowercased().replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-")).prefix(40)
+        let start = (used.max() ?? 0) + 1
+        for n in start..<(start + 20) {
+            let id = String(format: "A-%04d", n)
+            let text = """
+            ---
+            id: \(id)
+            title: \(d.title.replacingOccurrences(of: "\n", with: " "))
+            kind: request
+            subject: \(name)
+            status: open
+            at: \(f.string(from: now))
+            from: \(root)/\(d.file)
+            ---
+
+            A request from the \(name) factory (\(d.id)), sent by the user from Meatproxy. Do what the ops tool and each
+            server allow; anything beyond that becomes a question for the user in decisions/ (or a to-do). Write what you
+            did and found under ## Agent.
+
+            ## Why
+            \(d.why)
+
+            ## How
+            \(d.how)
+
+            ## Agent
+
+            """
+            guard try NewFile.create(dir.appendingPathComponent("\(id)-\(slug).md"), text: text) else { continue }
+            let decision = URL(fileURLWithPath: root).appendingPathComponent(d.file)
+            try DecisionAnswer.answer(decision, yes: true, note: "Sent to the Server room's DevOps agent as \(id). It works on it within what each server allows and writes what it did in its journal.", at: now, timeZone: timeZone)
+            return id
+        }
+        throw CocoaError(.fileWriteUnknown)
     }
 
     /// The open alerts (title only), for the HUD.

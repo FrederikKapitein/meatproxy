@@ -119,6 +119,7 @@ extension Fixture {
             1. Ship offline streak sync (W-002) to production?
             2. Let the factory ship without asking (ship gate to notify)?
             3. To-do D-0010: allow the error tracker's read tools in this project's allowlist.
+            4. To-do D-0011 for DevOps: the CI runner drops the last check.
 
             ## Delivered
             - Undo after a hint (W-001), released in 3.2.1 on web, App Store and Google Play.
@@ -194,7 +195,31 @@ extension Fixture {
             ## Answer
 
             """),
-            ("factory/contract.yml", "contract: meatproxy-factory\nversion: 5\nsentry: demo-org/pebble-app\ntracker: pebble\n"),
+            ("factory/decisions/D-0011-ci-runner-drops-last-check.md", """
+            ---
+            id: D-0011
+            title: Get the CI runner to finish its last check again
+            kind: todo
+            for: devops
+            gate: always-ask
+            status: open
+            workstream: W-003
+            asked: \(at(0.2))
+            answered: null
+            ---
+
+            ## Why
+            The timer fix passes every check, then the shared CI runner drops out before the last one reports, so the
+            pull request cannot merge. The runner is shared infrastructure, not this factory's.
+
+            ## How
+            1. Look at the runner's service and its last cleanup on the build server.
+            2. Restart it if it hangs, and check that a new job finishes.
+
+            ## Answer
+
+            """),
+            ("factory/contract.yml", "contract: meatproxy-factory\nversion: 6\nsentry: demo-org/pebble-app\ntracker: pebble\n"),
             ("factory/mandate.yml", { var m = FactoryMandate(); m.set(level: .hybrid); m.quietHours = "22:00-07:00"; m.ownTeam = true; m.team = AgentTeam(["product": 1, "developer": 2, "tester": 1]); return m.yaml }()),
             // your ideas: one the CEO took (it became D-0007's sibling W-004), one still waiting
             ("factory/ideas/I-0001-colour-blind-pebbles.md", """

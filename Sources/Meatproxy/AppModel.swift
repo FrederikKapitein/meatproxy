@@ -518,6 +518,22 @@ final class AppModel: ObservableObject {
     /// Takes over a session in the app's terminal (D57): `claude --resume` (or `codex resume`) where it started. A CEO's
     /// heartbeat run that is still going stops first (it is yours now), and that factory's heartbeat waits until you
     /// close the tab.
+    /// A factory's to-do for DevOps (D86): to the Server room's agent as a request, the to-do answered with where it went,
+    /// and the agent woken on the runtime set in Settings › Server room. Returns why it failed, or nil.
+    func sendToDevOps(_ d: FactoryDecision, in project: Project) async -> String? {
+        guard projectSettings.devops.enabled else { return "Switch on the DevOps agent in Settings › Server room first." }
+        guard let root = project.factory?.root else { return "This floor is no factory." }
+        prepareEngineRoom()
+        let name = project.name
+        let result: Result<String, Error> = await Task.detached(priority: .userInitiated) {
+            Result { try EngineRoom.request(d, factory: name, root: root) }
+        }.value
+        if case .success(let id) = result { heartbeats.wake(EngineRoom.folder.path, .alert([id])); beat() }
+        refresh()
+        if case .failure(let e) = result { return e.localizedDescription }
+        return nil
+    }
+
     /// A chat that lives in the Claude app (D83): bring that app to the front, where you answer it.
     func openInClaude(_ s: Session) {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anthropic.claudefordesktop") else {

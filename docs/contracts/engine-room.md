@@ -1,6 +1,6 @@
 # Meatproxy Server room contract
 
-**Name:** `meatproxy-engine-room` · **Current version:** 1 · **Owner:** this repository
+**Name:** `meatproxy-engine-room` · **Current version:** 2 · **Owner:** this repository
 
 The Server room's DevOps agent watches your servers and sites and may work on them
 semi-autonomously, as far as each server allows. This document is the contract between the
@@ -9,6 +9,7 @@ agent and Meatproxy. Anything that is not in it is not agreed.
 | Version | Date | Adds |
 | --- | --- | --- |
 | 1 | 2026-11-15 | The workspace, alerts, the ops tool with per-server autonomy, decisions, the journal, the heartbeat run. |
+| 2 | 2026-11-24 | Requests: a factory's to-do for DevOps, sent by you, arrives as an alert with `kind: request` (D86). |
 
 ## The workspace
 
@@ -42,7 +43,7 @@ engine-room/
 ---
 id: A-0003
 title: api-01 needs a look
-kind: warn            # down | warn | recovered
+kind: warn            # down | warn | recovered | request (v2)
 subject: api-01       # a server's name, or a site's host
 status: open          # open | handled
 at: 2026-11-15T22:40:00+01:00
@@ -53,6 +54,11 @@ disk 91% full
 ## Agent
 What the agent found and did.
 ```
+
+A **request** (v2) is no failed check but work a factory needs on shared infrastructure, sent by you with
+**Send to DevOps**: its subject is the factory, `from:` names the to-do it came from, and `## Why` and `## How`
+say what. The agent does what the ops tool and each server allow; anything beyond that (code in a repository, a
+setting it cannot reach) becomes a question or a to-do for you with the exact steps.
 
 A bad state is an alert only after two checks in a row; it alerts again only when it gets
 worse, and once more when it is fine again (`recovered`).

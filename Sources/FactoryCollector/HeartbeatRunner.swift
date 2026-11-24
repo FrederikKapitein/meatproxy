@@ -98,8 +98,11 @@ public final class HeartbeatRunner: @unchecked Sendable {
         (status yes) means check it on your next run and file a new to-do if it is still missing; Not now (status no) means \
         leave it until something changes. A decision with from: you was started by the user in Meatproxy and is already \
         answered yes (a release of finished work in ship): it is their own instruction and holds even where the mandate \
-        keeps that item off; act on it first. In the briefing, ## Needs you lists only the open decisions, by id. When \
-        factory/contract.yml declares a version below 5, raise it to 5.
+        keeps that item off; act on it first. In the briefing, ## Needs you lists only the open decisions, by id. \
+        Work outside this project on shared infrastructure (CI runners, servers, the devops repository) is for the Server \
+        room's DevOps agent (contract v6): file it as a to-do with for: devops, with ## Why and ## How written for that agent; \
+        Meatproxy sends it there when the user presses Send to DevOps. Never name a specific agent or tool for it. When \
+        factory/contract.yml declares a version below 6, raise it to 6.
         End the run with the briefing written. If questions are open, list them in your final message, numbered, each \
         answerable with yes or no.
         \(reason.prompt)
@@ -120,7 +123,9 @@ public final class HeartbeatRunner: @unchecked Sendable {
         Never use ssh, scp or sudo yourself. Diagnose with read actions. Where a server allows safe fixes, do the smallest \
         one that fixes the problem and check the result. A fix the tool refuses, or anything beyond its actions, becomes a \
         yes/no question in decisions/ (the factory decision format): what is wrong, the evidence, and the exact action on yes.
-        Mark each alert you looked at status: handled, with what you found and did under ## Agent.
+        Mark each alert you looked at status: handled, with what you found and did under ## Agent. An alert with kind: request \
+        is work a factory needs on shared infrastructure, sent by the user: do what the ops tool and the servers allow, and \
+        put the rest to the user as a question or a to-do with exact steps.
         Never ask the user in the journal's prose alone: what you need from them is an open decision, a yes/no question or, \
         for something only they can do, a to-do (kind: todo, with ## How); README.md has the format.
         End the run with journal/YYYY-MM-DD.md (a second run that day -2): ## Briefing (at most 5 items), ## Needs you \

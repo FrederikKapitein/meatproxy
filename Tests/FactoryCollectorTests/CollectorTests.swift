@@ -236,9 +236,9 @@ struct CollectorTests {
         let w = Fixture.world(now: Date())
         #expect(w.building(.claude)?.projects.map(\.name) == ["Lighthouse Site", "Pebble Puzzles", "Shopfront", "Tide Notes", "Chats"])
         #expect(w.building(.chatgpt)?.projects.count == 2)
-        // three sessions wait, and the demo factory's two open questions, its to-do and its held-back release
+        // three sessions wait, and the demo factory's two open questions, two to-dos and its held-back release
         #expect(w.waitingSessions.count == 3)
-        #expect(w.needsYou.count == 7)
+        #expect(w.needsYou.count == 8)
         #expect(w.project(id: "claude:/demo/pebble-puzzles")?.ceoID == "f1")
     }
 }

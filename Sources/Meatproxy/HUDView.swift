@@ -632,7 +632,7 @@ private struct QuestItem: View {
     private var detail: String {
         switch item {
         case .session(_, let s): s.persona.name
-        case .decision(_, let d): d.isTodo ? "to-do" : d.kind
+        case .decision(_, let d): d.isTodo ? (d.forDevOps ? "to-do for DevOps" : "to-do") : d.kind
         case .release(_, let ws): ws.count == 1 ? "ready to release" : "\(ws.count) ready to release"
         }
     }

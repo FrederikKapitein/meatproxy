@@ -147,7 +147,8 @@ public enum FactoryScaffold {
            (sign in, allow a permission, change a setting) is a to-do: a decision with `kind: todo` and `## How`.
            Never ask the user in the briefing's prose alone.
         6. A decision with `from: you` is the user's own release: act on it first, even where the mandate keeps
-           shipping off.
+           shipping off. Work on shared infrastructure (CI runners, servers) is a to-do with `for: devops`: the
+           user sends it to the Server room's DevOps agent.
         7. End with the briefing (`## Briefing`, `## Needs you` with only the open decisions, `## Delivered`).
 
         """

@@ -59,7 +59,9 @@ Guardrails, so a factory does not burn through your plan: at most 6 automatic ru
 while the app runs. *Heartbeat when closed* (Settings) installs a launch agent that checks every five minutes.
 
 **What a CEO asks you** shows under Needs you: a yes/no question, a to-do only you can do (with the steps and
-**Done** / **Not now**), or finished work that waits for your release. **Release now** writes your own release, which
+**Done** / **Not now**), or finished work that waits for your release. Work on shared infrastructure (a CI runner,
+a server) is a to-do for DevOps: **Send to DevOps** hands it to the Server room's DevOps agent, on the runtime you set
+in Settings › Server room. **Release now** writes your own release, which
 the CEO ships at its next run, even when your mandate keeps shipping off.
 
 The files, their formats and who writes what are in the factory contract: [docs/contracts/factory.md](docs/contracts/factory.md).
