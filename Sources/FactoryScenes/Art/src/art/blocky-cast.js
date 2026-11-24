@@ -138,7 +138,13 @@
     cheer: {armL: [0, 160, 10], armR: [0, 160, 10], legL: 0, legR: 0, head: 10, hop: 1.2},
     // squatting at a rack (D87): knees bent, leaning in, hands in the cables, the shirt riding up at the back
     crouch:  {armL: [74, 10, 34], armR: [104, 8, 12], legL: 80, legR: 72, crouch: true, splay: 34, lean: 24, head: 4, twist: -8},
-    crouchB: {armL: [96, 8, 18], armR: [150, 30, 40], legL: 74, legR: 80, crouch: true, splay: 30, lean: 30, head: 10, twist: 12}
+    crouchB: {armL: [58, 58, 64], armR: [100, 8, 14], legL: 74, legR: 80, crouch: true, splay: 30, lean: 28, head: 6, twist: 12},
+    // seen from behind only what goes sideways reads, so these are wide: yanking a cable out with both elbows out, and
+    // tossing it, one arm up and out past the head
+    crouchPull: {armL: [-24, 78, 72], armR: [-24, 78, 72], legL: 78, legR: 74, crouch: true, splay: 36, lean: 10, head: 14, cable: "both"},
+    crouchToss: {armL: [24, 52, 30], armR: [-8, 138, -6], legL: 76, legR: 78, crouch: true, splay: 32, lean: 14, head: 18, twist: -14, cable: "right"},
+    // flailing, between cheer frames: arms every which way, one knee up (D87)
+    panic:   {armL: [30, 120, 80], armR: [-20, 165, -30], legL: -30, legR: 10, head: 14, hop: .8, twist: 10}
   };
 
   /* a person added to scene sc with their feet at world point `at`; returns their ground shadow as SVG */
@@ -227,6 +233,12 @@
       sc.box(el, [-1.25, -1.25, -5.4], [1.25, 1.25, -3.6], C.skin);
       const freeHand = side > 0 && ["idle", "walkA", "walkB"].includes(o.pose || "idle") && !o.noProp;
       if (freeHand && C.prop) prop(sc, child(el, rx(0), [0, 0, -5.4]), C.prop, C);
+      // a cable in the fist (D87): a stiff end out of the hand and a loose end bent away, so the hands read from afar
+      if (pose.cable === "both" || pose.cable === "right" && side > 0) {
+        const fist = child(el, rx(0), [0, 0, -5.4]), col = side > 0 ? "#f2c94c" : "#e05a5a";
+        sc.box(fist, [-.5, -.5, -6], [.5, .5, 0], col);
+        sc.box(child(fist, rx(side * 50 * D), [0, 0, -6]), [-.5, -.5, -6], [.5, .5, 0], col);
+      }
       if (o.pose === "mug" && side > 0) sc.box(child(el, rx(-90 * D), [0, 0, -5.4]), [-1.3, .2, -.6], [1.3, 2.8, 2.2], "#f4f1ea", {front: [[-1.3, .2, 1.3, .8, "#3fae6a"]]});
     }
 

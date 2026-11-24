@@ -399,7 +399,10 @@ public struct Figure {
         Spec(pose: "snooze", view: v, mood: "tired", noProp: true),
     ] }
     /// The DevOps agent at work in the Server room (D87) also squats at a rack, its back to you.
-    static let rackSpecs = [Spec(pose: "crouch", view: "NE", mood: "focus", noProp: true), Spec(pose: "crouchB", view: "NE", mood: "focus", noProp: true)]
+    static let rackSpecs = [Spec(pose: "crouch", view: "NE", mood: "focus", noProp: true), Spec(pose: "crouchB", view: "NE", mood: "focus", noProp: true),
+                            Spec(pose: "crouchPull", view: "NE", mood: "focus", noProp: true), Spec(pose: "crouchToss", view: "NE", mood: "focus", noProp: true),
+                            // and its panic, turned to you: flailing with a stuck face
+                            Spec(pose: "cheer", view: "SW", mood: "stuck", noProp: true), Spec(pose: "panic", view: "SW", mood: "stuck", noProp: true)]
     static func specs(for cast: CastKey) -> [Spec] { cast.role == .devops ? specs + rackSpecs : specs }
     public var frames: [String: (texture: SKTexture, rect: CGRect)] = [:]
     public var portrait: CGImage?

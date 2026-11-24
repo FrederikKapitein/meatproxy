@@ -266,9 +266,10 @@ public final class CampusScene: WorldScene {
     /// Who works in the Server room right now, at which rack, with its plate; nil while the agent does not run.
     private var devopsWork: (figure: Figure, rack: Int, tag: Overlay?)?
     private var devopsNode: SKSpriteNode?, devopsTag: SKSpriteNode?, devopsCables: SKNode?
-    /// cables it pulls out of the rack and tosses over its shoulder: the node, where it left, its spin and how fast
-    private var flyingCables: [(node: SKShapeNode, from: CGPoint, v: CGVector, spin: CGFloat, born: Double)] = []
-    private var nextCable = 0.0
+    /// what flies off it: cables it tosses over its shoulder, sweat, the rack's sparks; where each left, how fast, its
+    /// spin, when and how long it lives
+    private var flying: [(node: SKShapeNode, from: CGPoint, v: CGVector, spin: CGFloat, born: Double, life: CGFloat)] = []
+    private var nextCable = 0.0, nextSweat = 0.0, nextSpark = 0.0, wasTossing = false
     private static let cableColours: [SKColor] = [
         SKColor(red: 0.98, green: 0.82, blue: 0.22, alpha: 1), SKColor(red: 0.3, green: 0.55, blue: 0.95, alpha: 1),
         SKColor(red: 0.9, green: 0.32, blue: 0.3, alpha: 1), SKColor(red: 0.3, green: 0.75, blue: 0.45, alpha: 1),
@@ -285,7 +286,7 @@ public final class CampusScene: WorldScene {
     private func placeDevOpsNodes() {
         devopsNode?.removeFromParent(); devopsTag?.removeFromParent(); devopsCables?.removeFromParent()
         devopsNode = nil; devopsTag = nil; devopsCables = nil
-        flyingCables.forEach { $0.node.removeFromParent() }; flyingCables = []
+        flying.forEach { $0.node.removeFromParent() }; flying = []
         // inside the building: on its overlay, so it sits over the racks and under whatever stands in front of the room
         guard let w = devopsWork, let spot = devopsSpot(w), let ov = overlays["engine"] else { return }
         let cables = SKNode(); cables.zPosition = 0.5; ov.addChild(cables); devopsCables = cables
@@ -321,40 +322,93 @@ public final class CampusScene: WorldScene {
         return art.rackSpots[min(max(w.rack, 0), art.rackSpots.count - 1)]
     }
 
+    /// The DevOps agent next to a rack: a squatting person is a bit over half a rack high (D87).
+    private static let devopsScale: CGFloat = 0.6
+
+    /// One beat of pure panic, about every six seconds (D87): it rummages in the rack, cables flying; jumps up and turns
+    /// round, hands on its head; flails, sweating, while the rack sparks; then dives back in.
+    private static func devopsBeat(_ t: Double) -> (pose: String, mood: String, dir: String, hop: CGFloat, panic: Bool) {
+        let T = t.truncatingRemainder(dividingBy: 6.2)
+        let fast = Int(t / 0.16) % 2 == 0
+        switch T {
+        case ..<2.4: return (rummage(T), "focus", "up", 0, false)
+        case ..<2.65: return ("stuck", "stuck", "down", CGFloat(sin((T - 2.4) / 0.25 * .pi)) * 5, true)
+        case ..<4.3: return (fast ? "cheer" : "panic", "stuck", "down", CGFloat(abs(sin(t * 19))) * 2.5, true)
+        case ..<4.8: return ("stuck", "stuck", "down", 0, true)
+        default: return (rummage((T - 4.8) * 1.6), "focus", "up", 0, false)
+        }
+    }
+
+    /// Its hands at work, a cycle of 1.2 s: reach in, dig, yank a cable out, toss it over its shoulder (the cable flies
+    /// as the arm goes up), reach in again.
+    static let rummageCycle = 1.2, tossAt = 0.75
+    private static func rummage(_ c: Double) -> String {
+        switch c.truncatingRemainder(dividingBy: rummageCycle) {
+        case ..<0.3: return "crouch"
+        case ..<0.5: return "crouchB"
+        case ..<tossAt: return "crouchPull"
+        case ..<1.0: return "crouchToss"
+        default: return "crouch"
+        }
+    }
+
     private func placeDevOps(at t: Double, dt: Double) {
         guard let w = devopsWork, let n = devopsNode, let spot = devopsSpot(w) else { return }
-        // rummaging: hands in the rack, then a turn with a cable held up, and back in
-        let pose = animationsEnabled && t.truncatingRemainder(dividingBy: 1.9) >= 1.25 ? "crouchB" : "crouch"
-        guard let f = w.figure.frame(pose, mood: "focus", dir: "up") else { return }
-        let foot = project(spot.i, spot.j, spot.z)
+        let beat = Self.devopsBeat(animationsEnabled ? t : 0)
+        guard let f = w.figure.frame(beat.pose, mood: beat.mood, dir: beat.dir) else { return }
+        let s = Self.devopsScale, foot = project(spot.i, spot.j, spot.z)
         n.color = Self.moonShade; n.colorBlendFactor = artNight ? 0.3 : 0
         n.texture = f.texture
-        n.size = CGSize(width: f.rect.width * px, height: f.rect.height * px)
-        n.position = scenePoint(CGPoint(x: foot.x + f.rect.minX, y: foot.y + f.rect.minY))
+        n.size = CGSize(width: f.rect.width * px * s, height: f.rect.height * px * s)
+        n.position = scenePoint(CGPoint(x: foot.x + f.rect.minX * s, y: foot.y + f.rect.minY * s - beat.hop))
         guard animationsEnabled, let ov = overlays["engine"] else { return }
-        // now and then a cable comes out of the rack and flies over its shoulder, tumbling, and is gone
-        if t >= nextCable {
-            nextCable = t + Double.random(in: 0.7...1.8)
-            let path = CGMutablePath(), len = CGFloat.random(in: 7...11) * px
+        let head = scenePoint(CGPoint(x: foot.x, y: foot.y + f.rect.minY * s * 0.85 - beat.hop))
+        // a cable over its shoulder with every toss; while it panics, cables come flying out of the rack by themselves
+        let tossing = beat.pose == "crouchToss"
+        if tossing && !wasTossing || beat.panic && t >= nextCable {
+            nextCable = t + Double.random(in: 0.12...0.3)
+            let path = CGMutablePath(), len = CGFloat.random(in: 5...8) * px
             path.move(to: CGPoint(x: -len / 2, y: 0))
             path.addCurve(to: CGPoint(x: len / 2, y: 0), control1: CGPoint(x: -len / 6, y: len / 2.5), control2: CGPoint(x: len / 6, y: -len / 2.5))
             let c = SKShapeNode(path: path)
-            c.strokeColor = Self.cableColours.randomElement()!; c.lineWidth = 1.2 * px; c.lineCap = .round; c.zPosition = 0.7
-            let from = scenePoint(project(spot.i + CGFloat.random(in: -0.15...0.15), spot.front + 0.15, spot.z + 12))
-            c.position = from
-            ov.addChild(c)
-            // up and back over its shoulder: towards you and to either side
+            c.strokeColor = Self.cableColours.randomElement()!; c.lineWidth = 1.0 * px; c.lineCap = .round; c.zPosition = 0.7
             let side: CGFloat = Bool.random() ? 1 : -1
-            flyingCables.append((c, from, CGVector(dx: side * CGFloat.random(in: 14...30) * px, dy: CGFloat.random(in: 38...52) * px), CGFloat.random(in: -9...9), t))
+            let from = tossing ? CGPoint(x: head.x + 4 * px, y: head.y + 3 * px) : scenePoint(project(spot.i + CGFloat.random(in: -0.15...0.15), spot.front + 0.15, spot.z + 9))
+            fling(c, in: ov, from: from,
+                  v: CGVector(dx: side * CGFloat.random(in: 12...28) * px, dy: CGFloat.random(in: 30...46) * px), spin: CGFloat.random(in: -10...10), life: 1.0, at: t)
         }
-        flyingCables.removeAll { cable in
-            let a = CGFloat(t - cable.born)
-            if a > 1.1 { cable.node.removeFromParent(); return true }
-            cable.node.position = CGPoint(x: cable.from.x + cable.v.dx * a, y: cable.from.y + cable.v.dy * a - 0.5 * 90 * px * a * a)
-            cable.node.zRotation = cable.spin * a
-            cable.node.alpha = a < 0.8 ? 1 : max(0, 1 - (a - 0.8) / 0.3)
+        wasTossing = tossing
+        // sweat off its head, a drop now and then while it works, a spray while it panics
+        if t >= nextSweat {
+            nextSweat = t + (beat.panic ? Double.random(in: 0.05...0.12) : Double.random(in: 0.6...1.4))
+            let d = SKShapeNode(ellipseOf: CGSize(width: 1.3 * px, height: 1.9 * px))
+            d.fillColor = SKColor(red: 0.62, green: 0.86, blue: 1, alpha: 1); d.strokeColor = .clear; d.zPosition = 0.72
+            let side: CGFloat = Bool.random() ? 1 : -1
+            fling(d, in: ov, from: CGPoint(x: head.x + side * CGFloat.random(in: 2...6) * px, y: head.y),
+                  v: CGVector(dx: side * CGFloat.random(in: 8...20) * px, dy: CGFloat.random(in: 14...26) * px), spin: 0, life: 0.55, at: t)
+        }
+        // and the rack sparks while it panics
+        if beat.panic, t >= nextSpark {
+            nextSpark = t + Double.random(in: 0.03...0.08)
+            let k = SKShapeNode(rectOf: CGSize(width: 0.9 * px, height: 0.9 * px))
+            k.fillColor = Bool.random() ? SKColor(red: 1, green: 0.92, blue: 0.4, alpha: 1) : .white; k.strokeColor = .clear
+            k.zPosition = 0.71; k.blendMode = .add
+            fling(k, in: ov, from: scenePoint(project(spot.i + CGFloat.random(in: -0.3...0.3), spot.front + 0.02, spot.z0 + CGFloat.random(in: 12...26))),
+                  v: CGVector(dx: CGFloat.random(in: -26...26) * px, dy: CGFloat.random(in: 4...30) * px), spin: 0, life: 0.45, at: t)
+        }
+        flying.removeAll { p in
+            let a = CGFloat(t - p.born)
+            if a > p.life { p.node.removeFromParent(); return true }
+            p.node.position = CGPoint(x: p.from.x + p.v.dx * a, y: p.from.y + p.v.dy * a - 0.5 * 90 * px * a * a)
+            p.node.zRotation = p.spin * a
+            p.node.alpha = a < p.life * 0.7 ? 1 : max(0, 1 - (a - p.life * 0.7) / (p.life * 0.3))
             return false
         }
+    }
+
+    private func fling(_ node: SKShapeNode, in parent: SKNode, from: CGPoint, v: CGVector, spin: CGFloat, life: CGFloat, at t: Double) {
+        node.position = from; parent.addChild(node)
+        flying.append((node, from, v, spin, t, life))
     }
 
     // MARK: a floor that leaves (D82)
