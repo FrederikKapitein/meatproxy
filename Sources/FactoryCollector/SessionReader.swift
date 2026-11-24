@@ -16,6 +16,7 @@ final class SessionReader {
     /// The folder the session started in: a `cd` later in the session does not move it to another floor (D37).
     var startCwd: String?
     var branch: String?
+    var entrypoint: String?
     var title: String?
     var model: String?
     var firstPrompt: String?
@@ -127,6 +128,7 @@ final class SessionReader {
         let t = o["type"] as? String, at = Self.date(o["timestamp"])
         if let c = o["cwd"] as? String, !c.isEmpty { cwd = c; if startCwd == nil { startCwd = c } }
         if let b = o["gitBranch"] as? String, !b.isEmpty, b != "HEAD" { branch = b }
+        if entrypoint == nil, let e = o["entrypoint"] as? String, !e.isEmpty { entrypoint = e }
         if t == "custom-title", let ct = o["customTitle"] as? String { title = ct }
         if t == "relocated", let rc = o["relocatedCwd"] as? String { cwd = rc; startCwd = rc }
         if o["isSidechain"] as? Bool == true { return }     // a sub-agent's own conversation
@@ -300,6 +302,7 @@ final class SessionReader {
                         startedAt: started, lastAt: last, turnOpen: turnOpen, activities: items, subAgents: subAgents())
         if heartbeat { s.heartbeatRun = true }
         s.lastSaid = lastSaid
+        s.entrypoint = entrypoint
         return s
     }
 }

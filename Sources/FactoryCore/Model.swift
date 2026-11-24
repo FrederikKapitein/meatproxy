@@ -83,6 +83,11 @@ public struct Session: Identifiable, Codable, Sendable, Hashable {
     public var lastSaid: String?
     /// The heartbeat says this CEO's run is going right now: it works, whatever its file looks like.
     public var liveRun: Bool?
+    /// Where it runs (D83), from the session file's `entrypoint`: "claude-desktop" (the Code tab of the Claude app),
+    /// "cli" (a terminal), "sdk-cli" (a headless run). nil when the file does not say.
+    public var entrypoint: String?
+    /// It lives in the Claude app: you answer it there, and resuming it in a terminal would fork it.
+    public var inClaudeApp: Bool { entrypoint == "claude-desktop" }
     /// The name this person has on the campus, when the world gave out names (`World.withUniqueNames`): one of its own
     public var displayName: String?
 

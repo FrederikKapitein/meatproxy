@@ -512,8 +512,13 @@ public final class FloorScene: WorldScene {
     /// The second line of a plate: what waits for you comes first, and a CEO says it is the CEO.
     static func plateLine(_ s: Session, in p: Project, state st: SessionState, back: Bool, seated: Bool, now: Date) -> String {
         let ceo = s.id == factoryCEO(p) || s.heartbeatRun == true || s.id.hasPrefix(Project.standingCEOPrefix)
-        let questions = s.id == factoryCEO(p) ? p.factory?.openDecisions.count ?? 0 : 0
-        if questions > 0 { return "CEO · \(questions) question\(questions == 1 ? "" : "s")" }
+        let open = s.id == factoryCEO(p) ? p.factory?.openDecisions ?? [] : []
+        if !open.isEmpty {
+            let todos = open.filter(\.isTodo).count, questions = open.count - todos
+            let parts = [questions > 0 ? "\(questions) question\(questions == 1 ? "" : "s")" : nil,
+                         todos > 0 ? "\(todos) to-do\(todos == 1 ? "" : "s")" : nil].compactMap { $0 }
+            return "CEO · " + parts.joined(separator: ", ")
+        }
         if st == .waiting { return ceo ? "CEO · waits for you" : "Waits for you" }
         if st == .stuck { return ceo ? "CEO · stuck" : "Stuck" }
         if ceo { return st == .done ? "CEO · resting" : "CEO" }

@@ -247,6 +247,14 @@ struct SessionDetail: View {
                 Text("· \(project.name)").font(.s13).foregroundStyle(Color.muted).lineLimit(1)
             }
             if let said = session.lastSaid?.trimmingCharacters(in: .whitespacesAndNewlines), !said.isEmpty { Bubble(text: said, asks: st == .waiting) }
+            if session.inClaudeApp {
+                // a chat in the Claude app is answered there (D83): resuming it in a terminal would fork it
+                Text(st == .waiting ? "This chat runs in the Claude app: answer it there." : "This chat runs in the Claude app.")
+                    .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                Button { model.openInClaude(session) } label: { SpelLabel("Open in Claude", icon: "chat", onYellow: st == .waiting, iconColor: st == .waiting ? .onSignal : .inkText) }
+                    .buttonStyle(SpelButtonStyle(kind: st == .waiting ? .primary : .secondary))
+                    .help("Bring the Claude app to the front; the chat is in its Code tab")
+            } else {
             if st == .waiting {
                 Text("Your answer goes in the terminal: Take over continues this chat there, with its question on top.")
                     .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
@@ -260,6 +268,7 @@ struct SessionDetail: View {
                     .buttonStyle(SpelButtonStyle(kind: .secondary, square: true))
                     .help("Copy: \(session.resumeCommand)").accessibilityLabel("Copy the resume command")
                 Spacer(minLength: 0)
+            }
             }
             if !session.subAgents.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {

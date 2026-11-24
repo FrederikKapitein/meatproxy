@@ -51,6 +51,23 @@ struct CollectorTests {
         #expect(try #require(r.session()).cwd == "/demo/shopfront")
     }
 
+    /// D83: a chat in the Claude app says so in its file; you answer it there, not by resuming it in a terminal.
+    @Test func aSessionKnowsItRunsInTheClaudeApp() throws {
+        let dir = try tempDir()
+        for (name, entry, inApp) in [("aaaaaaaa-2222-3333-4444-555555555555", "claude-desktop", true), ("bbbbbbbb-2222-3333-4444-555555555555", "cli", false)] {
+            let file = dir.appendingPathComponent(name + ".jsonl")
+            try jsonl([
+                ["type": "user", "cwd": "/demo/shopfront", "entrypoint": entry, "timestamp": "2026-11-14T10:00:00Z", "message": ["content": "Start here"]],
+                ["type": "assistant", "cwd": "/demo/shopfront", "entrypoint": entry, "timestamp": "2026-11-14T10:05:00Z", "message": ["stop_reason": "end_turn", "content": []]],
+            ]).write(to: file)
+            let r = SessionReader(url: file, provider: .claude)
+            try r.read()
+            let s = try #require(r.session())
+            #expect(s.entrypoint == entry)
+            #expect(s.inClaudeApp == inApp)
+        }
+    }
+
     @Test func worktreeCountsAsItsRepo() throws {
         let home = try tempDir(), repo = home.appendingPathComponent("Code/harbor-api"), wt = home.appendingPathComponent("worktrees/harbor-fix")
         try FileManager.default.createDirectory(at: repo.appendingPathComponent(".git/worktrees/harbor-fix"), withIntermediateDirectories: true)

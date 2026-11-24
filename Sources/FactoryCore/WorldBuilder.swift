@@ -144,7 +144,10 @@ public enum Fixture {
             "a6": "Two pairings fit the brand: Inter with JetBrains Mono, or Inter with IBM Plex Mono for a softer code look.\n\nWhich one do you want?",
             "b1": "Export works for CSV and plain text. PDF would need a new dependency (about 400 KB).\n\nShould I add PDF export too, or ship CSV and text first?",
         ]
-        let withSaid = sessions.map { s -> Session in var s = s; s.lastSaid = said[s.id]; return s }
+        // where each runs (D83): Rue's chat is in the Claude app, the rest in a terminal
+        let withSaid = sessions.map { s -> Session in
+            var s = s; s.lastSaid = said[s.id]; s.entrypoint = s.id == "a1" ? "claude-desktop" : "cli"; return s
+        }
         var world = WorldBuilder.build(withSaid, now: now) { cwd in
             cwd == "~" ? ProjectKey(root: "~", name: "", isChat: true)
                 : ProjectKey(root: cwd, name: WorldBuilder.pretty((cwd as NSString).lastPathComponent), isChat: false)
