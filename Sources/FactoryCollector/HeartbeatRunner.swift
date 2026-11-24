@@ -101,7 +101,8 @@ public final class HeartbeatRunner: @unchecked Sendable {
         keeps that item off; act on it first. In the briefing, ## Needs you lists only the open decisions, by id. \
         Work outside this project on shared infrastructure (CI runners, servers, the devops repository) is for the Server \
         room's DevOps agent (contract v6): file it as a to-do with for: devops, with ## Why and ## How written for that agent; \
-        Meatproxy sends it there when the user presses Send to DevOps. Never name a specific agent or tool for it. When \
+        Meatproxy sends it there when the user presses Send to DevOps. Never name a specific agent or tool for it; an open \
+        to-do of yours that still does, withdraw it and file it again with for: devops. When \
         factory/contract.yml declares a version below 6, raise it to 6.
         End the run with the briefing written. If questions are open, list them in your final message, numbered, each \
         answerable with yes or no.

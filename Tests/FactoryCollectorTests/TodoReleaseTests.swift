@@ -266,6 +266,7 @@ struct SendToDevOpsTests {
     @Test func theCEOAndTheDevOpsAgentAreToldAboutRequests() {
         let ceo = HeartbeatRunner.prompt(root: "/demo/pebble", name: "Pebble", reason: .runNow)
         #expect(ceo.contains("for: devops") && ceo.contains("Never name a specific agent or tool"))
+        #expect(ceo.contains("withdraw it and file it again with for: devops"))
         let ops = HeartbeatRunner.opsPrompt(root: "/demo/engine-room", reason: .runNow)
         #expect(ops.contains("kind: request"))
         #expect(EngineRoom.readme.contains("kind: request"))
