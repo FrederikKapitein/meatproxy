@@ -166,6 +166,13 @@ struct TodoReleaseTests {
         #expect(throws: ReleaseRequest.Failure.self) { try ReleaseRequest.send(root: root.path, workstreams: []) }
     }
 
+    @Test func theDevOpsAgentIsToldToAskWithButtonsToo() {
+        let prompt = HeartbeatRunner.opsPrompt(root: "/demo/engine-room", reason: .runNow)
+        #expect(prompt.contains("Never ask the user in the journal's prose alone"))
+        #expect(prompt.contains("kind: todo"))
+        #expect(EngineRoom.readme.contains("kind: todo"))
+    }
+
     @Test func theCEOIsToldToAskWithButtonsNotInProse() {
         let prompt = HeartbeatRunner.prompt(root: "/demo/pebble", name: "Pebble", reason: .runNow)
         #expect(prompt.contains("kind: todo"))

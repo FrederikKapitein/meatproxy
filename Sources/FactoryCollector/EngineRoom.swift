@@ -60,7 +60,7 @@ public enum EngineRoom {
     ---
     id: D-0001
     title: Let the ops tool read Docker on web-01 and web-02?   # one yes/no question
-    kind: other            # other | fix | access | spend
+    kind: other            # other | fix | access | spend | todo
     status: open           # open | yes | no | expired | withdrawn
     asked: 2026-11-16T09:37:00+01:00
     answered: null
@@ -88,6 +88,13 @@ public enum EngineRoom {
     ## The journal: journal/YYYY-MM-DD.md (a second run that day -2)
 
     `## Briefing` (at most 5 items), `## Needs you` (your open decisions, by id), `## Done`.
+
+    ## What you need from the user (D81)
+
+    Never ask in the journal's prose alone: everything you need from the user is an open decision, so Meatproxy shows it
+    with a button. A choice is a yes/no question. Something only they can do (remove a stack, install a sudo rule, sign
+    in somewhere) is a to-do: `kind: todo`, an imperative title, `## Why` and `## How` with the exact steps; Meatproxy
+    shows Done and Not now. After Done, check it on your next run; after Not now, leave it until something changes.
     """
 
     /// Files an alert for the agent (a new file, never overwriting one) and returns its id.

@@ -1351,8 +1351,31 @@ struct OpsCard: View {
             if let st = model.devopsState {
                 Text("\(st.config.summary) · \(st.config.runtime.label)\(st.last.map { " · last run \($0.started.ago), \($0.outcome.rawValue)" } ?? "")")
                     .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
-                if let b = st.blocked { Text(b.text).font(.s13).foregroundStyle(b.waitsForYou ? Color.warn : Color.muted) }
+                if let b = st.blocked {
+                    // a cooldown only holds the automatic runs back: Run now starts one anyway
+                    Text(b.text.hasPrefix("Cooling down") ? "Automatic runs: \(b.text.prefix(1).lowercased() + b.text.dropFirst()). Run now starts one anyway." : b.text)
+                        .font(.s13).foregroundStyle(b.waitsForYou ? Color.warn : Color.muted).fixedSize(horizontal: false, vertical: true)
+                }
             }
+            // what it may do, per server (D85): the autonomy each server gives it, set in Settings › Servers
+            let groups = OpsAutonomy.allCases.reversed().compactMap { a -> (OpsAutonomy, [String])? in
+                let names = model.serverConfigs.filter { ($0.autonomy ?? .observe) == a }.map(\.name)
+                return names.isEmpty ? nil : (a, names)
+            }
+            if !groups.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Eyebrow("May do")
+                    ForEach(groups, id: \.0) { a, names in
+                        HStack(alignment: .top, spacing: 8) {
+                            Tag(a.label, tone: a == .safeFixes ? .work : a == .off ? .done : .neutral)
+                            Text(names.joined(separator: ", ")).font(.s13).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .help(a.explanation)
+                    }
+                }
+            }
+            Text(running ? "Running now. It writes its journal when it is done; Log follows it live." : Self.runNowLine(model.serverConfigs))
+                .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
             ForEach(alerts.prefix(3), id: \.id) { a in
                 HStack(spacing: 6) { PixelIcon("warn", color: .warn, size: 9); Text("\(a.id) \(a.title)").font(.s13m).foregroundStyle(Color.warn).lineLimit(1) }
             }
@@ -1367,23 +1390,75 @@ struct OpsCard: View {
                     }.buttonStyle(CardPressStyle())
                 }
             }
-            if let b = ops?.factory?.briefing, !b.briefing.isEmpty {
-                VStack(alignment: .leading, spacing: 3) {
-                    ForEach(b.briefing.prefix(3), id: \.self) { Text("· " + $0).font(.s13).foregroundStyle(Color.inkText).lineLimit(2) }
-                }
-            }
             HStack(spacing: 8) {
                 Button { model.runDevOpsNow() } label: { SpelLabel(running ? "Running" : "Run now", icon: "play") }
                     .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s)).disabled(running)
-                if model.devopsState?.last != nil {
+                if model.devopsState?.last != nil || running {
                     Button { model.watchRun(root: EngineRoom.folder.path, name: "DevOps") } label: { SpelLabel("Log", icon: "log") }
                         .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s)).help("The DevOps agent's run log, in the terminal")
+                }
+                Spacer(minLength: 0)
+                Button { model.settingsAtForm = true; model.settingsOpen = true } label: { PixelIcon("gear", color: .inkText) }
+                    .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, square: true))
+                    .help("What it may do on each server: Settings › Servers").accessibilityLabel("Change what it may do")
+            }
+        }
+        .spelCard()
+        if let b = ops?.factory?.briefing { OpsJournalCard(briefing: b) }
+    }
+
+    /// What Run now does, from what the servers allow (D85).
+    static func runNowLine(_ servers: [ServerConfig]) -> String {
+        let a = servers.map { $0.autonomy ?? .observe }
+        if servers.isEmpty || a.allSatisfy({ $0 == .off }) { return "Run now: no server lets it in, so it only reads its alerts and writes a journal." }
+        let fixes = a.contains(.safeFixes)
+            ? "makes the safe fixes a server allows (restart a service, prune old images and logs) and asks you before anything else"
+            : "changes nothing: every fix becomes a question for you"
+        return "Run now: it reads every server it may (status, disk, memory, services, containers, logs), looks into open alerts, \(fixes), and writes its journal below."
+    }
+}
+
+/// The DevOps agent's journal of its latest run (D85): what it found, what waits for you, and what it did.
+private struct OpsJournalCard: View {
+    let briefing: Briefing
+    @State private var showDone = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                PixelIcon("log", color: .inkText)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Journal").font(.s15b).foregroundStyle(Color.inkText)
+                    Text("DevOps agent · \(BriefingCard.day(briefing.name))").font(.s11n).foregroundStyle(Color.muted)
+                }
+            }
+            ForEach(Array(briefing.briefing.enumerated()), id: \.offset) { _, line in
+                Text(BriefingCard.plain(line)).font(.s13).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
+            }
+            let needs = briefing.needsYou.filter { !$0.lowercased().hasPrefix("nothing") }
+            if !needs.isEmpty {
+                Eyebrow("Needs you")
+                ForEach(Array(needs.enumerated()), id: \.offset) { _, line in
+                    Text(BriefingCard.plain(line)).font(.s13).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if !briefing.delivered.isEmpty {
+                Button { withAnimation(.easeOut(duration: 0.15)) { showDone.toggle() } } label: {
+                    HStack(spacing: 6) {
+                        PixelIcon(showDone ? "chevd" : "chev", color: .muted, size: 9)
+                        Text("What it did · \(briefing.delivered.count)").font(.s13m).foregroundStyle(Color.muted)
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                if showDone {
+                    ForEach(Array(briefing.delivered.enumerated()), id: \.offset) { _, line in
+                        Text(BriefingCard.plain(line)).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }
         .spelCard()
     }
 }
+
 
 // MARK: setting a factory up (D4, D76)
 
