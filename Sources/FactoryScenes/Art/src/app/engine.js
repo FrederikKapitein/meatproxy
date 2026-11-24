@@ -296,7 +296,7 @@
     svg.remove();
     const t2 = performance.now();
     return {R, view: parts.view, island: parts.island, night: !!input.night, under, ground, objects, buildings, light, signParts: signs, boxes: parts.boxes, storeys: parts.storeys, fountain: parts.fountain, footprints: parts.footprints,
-      racks: parts.racks, rackPanels: parts.rackPanels, beacon: parts.beacon, towers: parts.towers, labels: parts.labels, hits: parts.hits, streams: parts.streams,
+      racks: parts.racks, rackPanels: parts.rackPanels, beacon: parts.beacon, towers: parts.towers, npcs: parts.npcs || [], labels: parts.labels, hits: parts.hits, streams: parts.streams,
       timing: [Math.round(t1 - t0), Math.round(t2 - t1)]};
   }
 

@@ -518,6 +518,15 @@ final class AppModel: ObservableObject {
     /// Takes over a session in the app's terminal (D57): `claude --resume` (or `codex resume`) where it started. A CEO's
     /// heartbeat run that is still going stops first (it is yours now), and that factory's heartbeat waits until you
     /// close the tab.
+    /// A chat that lives in the Claude app (D83): bring that app to the front, where you answer it.
+    func openInClaude(_ s: Session) {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anthropic.claudefordesktop") else {
+            status = "The Claude app is not installed on this Mac."; return
+        }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        status = "Answer “\(s.title)” in the Claude app's Code tab."
+    }
+
     func takeOver(_ s: Session) {
         guard let resume = TerminalCommand.resume(s) else { status = "This session cannot be resumed here (no \(s.provider == .claude ? "claude" : "codex") CLI found)."; return }
         // a chat that waits shows what it asked above the conversation (C5): answering happens there, not in the app

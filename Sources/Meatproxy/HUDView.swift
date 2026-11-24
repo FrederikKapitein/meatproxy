@@ -168,6 +168,12 @@ struct HUDView: View {
             // of the campus's life at night, "hour:<h>" sets the clock
             else if step.hasPrefix("apart:") { model.controller.campus.holdApart(String(step.dropFirst(6))) }
             else if step.hasPrefix("mark:"), let k = Int(step.dropFirst(5)) { model.controller.campus.mark(k) }
+            // D82 shots: "leave:<project id>" takes a floor off its tower, as when its last chat ages out
+            else if step.hasPrefix("leave:") {
+                let id = String(step.dropFirst(6))
+                for b in model.world.buildings.indices { model.world.buildings[b].projects.removeAll { $0.id == id } }
+                model.controller.show(model.world)
+            }
             else if step == "life:demo" { model.controller.campus.demoLife() }
             else if step.hasPrefix("hour:"), let h = Double(step.dropFirst(5)) { model.controller.campus.setHour(h) }
             else if step == "layer:status" { model.setStatusLayer(true) }

@@ -86,6 +86,9 @@
       W.adopt(sub);
       return ret;
     };
+    // people who live on the campus (D84): the app gives them a loop of poses, so they wave, sip, read and doze
+    const npcs = [];
+    const npc = (role, seed, pose, view, i, j, z, mood) => npcs.push({role, seed: String(seed), pose, view, i, j, z, mood: mood || "calm"});
     // a prop only where the ground suits it (never on a road, in the pond or off the island)
     const on = (i, j, kinds = ["grass", "walk", "plaza", "path", "yard"]) => kinds.includes(kind(i, j));
 
@@ -100,7 +103,7 @@
       const t = obj(w => tower(w, prov, S, list, z, H, NIGHT), {id: "building:" + prov});
       footprints["building:" + prov] = [S.i - .3, S.j - .3, S.i + S.w + .3, S.j + S.d + .3];
       t.storeys.forEach((s, k) => storeys.push({building: prov, index: k, kind: list[k].kind || "project", faces: s.faces, windows: s.windows, mount: s.mount}));
-      towers.push({building: prov, antenna: t.antenna, chimney: t.chimney});
+      towers.push({building: prov, antenna: t.antenna, chimney: t.chimney, empty: list.length === 0});
       t.blades.forEach((bl, k) => { tp(`plaque:${prov}:${k}`, bl.markup); labels.push({building: prov, rect: bl.rect}); });
       // the way a deploy's packets go: out of the door, down the forecourt, along the sidewalks to the Server room
       streams[prov] = prov === "claude" ? [[S.door, S.j + S.d + .6], [S.door, 25.6], [47.6, 25.6], [47.6, 36], [52.3, 36], [52.3, 34.8]]
@@ -170,9 +173,9 @@
     const streetLamp = (a, b) => { if (on(a, b)) lampTops.push(obj(w => Pr.lamp(w, a, b, h(a, b), {post: "#3a3550", glass: "#fff0c0"}))); };
     for (let a = 9.7; a <= 55; a += 7) { if (a > 26 && a < 37) continue; streetLamp(a, a < 30 ? 18.7 : 20.6); streetLamp(a + 3.5, a > 30 ? 25.15 : 25.4); }
     for (let b = 9.7; b <= 43; b += 7) { if (b > 17 && b < 29) continue; streetLamp(b < 20 ? 29.6 : 27.8, b); streetLamp(b < 20 ? 34.15 : 34.4, b + 3.5); }
-    const perch = (k, o) => { const t = lampTops[k % lampTops.length]; if (t) obj(w => Pr.bird(w, ...t.top, o)); };
+    const perch = (k, o) => { const t = lampTops[k % lampTops.length]; if (t) obj(w => Pr.bird(w, ...t.top, o), {id: "bird:perch:" + k}); };
     perch(2, {kind: "pigeon"}); perch(5, {kind: "robin", dir: "SE"}); perch(9, {kind: "sparrow"});
-    obj(w => { Pr.shelter(w, 22, 26.2, 1.6, {band: "#FFD83D"}); }); obj(w => w.fig(B.person("marketing", 7), {pose: "sit", view: "SW"}, 21.6, 26, 1.6 + 3.6));
+    obj(w => { Pr.shelter(w, 22, 26.2, 1.6, {band: "#FFD83D"}); }); npc("marketing", 7, "sit", "SW", 21.6, 26, 1.6 + 3.6);
     obj(w => Pr.streetSign(w, 27.4, 18.8, 1, "Quest St", {font: GAME, bg: "#2f5a8a"})); obj(w => Pr.streetSign(w, 36.5, 27.6, zp, "Pixel Ave", {font: GAME, bg: "#2f5a8a", face: "SE"}));
     for (const [a, b] of [[26.6, 20.86], [37.4, 25.14], [29.4, 16.6], [34.6, 27.4]]) obj(w => Pr.bollard(w, a, b, 1.6, "#3a3550"));
     obj(w => Pr.hydrant(w, 23.4, 20.88, 1.6)); obj(w => Pr.postBox(w, 46.4, 20.4, 1.6)); obj(w => Pr.bin(w, 20, 19.12, 1.6, "#3a6a4a")); obj(w => Pr.bin(w, 34.4, 38, 1.6, "#3a6a4a"));
@@ -184,22 +187,22 @@
     { const gi = 52.5, gj = 8.5, z = h(50, 8);
       obj(w => gazebo(w, gi, gj, z));
       obj(w => Pr.bench(w, gi + .2, gj + 2.6, z, {face: "SW", len: 1.8}));
-      obj(w => w.fig(B.person("dev", 61), {pose: "sit", view: "SW"}, gi - .1, gj + 2.65, z + 3.2));
-      obj(w => w.fig(B.person("tester", 62), {pose: "mug", view: "SW", mood: "happy"}, gi + 1.9, gj + 2.4, z));
+      npc("dev", 61, "sit", "SW", gi - .1, gj + 2.65, z + 3.2);
+      npc("tester", 62, "mug", "SW", gi + 1.9, gj + 2.4, z);
       for (const [k2, a, b, sc] of [["cherry", 48.4, 5.6, .8], ["maple", 56.8, 5.2, .8], ["oak", 48.2, 11.8, .8], ["apple", 57.2, 11.6, .75]]) if (on(a, b)) obj(w => Pr.tree(w, k2, a, b, h(a, b), sc));
       for (const [a, b, c] of [[50.6, 5, ["#ff6a8a", "#fff8ec"]], [54.6, 12.6, ["#ffd04a", "#b07cf0"]]]) obj(w => Pr.bed(w, a - .9, b - .6, a + .9, b + .6, h(a, b), c, "#b9a88e", a));
       obj(w => Pr.bench(w, 56.2, 8.4, h(56, 8), {face: "SE", len: 1.6})); obj(w => Pr.lamp(w, 49.2, 8.6, h(49, 8), {post: "#3a3550", glass: "#fff0c0"}));
-      obj(w => Pr.squirrel(w, 48.4, 5.76, h(48, 5) + 8, {on: "trunkF"})); obj(w => Pr.bird(w, 56.2, 8.4, h(56, 8) + 13.4, {kind: "robin", dir: "SE"})); }
+      obj(w => Pr.squirrel(w, 48.4, 5.76, h(48, 5) + 8, {on: "trunkF"}), {id: "squirrel:park"}); obj(w => Pr.bird(w, 56.2, 8.4, h(56, 8) + 13.4, {kind: "robin", dir: "SE"}), {id: "bird:park"}); }
 
     /* ---------- the pond park: ducks, an island with a bridge, groves, hedges, beds, a picnic ---------- */
     const waterT = []; m.each((i, j, t) => { if (t === "water") waterT.push([i, j]); });
     Pr.water(W, waterT, -2.4, "#3a82c8");
     obj(w => { w.box(14, 35, -5, 16.4, 37, 1, "#5cb04e", {deco: {top: [[14.2, 35.2, 16.2, 36.8, "#55a648"]]}}); Pr.tree(w, "cherry", 15.2, 36, 1, .6); });
-    obj(w => Pr.duck(w, 14.4, 37.3, -2.4, {white: true}));
+    obj(w => Pr.duck(w, 14.4, 37.3, -2.4, {white: true}), {id: "duck:island"});
     obj(w => bridge(w, 16.2, 21.8, 35.6));
     for (const [a, b, n] of [[9.4, 34, 6], [19.6, 38.6, 5], [11, 39.4, 5]]) obj(w => Pr.reeds(w, a, b, -2.4, n));
     for (const [a, b, fl] of [[11.4, 34.4, 1], [18.6, 36.8, 0], [12.6, 38.4, 1], [17.4, 33.4, 0]]) obj(w => Pr.lily(w, a, b, -2.3, fl));
-    for (const [a, b, o] of [[12, 36, {}], [13, 37.6, {white: true, dir: "SE"}], [18.4, 38, {dir: "SE"}], [17.2, 34.4, {}], [11.4, 37.2, {white: true}]]) obj(w => Pr.duck(w, a, b, -2.4, o));
+    for (const [k, [a, b, o]] of [[12, 36, {}], [13, 37.6, {white: true, dir: "SE"}], [18.4, 38, {dir: "SE"}], [17.2, 34.4, {}], [11.4, 37.2, {white: true}]].entries()) obj(w => Pr.duck(w, a, b, -2.4, o), {id: "duck:" + k});
     const grove = [["cherry", 4.6, 30.4, 1], ["cherry", 6.4, 33.4, .9], ["maple", 4.2, 37.6, 1], ["maple", 7.2, 42.6, .95], ["apple", 11, 44.4, .9], ["apple", 14, 45.2, .85], ["poplar", 25.4, 46.2, 1], ["poplar", 24.2, 43.4, 1], ["cherry", 25.4, 39.2, .9], ["oak", 24.8, 35.6, 1], ["birch", 21.4, 30.4, .85], ["pine", 4, 26.6, .9],
       ["pine", 5.6, 8.4, 1], ["pine", 4.2, 12.2, .9], ["maple", 6.8, 15.6, .9], ["oak", 21.4, 8.6, 1], ["cherry", 23.6, 12.4, .85], ["apple", 21.8, 15.2, .8], ["birch", 37.2, 4.6, .8], ["maple", 47, 15.6, .8],
       ["oak", 53, 17.8, .9], ["cherry", 56.6, 16.6, .85], ["poplar", 60.4, 26, 1], ["maple", 54.6, 42.4, .9], ["cherry", 50.6, 44, .85], ["oak", 43.6, 44.4, .9], ["apple", 40, 44.2, .8], ["poplar", 46, 42.2, 1], ["pine", 26.4, 2.6, .8], ["pine", 9.2, 21, .9]];
@@ -212,14 +215,14 @@
     obj(w => { w.box(5.2, 45.4, 1, 7.2, 46.8, 1.4, "#e0473a", {deco: {top: [[5.2, 45.9, 7.2, 46.1, "#fff8ec"], [5.7, 45.4, 5.9, 46.8, "#fff8ec"], [6.5, 45.4, 6.7, 46.8, "#fff8ec"]]}}); w.box(6.4, 46.2, 1.4, 6.9, 46.6, 4.4, "#a8743a"); });
     obj(w => w.fig(B.person("designer", 5), {pose: "sit", view: "SE", zb: 1.4}, 5.6, 45.9, -1.2));
     obj(w => w.fig(B.person("pm", 9), {pose: "sit", view: "SW", zb: 1.4}, 6.5, 45.5, -1.2));
-    obj(w => w.fig(B.person("dev", 8), {pose: "sit", view: "SW"}, 14.6, 30.6, h(14, 30) + 3.2));
-    obj(w => w.fig(B.person("lead", 2), {pose: "point", view: "NW"}, 18.6, 41.6, h(18, 41)));
-    obj(w => w.fig(B.person("marketing", 5), {pose: "wave", view: "SW", mood: "happy"}, 10.2, 28.6, h(10, 28)));
-    obj(w => w.fig(B.person("researcher", 2), {pose: "read", view: "SE"}, 13.4, 15.2, h(13, 15)));
-    obj(w => w.fig(B.person("lead", 3), {pose: "mug", view: "SW"}, 43, 16.4, h(43, 16)));
-    for (const [a, b, z, o] of [[4.6, 30.56, 9, {on: "trunkF"}], [24.82, 35.6, 8, {on: "trunkR"}], [13.4, 43.2, 1.15, {dir: "SW"}], [21.2, 9.6, 1, {dir: "SE"}], [7.8, 46.6, 1, {dir: "SW"}]]) obj(w => Pr.squirrel(w, a, b, z + (z > 2 ? h(a, b) - 1 : 0), o));
-    for (const [a, b, z, up] of [[14, 33, 120, 1], [15.4, 31.8, 126, 0], [12.8, 31.6, 116, 0], [16.8, 33.2, 112, 1], [44, 22, 170, 1], [45.4, 21, 176, 0], [-4, 20, 40, 1], [-2.8, 19, 46, 0]]) obj(w => Pr.flyer(w, a, b, z, {up, col: "#efeaf4", tip: "#4a4460"}), {layer: 2});
-    for (const [a, b, z, o] of [[40.6, 30.2, zp + 4, {kind: "pigeon"}], [43.4, 34.9, zp + 4, {kind: "pigeon", dir: "SE"}], [39.4, 35.4, zp, {kind: "pigeon"}]]) obj(w => Pr.bird(w, a, b, z, o));
+    npc("dev", 8, "sit", "SW", 14.6, 30.6, h(14, 30) + 3.2);
+    npc("lead", 2, "point", "NW", 18.6, 41.6, h(18, 41));
+    npc("marketing", 5, "wave", "SW", 10.2, 28.6, h(10, 28), "happy");
+    npc("researcher", 2, "read", "SE", 13.4, 15.2, h(13, 15));
+    npc("lead", 3, "mug", "SW", 43, 16.4, h(43, 16));
+    for (const [k, [a, b, z, o]] of [[4.6, 30.56, 9, {on: "trunkF"}], [24.82, 35.6, 8, {on: "trunkR"}], [13.4, 43.2, 1.15, {dir: "SW"}], [21.2, 9.6, 1, {dir: "SE"}], [7.8, 46.6, 1, {dir: "SW"}]].entries()) obj(w => Pr.squirrel(w, a, b, z + (z > 2 ? h(a, b) - 1 : 0), o), {id: "squirrel:" + k});
+    for (const [k, [a, b, z, up]] of [[14, 33, 120, 1], [15.4, 31.8, 126, 0], [12.8, 31.6, 116, 0], [16.8, 33.2, 112, 1], [44, 22, 170, 1], [45.4, 21, 176, 0], [-4, 20, 40, 1], [-2.8, 19, 46, 0]].entries()) obj(w => Pr.flyer(w, a, b, z, {up, col: "#efeaf4", tip: "#4a4460"}), {layer: 2, id: "flyer:" + k});
+    for (const [k, [a, b, z, o]] of [[40.6, 30.2, zp + 4, {kind: "pigeon"}], [43.4, 34.9, zp + 4, {kind: "pigeon", dir: "SE"}], [39.4, 35.4, zp, {kind: "pigeon"}]].entries()) obj(w => Pr.bird(w, a, b, z, o), {id: "bird:plaza:" + k});
     // the edge: a lookout deck with a railing and a coin telescope
     obj(w => { w.box(30.4, 46.2, 1, 33.6, 49.2, 2.4, "#a8743a", {deco: {top: [0, 1, 2, 3, 4].map(k => [30.4, 46.6 + k * .55, 33.6, 46.63 + k * .55, "#7a5428"])}}); });
     obj(w => { Pr.fence(w, 30.4, 49.4, 33.6, 49.4, 2.4, "#3a3550", 10); w.box(32.4, 48.2, 2.4, 32.6, 48.4, 14, "#3a3550"); w.box(32.2, 48.1, 14, 32.9, 48.5, 18, "#3f6fd8"); });
@@ -252,24 +255,35 @@
     /* ---------- the view: the island and the towers, for the camera ---------- */
     const tall = objs.filter(o => (o.id || "").startsWith("building:")).flatMap(o => o.ops);
     const view = K.opsBounds([...W.under, ...W.base, ...tall], 16), island = K.opsBounds([...W.base, ...tall], 4);
-    return {P, parts: {island,under: W.under, base: W.base, water: W.water, shadows: W.shadowP, light: [...W.pools, ...W.halos], objs: out, boxes, topParts, hits, racks, rackPanels, beacon, labels, storeys, towers, footprints, streams, lanes: LANES,
+    return {P, parts: {island,under: W.under, base: W.base, water: W.water, shadows: W.shadowP, light: [...W.pools, ...W.halos], objs: out, boxes, topParts, hits, racks, rackPanels, beacon, labels, storeys, towers, footprints, streams, lanes: LANES, npcs,
       fountain: P(ci, cj, zp + 20), view: [view[0], view[1] - 20, view[2], view[3]]}};
   }
 
   /* ---------- a provider tower: lobby, a storey per project, a cornice; a blade sign per storey ---------- */
   function tower(W, prov, S, list, z, H, NIGHT) {
     const C = S.col, i = S.i, j = S.j, w = S.w, d = S.d, i1 = i + w, j1 = j + d, LH = 46, r = .16;
+    // no chat with this provider lately (D84): the tower stands empty: dark glass, boarded up, lamps out, weeds
+    const empty = list.length === 0;
     const warmPick = (rr, chat) => chat ? ["#ffd9a8", "#ffc48a", "#ffe6c4"][Math.floor(rr * 30) % 3] : ["#ffe6c4", "#ffc27a", "#ffd9a8", "#ffb070", "#cfe4ff"][Math.floor(rr * 50) % 5];
     const ww = .58, spans = (a0, a1) => { const out = []; for (let a = a0 + .32; a + ww <= a1 - .25; a += 1) out.push([a, a + ww]); return out; };
     // the plinth band all round, the lobby: tall shop windows between stone piers, the door set back under a canopy
     W.box(i - .1, j - .1, z, i1 + .1, j1 + .1, z + 4, C.base, {shadow: 1.6});
     const lg = C.lobbyGlass;
-    const lobbyGlass = (w0, w1) => [[w0, z + 8, w1, z + 34, "!" + lg], [w0, z + 26, w1, z + 34, "!" + K.shade(lg, .8)], [(w0 + w1) / 2 - .02, z + 8, (w0 + w1) / 2 + .02, z + 34, C.frame]];
+    const lobbyGlass = (w0, w1) => empty
+      ? [[w0, z + 8, w1, z + 34, "#1c2236"], [w0, z + 22, w1, z + 34, "#262e48"], [(w0 + w1) / 2 - .02, z + 8, (w0 + w1) / 2 + .02, z + 34, C.frame],
+         // every other window boarded: two planks across
+         ...(Math.round(w0 * 4) % 2 ? [[w0 - .05, z + 14, w1 + .05, z + 16.6, "#8a6a44"], [w0 - .05, z + 24, w1 + .05, z + 26.6, "#7a5c3a"]] : [])]
+      : [[w0, z + 8, w1, z + 34, "!" + lg], [w0, z + 26, w1, z + 34, "!" + K.shade(lg, .8)], [(w0 + w1) / 2 - .02, z + 8, (w0 + w1) / 2 + .02, z + 34, C.frame]];
     const spansF = []; for (let a = i + .4; a + .9 <= i1 - .3; a += 1.25) if (Math.abs(a + .45 - S.door) > 1.3) spansF.push([a, a + .9]);
     const spansR = []; for (let a = j + .4; a + .9 <= j1 - .3; a += 1.25) spansR.push([a, a + .9]);
     Bd.deepWall(W, "front", i, i1, j1, z + 4, z + LH, spansF.concat([[S.door - .85, S.door + .85]]), z + 8, z + 36, {col: C.lobby, frame: C.frame, trim: C.trim, r: .22, glass: (w0, w1) => Math.abs((w0 + w1) / 2 - S.door) < .1 ? [] : lobbyGlass(w0, w1), door: [S.door - .85, S.door + .85]});
     Bd.deepWall(W, "right", j, j1, i1, z + 4, z + LH, spansR, z + 8, z + 36, {col: C.lobby, frame: C.frame, trim: C.trim, r: .22, glass: lobbyGlass});
-    Bd.door(W, "front", S.door, j1 - .14, z + 4, {w: 1.5, h: 30, canopy: C.trim, col: C.frame, depth: 1.3, lamps: true});
+    Bd.door(W, "front", S.door, j1 - .14, z + 4, {w: 1.5, h: 30, canopy: C.trim, col: C.frame, depth: 1.3, lamps: !empty, glass: empty ? "#1c2236" : undefined});
+    if (empty) {
+      // planks nailed across the door, and weeds along the plinth
+      for (const [zz, col] of [[z + 12, "#8a6a44"], [z + 20, "#7a5c3a"], [z + 28, "#8a6a44"]]) W.box(S.door - 1.0, j1 + .02, zz, S.door + 1.0, j1 + .16, zz + 2.6, col);
+      for (const a of [i + .6, i + 2.4, i1 - 1.4, S.door + 1.6]) Pr.reeds(W, a, j1 + .35, z + 4, 3);
+    }
     W.box(i - .08, j - .08, z + LH, i1 + .08, j1 + .08, z + LH + 2.4, C.trim);
     const sto = [], blades = [];
     list.forEach((s, k) => {
@@ -311,19 +325,21 @@
     const factory = list.some(s => s.kind === "factory");
     if (factory) W.box(i + 2.3, j + 1.2, zt, i + 3.1, j + 2, zt + 22, "#6f7486", {deco: {front: [[i + 2.3, zt + 15, i + 3.1, zt + 18, "#e0473a"]], right: [[j + 1.2, zt + 15, j + 2, zt + 18, "#e0473a"]], top: [[i + 2.4, j + 1.3, i + 3, j + 1.9, "#1a1620"]]}});
     // the lit billboard with the provider's name, its mark in a framed tile at the left (D55, D74)
-    roofBoard(W, S, prov, i + .6, i1 - .6, j1, zt);
+    roofBoard(W, S, prov, i + .6, i1 - .6, j1, zt, empty);
     return {storeys: sto, blades, antenna: P(i + 1.2, j + 1.2, zt + 32.5), chimney: factory ? P(i + 2.7, j + 1.6, zt + 22) : null};
   }
 
-  function roofBoard(W, S, prov, i0, i1, j, z) {
+  function roofBoard(W, S, prov, i0, i1, j, z, dark) {
     for (const a of [i0 + .4, i1 - .5]) W.box(a, j - .5, z, a + .12, j - .38, z + 14, "#2a2433");
     const col = S.board, mk = [], rows = MARKS[prov] || [], px = .09, u0 = i0 + .3, v0 = z + 19.6;
     // the mark: a cream tile with the 7×7 pixels
-    mk.push([i0 + .2, z + 8, i0 + .2 + 7 * px + .2, v0 + .4, "#2a1a2e"], [i0 + .26, z + 8.6, i0 + .14 + 7 * px + .2, v0 - .2, "!#fff8ec"]);
+    mk.push([i0 + .2, z + 8, i0 + .2 + 7 * px + .2, v0 + .4, "#2a1a2e"], [i0 + .26, z + 8.6, i0 + .14 + 7 * px + .2, v0 - .2, dark ? "#8a8498" : "!#fff8ec"]);
     rows.forEach((row, ri) => [...row].forEach((ch, c) => { if (ch === "x") mk.push([u0 + c * px, v0 - 1.4 - (ri + 1) * 1.45, u0 + (c + 1) * px, v0 - 1.4 - ri * 1.45, S.mark]); }));
     const tx = (i0 + .2 + 7 * px + .2 + i1) / 2;
     W.box(i0, j - .38, z + 6, i1, j - .24, z + 22, col, {deco: {front: [[i0, z + 6, i1, z + 7.2, K.shade(col, .7)], [i0, z + 20.8, i1, z + 22, K.shade(col, .7)], ...mk]},
-      text: [{f: "front", a: tx, z: z + 9.6, t: S.name, s: Math.min(9, 66 / S.name.length), c: "!#fff8ec", wt: 900, font: GAME, stroke: "#2a1a2e", sw: 1.4}]});
+      text: [{f: "front", a: tx, z: z + 9.6, t: S.name, s: Math.min(9, 66 / S.name.length), c: dark ? "#8a8498" : "!#fff8ec", wt: 900, font: GAME, stroke: "#2a1a2e", sw: 1.4}]});
+    // an empty tower's board is switched off: no bulbs, no glow
+    if (dark) return;
     for (let a = i0 + .3; a < i1; a += .7) W.box(a, j - .24, z + 22, a + .12, j - .1, z + 23, "!#fff3c0");
     W.halo((i0 + i1) / 2, j, z + 14, 60, "#ffd98a", window.__NIGHT ? .35 : .2);
   }

@@ -55,6 +55,19 @@ public final class CampusScene: WorldScene {
     var windowLights: [(node: SKShapeNode, phase: Double, period: Double, peak: CGFloat, factory: String?)] = []
     private var antennaLamps: [(dot: SKShapeNode, glow: SKSpriteNode, phase: Double)] = []
     private var chimneys: [SKEmitterNode] = []
+    /// the poofs of floors that just left (D82): its children carry their own z, over the towers
+    private let poofLayer = SKNode()
+    /// the campus's own people (D84), each with its loop of poses and a phase of its own
+    private var locals: [(node: SKSpriteNode, shadow: SKNode?, npc: CampusArt.Npc, figure: Figure, loop: [IdleMotion.Step], phase: Double)] = []
+    /// what moves by itself (D84): ducks, birds, squirrels, the balloon and the clouds, from where the art put them
+    private var ambient: [(node: SKNode, kind: String, base: CGPoint, phase: Double)] = []
+    /// what moves in a poof, run by the campus's own clock (its steps are at most 0.1 s, so the repaint's long frame
+    /// cannot skip half of it)
+    private struct Poof {
+        enum Kind { case drop, cube, appear }
+        var node: SKNode, kind: Kind, from: CGPoint, by: CGVector, delay: Double, duration: Double, age = 0.0
+    }
+    private var poofs: [Poof] = []
     private var fountainGlow: SKSpriteNode?
     /// the signs, each sorted with what it hangs on: owner is the building key for its roof sign and plaques
     var signs: [(node: SKSpriteNode, owner: String?, plaque: Bool, storey: Int?)] = []
@@ -94,14 +107,18 @@ public final class CampusScene: WorldScene {
 
     // MARK: building the scene
 
-    func apply(_ art: CampusArt, world: World, figures: [CastKey: Figure]) {
+    func apply(_ art: CampusArt, world: World, figures: [CastKey: Figure], npcFigures: [Figure?] = []) {
         let first = self.art == nil
+        // a floor whose project left goes with a poof, not in one frame (D82): what it looked like, before it is gone
+        let gone = leaving(for: world)
         self.art = art
         shownWorld = world
         content.removeAllChildren(); buildings = [:]; overlays = [:]; highlight = nil; focusMark = nil
         hoverLayer = nil; hoverTarget = nil; hoverRing = nil; screenLines = []; leds = []; beacon = nil; waitBands = []; signs = []; waitingPlaques = []
         windowLights = []; antennaLamps = []; chimneys = []; stacks = [:]; life.reset()
         effects.removeFromParent(); effects.zPosition = 2990; content.addChild(effects)
+        // a floor's poof keeps going through the next repaint, which often follows right after (D82)
+        poofLayer.removeFromParent(); content.addChild(poofLayer)
         life.ground.removeFromParent(); life.ground.zPosition = -480; content.addChild(life.ground)
         if skyNode == nil {
             let s = SKSpriteNode(texture: Self.skyTexture); s.zPosition = -1000; cam.addChild(s); skyNode = s
@@ -151,11 +168,209 @@ public final class CampusScene: WorldScene {
         signHome = signs.map { $0.node.position }
         updateLife(world)
         placeWalkers(figures, fresh: first)
+        placeLocals(art, npcFigures)
+        collectAmbient()
         // the island fills the view and runs out of it (A4): its top with the towers, a little cropped at the sides
         setHome(art.island.insetBy(dx: art.island.width * 0.07, dy: 0), fill: 0.96)
         if first { cam.setScale(homeScale); cam.position = homeCenter }
         applyFocus(animated: false)
         tick(0)
+        poof(gone)
+    }
+
+    // MARK: life that is always there (D84)
+
+    /// The campus's own people: real figures with a loop of poses, where the art seats or stands them.
+    private func placeLocals(_ art: CampusArt, _ figs: [Figure?]) {
+        locals = []
+        for (k, n) in art.npcs.enumerated() {
+            guard k < figs.count, let f = figs[k] else { continue }
+            let node = SKSpriteNode(); node.anchorPoint = CGPoint(x: 0, y: 1); node.name = "local:\(k)"
+            content.addChild(node)
+            var rng = SeededRandom("local:\(n.seed):\(n.pose)")
+            locals.append((node, nil, n, f, Self.loop(n), Double(rng.range(0, 12))))
+        }
+        placeLocals(at: clock)
+    }
+
+    /// What each of them does, on repeat: a sitter rests and dozes off, a waver waves now and then, a coffee is sipped.
+    static func loop(_ n: CampusArt.Npc) -> [IdleMotion.Step] {
+        switch n.pose {
+        case "sit": return [("sit", "calm", 5), ("sit", "tired", 2.5), ("snooze", "tired", 4.5), ("sit", "calm", 3)]
+        case "mug": return [("mug", "tired", 2.6), ("idle", "calm", 1.8), ("mug", "tired", 1.6), ("idle", "happy", 2.2)]
+        case "wave": return [("wave", "happy", 0.6), ("idle", "happy", 0.5), ("wave", "happy", 0.6), ("idle", "calm", 3.2)]
+        case "read": return [("read", "calm", 3.4), ("idle", "calm", 1.0), ("read", "calm", 2.6), ("mug", "tired", 1.4)]
+        case "point": return [("point", "calm", 1.4), ("idle", "calm", 1.4), ("wave", "happy", 0.6), ("idle", "calm", 2.0)]
+        default: return [(n.pose, n.mood, 3), ("idle", "calm", 2)]
+        }
+    }
+
+    private func placeLocals(at t: Double) {
+        guard let art else { return }
+        let dir = ["SW": "down", "SE": "right", "NE": "up", "NW": "left"]
+        for l in locals {
+            let (pose, mood) = animationsEnabled ? IdleMotion.frame(l.loop, t: t + l.phase) : (l.npc.pose, l.npc.mood)
+            guard let f = l.figure.frame(pose, mood: mood, dir: dir[l.npc.view] ?? "down") else { continue }
+            let foot = project(l.npc.i, l.npc.j, l.npc.z)
+            l.node.color = Self.moonShade; l.node.colorBlendFactor = artNight ? 0.55 : 0
+            l.node.texture = f.texture
+            l.node.size = CGSize(width: f.rect.width * px, height: f.rect.height * px)
+            l.node.position = scenePoint(CGPoint(x: foot.x + f.rect.minX, y: foot.y + f.rect.minY))
+            l.node.zPosition = depthKey(l.npc.i, l.npc.j, boxes: art.boxes) * 10 + 0.5 + (l.npc.i + l.npc.j) * 0.001
+        }
+    }
+
+    /// The art's animals, the balloon and the clouds, found by their names, each from where it was drawn.
+    private func collectAmbient() {
+        ambient = []
+        for n in content.children {
+            guard let name = n.name else { continue }
+            let kind = ["duck:", "bird:", "flyer:", "squirrel:", "cloud:"].first { name.hasPrefix($0) }.map { String($0.dropLast()) } ?? (name == "balloon" ? "balloon" : nil)
+            guard let kind else { continue }
+            var rng = SeededRandom(name)
+            ambient.append((n, kind, n.position, Double(rng.range(0, 40))))
+        }
+    }
+
+    /// One clock for all of them: ducks paddle small loops and bob, perched birds hop now and then, birds in the sky
+    /// glide round and beat their wings, squirrels dart, the balloon rises and sinks, clouds drift. In scene points.
+    private func moveAmbient(_ t: Double) {
+        let u = px
+        for a in ambient {
+            let x = t + a.phase
+            switch a.kind {
+            case "duck":
+                a.node.position = CGPoint(x: a.base.x + CGFloat(cos(x * 0.35)) * 5 * u, y: a.base.y + CGFloat(sin(x * 0.35)) * 2.5 * u + CGFloat(sin(x * 2.1)) * 0.4 * u)
+            case "bird", "squirrel":
+                // a hop every few seconds: up and back down in a quarter second
+                let period = a.kind == "bird" ? 4.5 : 6.0, k = x.truncatingRemainder(dividingBy: period)
+                let hop = k < 0.28 ? CGFloat(sin(k / 0.28 * .pi)) * (a.kind == "bird" ? 3 : 2) * u : 0
+                a.node.position = CGPoint(x: a.base.x, y: a.base.y + hop)
+            case "flyer":
+                a.node.position = CGPoint(x: a.base.x + CGFloat(cos(x * 0.18)) * 26 * u, y: a.base.y + CGFloat(sin(x * 0.18)) * 9 * u + CGFloat(sin(x * 0.9)) * 2 * u)
+                a.node.yScale = 1 - 0.35 * CGFloat(abs(sin(x * 5)))
+            case "balloon":
+                a.node.position = CGPoint(x: a.base.x + CGFloat(sin(x * 0.07)) * 14 * u, y: a.base.y + CGFloat(sin(x * 0.31)) * 6 * u)
+            case "cloud":
+                a.node.position = CGPoint(x: a.base.x + CGFloat(sin(x * 0.025)) * 30 * u, y: a.base.y)
+            default: break
+            }
+        }
+    }
+
+    // MARK: a floor that leaves (D82)
+
+    /// The storeys a repaint is about to take away (their project left the tower: no chat in the last 8 hours, or you
+    /// hid it), each with a copy of its tower as it still stands.
+    private func leaving(for world: World) -> [(storey: CampusArt.Storey, tower: SKSpriteNode?, height: CGFloat)] {
+        guard art != nil, animationsEnabled else { return [] }
+        let ids = Set(world.projects.map(\.id))
+        var copies: [String: SKSpriteNode] = [:]
+        // a storey's height in art units: the step to its neighbour in the same tower
+        func height(_ st: CampusArt.Storey) -> CGFloat {
+            let y = { (s: CampusArt.Storey) in s.faces.first?.first?.y ?? 0 }
+            let n = storeys.map(\.storey).first { $0.building == st.building && ($0.index == st.index + 1 || $0.index == st.index - 1) }
+            return n.map { abs(y($0) - y(st)) } ?? 0
+        }
+        return storeys.filter { !ids.contains($0.project) }.map { st, _ in
+            let key = st.building
+            if copies[key] == nil, let b = buildings[key] {
+                let c = SKSpriteNode(texture: b.texture, size: b.size)
+                c.anchorPoint = b.anchorPoint; c.position = b.position; c.zPosition = b.zPosition + 0.05
+                c.color = b.color; c.colorBlendFactor = b.colorBlendFactor
+                copies[key] = c
+            }
+            return (st, copies[key], height(st))
+        }
+    }
+
+    /// The old tower fades into the new, shorter one while the storey that left bursts into a cloud of little blocks
+    /// that drift up and out, like the campus's own smoke: about a second, then nothing is left of it.
+    private func poof(_ gone: [(storey: CampusArt.Storey, tower: SKSpriteNode?, height: CGFloat)]) {
+        guard !gone.isEmpty else { return }
+        // the storeys above the gap drop into it: the old tower above the lowest storey that left, cut along that storey's
+        // top edge, slides down by what left and lands exactly on the new, shorter tower (its plaques come back after)
+        for (key, list) in Dictionary(grouping: gone.filter { $0.tower != nil }, by: { $0.storey.building }) {
+            guard let t = list.first?.tower, let low = list.min(by: { $0.storey.index < $1.storey.index }), low.storey.faces.count > 1 else { continue }
+            let f0 = low.storey.faces[0], f1 = low.storey.faces[1]
+            let hex = [f0[0], f0[1], f1[1], f1[2], f0[2], f0[3]].map(scenePoint).sorted { $0.x < $1.x }
+            let left = hex[0].y > hex[1].y ? hex[0] : hex[1], mid = hex[2].y > hex[3].y ? hex[2] : hex[3]
+            let right = hex[4].y > hex[5].y ? hex[4] : hex[5]
+            let box = t.frame.insetBy(dx: -40 * px, dy: -40 * px)
+            let path = CGMutablePath()
+            path.addLines(between: [CGPoint(x: box.minX, y: left.y), left, mid, right, CGPoint(x: box.maxX, y: right.y),
+                                    CGPoint(x: box.maxX, y: box.maxY), CGPoint(x: box.minX, y: box.maxY)])
+            path.closeSubpath()
+            let mask = SKShapeNode(path: path); mask.fillColor = .white; mask.strokeColor = .clear
+            let upper = SKCropNode(); upper.maskNode = mask
+            upper.zPosition = (buildings[key]?.zPosition ?? t.zPosition) + 0.3
+            t.zPosition = 0
+            upper.addChild(t)
+            poofLayer.addChild(upper)
+            let drop = list.map(\.height).reduce(0, +) * px
+            poofs.append(Poof(node: upper, kind: .drop, from: .zero, by: CGVector(dx: 0, dy: -drop), delay: 0.18, duration: 0.42))
+            for sg in signs where sg.owner == key {
+                sg.node.alpha = 0
+                poofs.append(Poof(node: sg.node, kind: .appear, from: sg.node.position, by: .zero, delay: 0.62, duration: 0.2))
+            }
+        }
+        for (st, _, _) in gone {
+            let pts = st.faces.flatMap { $0 }
+            guard !pts.isEmpty else { continue }
+            let minX = pts.map(\.x).min()!, maxX = pts.map(\.x).max()!, minY = pts.map(\.y).min()!, maxY = pts.map(\.y).max()!
+            let z = (buildings[st.building]?.zPosition ?? 3590) + 0.6
+            let shade = SKColor(white: artNight ? 0.82 : 0.97, alpha: 1)
+            for k in 0..<24 {
+                let a = CGPoint(x: .random(in: minX...maxX), y: .random(in: minY...maxY))
+                let size = CGFloat.random(in: 5...10) * px
+                let cube = Self.voxel(size: size, shade: shade)
+                cube.position = scenePoint(a); cube.zPosition = z + CGFloat(k) * 0.001
+                poofLayer.addChild(cube)
+                let out = (a.x - (minX + maxX) / 2) / max(maxX - minX, 1)
+                let by = CGVector(dx: (out * 70 + .random(in: -16...16)) * px, dy: CGFloat.random(in: 6...26) * px)
+                poofs.append(Poof(node: cube, kind: .cube, from: cube.position, by: by, delay: Double(k % 6) * 0.025, duration: 1.0))
+            }
+        }
+        onEffect?("poof", "A floor left the tower", "Its project had no chat in the last 8 hours (or you hid it). It comes back with its next chat.")
+    }
+
+    private func advancePoofs(_ dt: Double) {
+        for k in poofs.indices.reversed() {
+            poofs[k].age += dt
+            let f = poofs[k], p = min(1, max(0, (f.age - f.delay) / f.duration))
+            switch f.kind {
+            case .drop:
+                // falls in, faster as it goes, and lands exactly
+                f.node.position = CGPoint(x: f.by.dx * p * p, y: f.by.dy * p * p)
+                if p >= 1 { f.node.removeFromParent() }
+            case .cube:
+                let e = 1 - (1 - p) * (1 - p)
+                f.node.position = CGPoint(x: f.from.x + f.by.dx * e, y: f.from.y + f.by.dy * e)
+                f.node.setScale(1 - 0.75 * p * p)
+                f.node.alpha = 0.92 * (p < 0.35 ? 1 : 1 - (p - 0.35) / 0.65)
+                if p >= 1 { f.node.removeFromParent() }
+            case .appear:
+                f.node.alpha = p
+            }
+            if p >= 1 { poofs.remove(at: k) }
+        }
+    }
+
+    /// A little block seen from the campus's angle: a light top and two shaded sides, like everything else here.
+    static func voxel(size s: CGFloat, shade: SKColor) -> SKNode {
+        let n = SKNode()
+        func face(_ pts: [CGPoint], _ k: CGFloat) -> SKShapeNode {
+            let path = CGMutablePath(); path.addLines(between: pts); path.closeSubpath()
+            let f = SKShapeNode(path: path)
+            f.fillColor = shade.blended(withFraction: k, of: .gray) ?? shade; f.strokeColor = .clear
+            return f
+        }
+        let h = s / 2
+        n.addChild(face([CGPoint(x: 0, y: h), CGPoint(x: s, y: 0), CGPoint(x: 0, y: -h), CGPoint(x: -s, y: 0)].map { CGPoint(x: $0.x, y: $0.y + s) }, 0.05))
+        n.addChild(face([CGPoint(x: -s, y: s), CGPoint(x: 0, y: h), CGPoint(x: 0, y: -h), CGPoint(x: -s, y: 0)], 0.3))
+        n.addChild(face([CGPoint(x: 0, y: h), CGPoint(x: s, y: s), CGPoint(x: s, y: 0), CGPoint(x: 0, y: -h)], 0.5))
+        n.alpha = 0.92
+        return n
     }
 
     /// The night sky (A8): near black at the top to a deep indigo, behind everything and fixed to the camera.
@@ -285,6 +500,11 @@ public final class CampusScene: WorldScene {
         }
         for t in art.towers {
             guard let ov = layer(t.building, storey: nil) else { continue }
+            // an empty tower (D84): its antenna lamp is out too, and the field guide says why
+            if t.empty {
+                onEffect?("empty", "An empty tower", "No chat with \(Provider(rawValue: t.building)?.displayName ?? t.building) in the last 8 hours: its tower stands empty until the next one.")
+                continue
+            }
             let dot = SKShapeNode(circleOfRadius: 1.3 * px); dot.fillColor = Self.down; dot.strokeColor = .clear
             dot.position = scenePoint(t.antenna); dot.zPosition = 0.6
             let g = glow(t.antenna, size: CGSize(width: 14, height: 14), color: Self.down); g.zPosition = 0.61
@@ -529,13 +749,15 @@ public final class CampusScene: WorldScene {
     }
 
     public override func update(_ currentTime: TimeInterval) {
-        let dt = lastTime == 0 ? 0 : min(0.1, currentTime - lastTime); lastTime = currentTime
+        let dt = lastTime == 0 ? 0 : min(0.1, (currentTime - lastTime) * WorldScene.timeScale); lastTime = currentTime
         tick(dt)
     }
 
     func tick(_ dt: Double) {
+        if !poofs.isEmpty { advancePoofs(dt) }
         if animationsEnabled {
             clock += dt
+            moveAmbient(clock); placeLocals(at: clock)
             // in a fixed order: who moves first decides who waits, so the walk is the same on every machine and run
             for w in walkers.values.sorted(by: { $0.key < $1.key }) {
                 if w.idle > 0 {

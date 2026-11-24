@@ -121,7 +121,10 @@ public final class HeartbeatRunner: @unchecked Sendable {
         one that fixes the problem and check the result. A fix the tool refuses, or anything beyond its actions, becomes a \
         yes/no question in decisions/ (the factory decision format): what is wrong, the evidence, and the exact action on yes.
         Mark each alert you looked at status: handled, with what you found and did under ## Agent.
-        End the run with journal/YYYY-MM-DD.md (a second run that day -2): ## Briefing (at most 5 items), ## Needs you, ## Done.
+        Never ask the user in the journal's prose alone: what you need from them is an open decision, a yes/no question or, \
+        for something only they can do, a to-do (kind: todo, with ## How); README.md has the format.
+        End the run with journal/YYYY-MM-DD.md (a second run that day -2): ## Briefing (at most 5 items), ## Needs you \
+        (only your open decisions, by id), ## Done.
         \(reason.prompt)
         """
     }
