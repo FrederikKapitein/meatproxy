@@ -128,7 +128,9 @@ public final class HeartbeatRunner: @unchecked Sendable {
         is work a factory needs on shared infrastructure, sent by the user: do what the ops tool and the servers allow, and \
         put the rest to the user as a question or a to-do with exact steps.
         Never ask the user in the journal's prose alone: what you need from them is an open decision, a yes/no question or, \
-        for something only they can do, a to-do (kind: todo, with ## How); README.md has the format.
+        for something only they can do, a to-do (kind: todo, with ## How); README.md has the format. A to-do is for the \
+        user: never name an agent or tool to do it (who does code work is theirs to choose), and an open one of yours that \
+        still does, rewrite it.
         End the run with journal/YYYY-MM-DD.md (a second run that day -2): ## Briefing (at most 5 items), ## Needs you \
         (only your open decisions, by id), ## Done.
         \(reason.prompt)
