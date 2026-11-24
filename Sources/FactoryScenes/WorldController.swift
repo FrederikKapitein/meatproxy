@@ -455,6 +455,7 @@ public final class WorldController {
         switch item {
         case .session(_, let s): select(session: s.id)
         case .decision(let p, let d): select(decision: d.id, in: p.id)
+        case .release(let p, _): enterFloor(p.id)
         }
     }
 

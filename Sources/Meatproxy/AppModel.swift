@@ -990,6 +990,10 @@ final class AppModel: ObservableObject {
     /// What happens on your answer, from the question's own On yes / On no, and when.
     func consequence(of d: FactoryDecision, yes: Bool, in p: Project) -> String {
         let who = p.id == World.opsID ? "The DevOps agent" : "The CEO"
+        if d.isTodo {
+            return yes ? "\(who) checks it \(pickUp(p)), and asks again if it is still missing."
+                       : "\(who) leaves it until something changes."
+        }
         let plan = (yes ? d.onYes : d.onNo).components(separatedBy: .newlines).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-*• ").union(.whitespaces)) }
             .first { !$0.isEmpty }
         let what = plan.map { ": " + $0.prefix(1).lowercased() + $0.dropFirst() } ?? (yes ? " goes ahead" : " drops it, or asks again with another way")
@@ -1083,6 +1087,21 @@ final class AppModel: ObservableObject {
         }
         refresh()
         return result
+    }
+
+    /// Your release of finished work (D81): writes it into the factory's decisions off the main thread, wakes the CEO
+    /// like an answer does, then reads the world again. Returns why it failed, or nil.
+    func release(_ workstreams: [Workstream], in project: Project) async -> String? {
+        guard let root = project.factory?.root else { return "This floor is no factory." }
+        let result: Result<String, Error> = await Task.detached(priority: .userInitiated) {
+            Result { try ReleaseRequest.send(root: root, workstreams: workstreams) }
+        }.value
+        if case .success(let id) = result, projectSettings.entry(project.root)?.heartbeat.wakeOnAnswer ?? false {
+            heartbeats.wake(project.root, .answered([id]))
+        }
+        refresh()
+        if case .failure(let e) = result { return e.localizedDescription }
+        return nil
     }
 
     /// The demo factory's logo: a pebble, written once to a temporary file.

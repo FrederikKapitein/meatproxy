@@ -143,8 +143,12 @@ public enum FactoryScaffold {
            - \(test);
            - commit with a clear message.
         4. When a workstream is done and tested, ask with a `ship` decision. Do not push.
-        5. Anything you were denied, or could not verify, goes in the briefing.
-        6. End with the briefing (`## Briefing`, `## Needs you`, `## Delivered`).
+        5. Anything you were denied, or could not verify, goes in the briefing. Anything you need the user to do
+           (sign in, allow a permission, change a setting) is a to-do: a decision with `kind: todo` and `## How`.
+           Never ask the user in the briefing's prose alone.
+        6. A decision with `from: you` is the user's own release: act on it first, even where the mandate keeps
+           shipping off.
+        7. End with the briefing (`## Briefing`, `## Needs you` with only the open decisions, `## Delivered`).
 
         """
     }

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds Meatproxy.app (D54): the executable, its resources in Contents/Resources, the brand icon as AppIcon.icns, an
 # Info.plist with the bundle id dev.tuinstra.meatproxy, and an ad-hoc signature (for this Mac; not notarised).
-# Usage: scripts/make-app.sh [release|debug]   → build/Meatproxy.app
+# Usage: scripts/make-app.sh [release|debug]   → build/Meatproxy.app, then installed in /Applications
 set -euo pipefail
 cd "$(dirname "$0")/.."
 config="${1:-release}"
@@ -45,3 +45,18 @@ cat > "$app/Contents/Info.plist" <<PLIST
 PLIST
 codesign --force --deep --sign - "$app" >/dev/null
 echo "$app ($version)"
+
+# install it in /Applications, so Spotlight, Launchpad and the Dock find it; MEATPROXY_INSTALL=0 only builds.
+# A running copy from /Applications is quit first and opened again afterwards.
+if [[ "${MEATPROXY_INSTALL:-1}" != 0 ]]; then
+  running=false
+  if pgrep -f "^/Applications/Meatproxy.app/Contents/MacOS/Meatproxy" >/dev/null; then
+    running=true
+    pkill -f "^/Applications/Meatproxy.app/Contents/MacOS/Meatproxy" || true
+    for _ in $(seq 50); do pgrep -f "^/Applications/Meatproxy.app/Contents/MacOS/Meatproxy" >/dev/null || break; sleep 0.1; done
+  fi
+  rm -rf "/Applications/Meatproxy.app"
+  ditto "$app" "/Applications/Meatproxy.app"
+  echo "installed in /Applications/Meatproxy.app"
+  if $running; then open "/Applications/Meatproxy.app"; fi
+fi

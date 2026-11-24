@@ -91,6 +91,15 @@ public final class HeartbeatRunner: @unchecked Sendable {
         The user answers your yes/no questions in Meatproxy, which writes their answer into the decision file (status, \
         answered, and their note under ## Answer); read the answers there. Only the permissions in this project's \
         allowlist are available: when something you need is denied, say so in the briefing instead of working round it.
+        Never ask the user for anything in the briefing's prose alone (contract v5): everything you need from them is an \
+        open decision in factory/decisions/, so Meatproxy shows it under Needs you with a button. A choice is a yes/no \
+        question as before. Something only they can do (sign in, allow a permission, change a setting, a manual step) is a \
+        to-do: kind: todo, an imperative title, ## Why and ## How (the exact steps). Meatproxy shows Done and Not now: Done \
+        (status yes) means check it on your next run and file a new to-do if it is still missing; Not now (status no) means \
+        leave it until something changes. A decision with from: you was started by the user in Meatproxy and is already \
+        answered yes (a release of finished work in ship): it is their own instruction and holds even where the mandate \
+        keeps that item off; act on it first. In the briefing, ## Needs you lists only the open decisions, by id. When \
+        factory/contract.yml declares a version below 5, raise it to 5.
         End the run with the briefing written. If questions are open, list them in your final message, numbered, each \
         answerable with yes or no.
         \(reason.prompt)

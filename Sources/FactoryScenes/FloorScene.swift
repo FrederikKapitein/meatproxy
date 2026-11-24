@@ -101,7 +101,12 @@ public final class FloorScene: WorldScene {
         // factory's open questions
         let ceo = Self.factoryCEO(project)
         for s in sessions {
-            if s.id == ceo, debugRooms[s.id] == nil { spots[s.id] = (art.spots["ceo"]?.first ?? Self.ceoSpot, .planning); continue }
+            if s.id == ceo, debugRooms[s.id] == nil {
+                // between runs it stays at the board, but with a mug instead of pointing at it (D81): nothing runs
+                var spot = art.spots["ceo"]?.first ?? Self.ceoSpot
+                if Self.resting(s, in: project, now: now) { spot.pose = "mug" }
+                spots[s.id] = (spot, .planning); continue
+            }
             let room = debugRooms[s.id].flatMap(FloorRoom.init(rawValue:)) ?? s.room(now: now)
             spots[s.id] = (takeSpot(room.rawValue, &used), room)
         }
@@ -499,6 +504,11 @@ public final class FloorScene: WorldScene {
         return st
     }
 
+    /// A factory's CEO between runs (D81): its run is done (or it is the stand-in) and nothing waits for you from it.
+    static func resting(_ s: Session, in p: Project, now: Date) -> Bool {
+        shownState(s, in: p, now: now) == .done
+    }
+
     /// The second line of a plate: what waits for you comes first, and a CEO says it is the CEO.
     static func plateLine(_ s: Session, in p: Project, state st: SessionState, back: Bool, seated: Bool, now: Date) -> String {
         let ceo = s.id == factoryCEO(p) || s.heartbeatRun == true || s.id.hasPrefix(Project.standingCEOPrefix)
@@ -506,7 +516,7 @@ public final class FloorScene: WorldScene {
         if questions > 0 { return "CEO · \(questions) question\(questions == 1 ? "" : "s")" }
         if st == .waiting { return ceo ? "CEO · waits for you" : "Waits for you" }
         if st == .stuck { return ceo ? "CEO · stuck" : "Stuck" }
-        if ceo { return "CEO" }
+        if ceo { return st == .done ? "CEO · resting" : "CEO" }
         if back { return "Sent back" }
         if st == .done { return seated ? "Parked" : "Done" }
         return p.role(of: s).label

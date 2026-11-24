@@ -9,13 +9,15 @@ import Foundation
 public enum FactoryContract {
     public static let name = "meatproxy-factory"
     /// the newest version this Meatproxy knows
-    public static let current = 4
+    public static let current = 5
     /// the first version with ideas (factory/ideas/)
     public static let ideas = 2
     /// the first version with your mandate (factory/mandate.yml), written by Meatproxy
     public static let mandate = 3
     /// the first version with wake-up sources in contract.yml (Sentry, Tracker), D61
     public static let sources = 4
+    /// the first version with to-dos (`kind: todo`) and decisions you start yourself (`from: you`), D81
+    public static let todos = 5
 }
 
 /// Where a factory's bugs and stories come from (contract v4, D61): its Sentry project and its Tracker project. Meatproxy
@@ -67,6 +69,18 @@ public struct Factory: Sendable, Hashable {
     /// The questions that wait for you, oldest first.
     public var openDecisions: [FactoryDecision] {
         decisions.filter { $0.status == .open }.sorted { ($0.asked ?? .distantPast, $0.id) < ($1.asked ?? .distantPast, $1.id) }
+    }
+    /// Finished work that waits for a release nobody asked for (D81): in `ship`, with no open ship question and no yes
+    /// on one still to be acted on. A "no", or shipping that is off in the mandate, leaves work here: you release it.
+    /// Only the latest ship question about a workstream counts: a "no" on the release after a yes on its merge leaves it.
+    public var readyToRelease: [Workstream] {
+        let ships = decisions.filter { $0.kind.lowercased() == "ship" }
+        return workstreams.filter { w in
+            guard w.phase == .ship else { return false }
+            let latest = ships.filter { $0.workstreams.contains(w.id) }
+                .max { ($0.answered ?? $0.asked ?? .distantPast, $0.id) < ($1.answered ?? $1.asked ?? .distantPast, $1.id) }
+            return !(latest?.status == .open || latest?.status == .yes)
+        }
     }
     /// The workstreams on the floor: dropped ones are gone for good.
     public var activeWorkstreams: [Workstream] { workstreams.filter { $0.phase != .dropped } }
@@ -134,6 +148,11 @@ public struct Workstream: Identifiable, Sendable, Hashable {
     }
 
     public var backSteps: [WorkLogEntry] { log.filter(\.isBack) }
+    /// The last day it moved: its latest log line, else `updated`.
+    public var lastMoved: Date? {
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
+        return (log.compactMap { f.date(from: $0.date) } + [updated.flatMap { f.date(from: String($0.prefix(10))) }].compactMap { $0 }).max()
+    }
     /// It went back and has not moved on since: the latest phase change in the log is a step back (D39's ↩ note).
     public var wentBack: Bool { log.last { $0.phase != nil }?.isBack ?? false }
     /// The furthest phase the log says it reached, for the PLAN … DONE track.
@@ -184,16 +203,30 @@ public struct FactoryDecision: Identifiable, Sendable, Hashable {
     public var onYes: String
     public var onNo: String
     public var answer: String
+    /// a to-do's steps (`## How`, v5): what to do, where
+    public var how: String
+    /// who started it: nil for the CEO, "you" for one you started in Meatproxy (v5)
+    public var from: String?
+    /// every workstream it is about (`workstreams: [W-002, W-003]`, v5); at least `workstream` when that is set
+    public var workstreams: [String]
     /// the file's path relative to the project folder, "factory/decisions/D-0001-….md"
     public var file: String
 
     public init(id: String, title: String, kind: String = "other", gate: String? = nil, status: DecisionStatus = .open,
                 workstream: String? = nil, replaces: String? = nil, asked: Date? = nil, answered: Date? = nil, why: String = "",
-                evidence: String = "", onYes: String = "", onNo: String = "", answer: String = "", file: String = "") {
+                evidence: String = "", onYes: String = "", onNo: String = "", answer: String = "", how: String = "", from: String? = nil,
+                workstreams: [String] = [], file: String = "") {
         self.id = id; self.title = title; self.kind = kind; self.gate = gate; self.status = status; self.workstream = workstream
         self.replaces = replaces; self.asked = asked; self.answered = answered; self.why = why; self.evidence = evidence
-        self.onYes = onYes; self.onNo = onNo; self.answer = answer; self.file = file
+        self.onYes = onYes; self.onNo = onNo; self.answer = answer; self.how = how; self.from = from
+        self.workstreams = workstreams.isEmpty ? workstream.map { [$0] } ?? [] : workstreams
+        self.file = file
     }
+
+    /// Something only you can do (v5): a sign-in, a permission, a setting. Done and Not now instead of yes and no.
+    public var isTodo: Bool { kind.lowercased() == "todo" }
+    /// You started it in Meatproxy (v5): your own instruction, already answered.
+    public var fromYou: Bool { from?.lowercased() == "you" }
 
     /// The links under Evidence, in order.
     public var links: [FactoryLink] { FactoryText.links(evidence) }
@@ -365,12 +398,22 @@ public enum FactoryText {
     }
 
     /// The lines of a section as short items: list markers and blank lines dropped.
+    /// The items of a list: one per bullet (or line), with an indented line that is no bullet of its own joined to the
+    /// item above it, so an item wrapped over two lines stays one.
     static func items(_ section: String?) -> [String] {
-        (section ?? "").components(separatedBy: "\n").map { line -> String in
+        var out: [String] = []
+        for line in (section ?? "").components(separatedBy: "\n") {
             var t = line.trimmingCharacters(in: .whitespaces)
-            if let r = t.range(of: #"^([-*+]|\d+[.)])\s+"#, options: .regularExpression) { t.removeSubrange(r) }
-            return t
-        }.filter { !$0.isEmpty }
+            guard !t.isEmpty else { continue }
+            let bullet = t.range(of: #"^([-*+]|\d+[.)])\s+"#, options: .regularExpression)
+            if bullet == nil, line.first == " " || line.first == "\t", !out.isEmpty {
+                out[out.count - 1] += " " + t
+                continue
+            }
+            if let r = bullet { t.removeSubrange(r) }
+            out.append(t)
+        }
+        return out
     }
 
     /// Markdown links `[title](url)` and bare http(s) URLs, in order, without duplicates.
@@ -410,7 +453,8 @@ public enum FactoryText {
         return FactoryDecision(id: id, title: title, kind: optional(fm["kind"]) ?? "other", gate: optional(fm["gate"]), status: status,
                                workstream: optional(fm["workstream"]), replaces: optional(fm["replaces"]), asked: date(fm["asked"]),
                                answered: date(fm["answered"]), why: s["why"] ?? "", evidence: s["evidence"] ?? "",
-                               onYes: s["on yes"] ?? "", onNo: s["on no"] ?? "", answer: s["answer"] ?? "", file: file)
+                               onYes: s["on yes"] ?? "", onNo: s["on no"] ?? "", answer: s["answer"] ?? "", how: s["how"] ?? "",
+                               from: optional(fm["from"]), workstreams: list(fm["workstreams"]), file: file)
     }
 
     public static func idea(_ text: String, file: String) -> FactoryIdea? {

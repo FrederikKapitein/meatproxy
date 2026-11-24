@@ -576,6 +576,7 @@ private struct QuestLog: View {
         switch item {
         case .decision(let p, let d): return s.decisionID == d.id && s.projectID == p.id
         case .session(_, let x): return s.sessionID == x.id
+        case .release(let p, _): return s.projectID == p.id && s.decisionID == nil && s.sessionID == nil && s.workstreamID == nil
         }
     }
 }
@@ -613,15 +614,20 @@ private struct QuestItem: View {
         .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
     }
     private var glyph: String {
-        switch item { case .session: "help"; case .decision(let p, _): p.id == World.opsID ? "server" : "bang" }
+        switch item {
+        case .session: "help"
+        case .decision(let p, let d): p.id == World.opsID ? "server" : d.isTodo ? "check" : "bang"
+        case .release: "ship"
+        }
     }
     private var metaIcon: String {
-        switch item { case .session: "chat"; case .decision(let p, _): p.id == World.opsID ? "server" : "floor" }
+        switch item { case .session: "chat"; case .decision(let p, _): p.id == World.opsID ? "server" : "floor"; case .release: "floor" }
     }
     private var detail: String {
         switch item {
         case .session(_, let s): s.persona.name
-        case .decision(_, let d): d.kind
+        case .decision(_, let d): d.isTodo ? "to-do" : d.kind
+        case .release(_, let ws): ws.count == 1 ? "ready to release" : "\(ws.count) ready to release"
         }
     }
 }

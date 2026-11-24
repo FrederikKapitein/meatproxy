@@ -18,7 +18,7 @@ You need macOS 15 or newer and Xcode 26 (Swift 6). There is no download yet: bui
 ```bash
 git clone https://github.com/marcel-tuinstra/meatproxy.git
 cd meatproxy
-scripts/make-app.sh        # builds build/Meatproxy.app; drag it to Applications
+scripts/make-app.sh        # builds build/Meatproxy.app and installs it in /Applications (MEATPROXY_INSTALL=0: build only)
 open build/Meatproxy.app
 ```
 
@@ -107,6 +107,12 @@ de laatste uren.
 - **Antwoorden:** een open vraag (`status: open`) telt mee in Needs you. De kaart toont Why, Evidence, On yes en On no,
   een notitie en Yes of No; na Send yes of Send no schrijft de app `status`, `answered` en de notitie onder `## Answer`,
   atomair en verder niets. Een vraag die niet meer open is, wordt nooit beantwoord.
+- **To-do's (contract v5, D81):** wat alleen jij kunt doen (inloggen, een permissie toestaan, een instelling) zet de CEO
+  als vraag met `kind: todo` en `## How` neer, met **Done** en **Not now**. Een briefing vraagt je nooit alleen in tekst.
+- **Release now (v5):** werk in `ship` zonder open ship-vraag of ja daarop (na een nee, of als shippen uit staat in je
+  mandaat) staat in Needs you als klaar om te releasen. **Release now** schrijft een eigen besluit (`from: you`, al
+  `yes`); de CEO released het bij zijn volgende run. Elke werkstroom toont zijn laatste logregel, zodat je ziet waarom
+  er niemand aan werkt, en een CEO tussen twee runs staat met een mok bij het bord: *resting*.
 
 ### De heartbeat
 
@@ -177,7 +183,8 @@ Alleen in de bundel komen meldingen als echte systeemmeldingen met het icoon, Op
 ### Op een tweede Mac
 
 1. Installeer Xcode 26 (of alleen de Command Line Tools met Swift 6), clone de repo en draai `scripts/make-app.sh`.
-   Een app die je zelf bouwt, krijgt geen quarantaine-vlag, dus Gatekeeper zeurt niet. Zet hem in `/Applications`.
+   Een app die je zelf bouwt, krijgt geen quarantaine-vlag, dus Gatekeeper zeurt niet. Het script zet hem zelf in
+   `/Applications` en start een draaiende versie daarna opnieuw; met `MEATPROXY_INSTALL=0` bouwt hij alleen.
 2. **Wat hij leest:** alleen lokale bestanden. Dat zijn je sessies in `~/.claude` en `~/.codex`, je git-repo's, en
    `gh` met de login van die Mac. Daarbij komen de publieke statuspagina's van Claude, OpenAI en GitHub.
    Sentry en Tracker leest hij alleen als je daar een token voor invult; dat staat in de Keychain van die Mac.

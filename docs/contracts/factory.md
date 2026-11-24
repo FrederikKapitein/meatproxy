@@ -1,10 +1,10 @@
 # Meatproxy factory contract
 
-**Name:** `meatproxy-factory` · **Current version:** 4 · **Owner:** this repository
+**Name:** `meatproxy-factory` · **Current version:** 5 · **Owner:** this repository
 
 A Dark Software Factory is a project folder with a `factory/` folder in it. Its CEO agent
 keeps the factory's state there in plain files. Meatproxy reads those files, shows them, and
-writes exactly three things into them: your answers, your ideas and your mandate. This document is the
+writes exactly four things into them: your answers, your ideas, your mandate and your releases. This document is the
 contract between the two. Anything that is not in it is not agreed: a CEO playbook, a
 prompt or a factory README may add to it for their own use, but Meatproxy relies only on
 what is written here.
@@ -20,6 +20,7 @@ feature on only when the factory declares a version that has it.
 | 2 | 2026-11-15 | Ideas (`ideas/`), sent from Meatproxy; `contract.yml`. |
 | 3 | 2026-11-16 | Your mandate (`mandate.yml`), written by Meatproxy: what the CEO may do on its own (including whether it comes up with ideas of its own, `propose`), its role, your preferences. |
 | 4 | 2026-11-16 | Wake-up sources in `contract.yml`: the factory's Sentry project and Tracker project. Meatproxy wakes the CEO for a new or returning error and for a story that changed (D61). |
+| 5 | 2026-11-24 | To-dos (`kind: todo`, with `## How`) for what only you can do, and decisions you start yourself (`from: you`): your release of finished work. Everything the CEO needs from you is an open decision; the briefing never asks in prose alone (D81). |
 
 A factory without `contract.yml` is treated as version 1. A factory that declares a newer
 version than this Meatproxy knows is still read with what this version knows, and the app
@@ -48,7 +49,7 @@ factory/
 | File | The CEO | Meatproxy |
 | --- | --- | --- |
 | `contract.yml`, `CHARTER.md`, `CEO.md`, `autonomy.yml`, `briefings/`, `workstreams/` | writes | reads |
-| `decisions/` | creates, withdraws, expires | writes your answer into an `open` decision only: `status`, `answered`, `## Answer` |
+| `decisions/` | creates, withdraws, expires | writes your answer into an `open` decision only: `status`, `answered`, `## Answer`; creates your release (v5): a new file, `from: you`, already `yes`, never overwriting one |
 | `ideas/` (v2) | sets `status`, `decision`, writes `## CEO` | creates a new file; never changes it afterwards |
 | `mandate.yml` (v3) | reads and follows it; never writes it | writes it whenever you change your mandate |
 
@@ -101,16 +102,19 @@ day and the API-price cap. Slugs are letters, digits, `.`, `-` and `_`; a `sentr
 ---
 id: D-0007
 title: Ship offline streak sync (W-002) to production?   # one yes/no question
-kind: ship            # plan | ship | store | promote | stop | other
+kind: ship            # plan | ship | store | promote | stop | other | todo (v5)
 gate: ship            # plan | ship | store | always-ask
 status: open          # open | yes | no | expired | withdrawn
 workstream: W-002     # optional
+workstreams: [W-002]  # optional (v5): every workstream it is about
+from: null            # v5: you, for one you started in Meatproxy
 replaces: null        # the decision this one replaces after a "no"
 asked: 2026-11-16T07:05:00+01:00
 answered: null        # set when status leaves open
 ---
 
 ## Why
+## How                # a to-do's steps (v5)
 ## Evidence
 ## On yes
 ## On no
@@ -119,6 +123,28 @@ answered: null        # set when status leaves open
 
 Required: `id`, `title`, `status`. An `open` decision counts in Needs you. Meatproxy writes
 `status: yes|no`, `answered` (ISO 8601 with offset) and your note under `## Answer`.
+
+### What the CEO needs from you (v5)
+
+Everything the CEO needs from you is an open decision, so Meatproxy shows it with a button.
+A line in the briefing alone is never a way to ask (D81).
+
+- **A choice** is a yes/no question, as above.
+- **Something only you can do** (sign in, allow a permission, change a setting, a manual
+  step) is a to-do: `kind: todo`, an imperative title, `## Why` and `## How` with the exact
+  steps. Meatproxy shows **Done** (`status: yes`) and **Not now** (`status: no`). After Done
+  the CEO checks it on its next run and files a new to-do when it is still missing; after Not
+  now it leaves it until something changes.
+- **Your release.** Work in `ship` with no open `ship` decision and no `yes` on one shows in
+  Meatproxy as ready to release (after a "no", or when the mandate keeps shipping off).
+  **Release now** creates a decision with `kind: ship`, `from: you`, `status: yes`, `answered`
+  and `workstreams: [...]`, with the next free D-number. It is your own instruction: it holds
+  even where the mandate keeps shipping off. The CEO acts on it first and ships the way the
+  factory ships.
+
+The briefing's `## Needs you` lists only the open decisions, by id. Meatproxy's heartbeat
+prompt carries these rules to every factory and asks a CEO on an older version to raise
+`contract.yml` to 5.
 
 ## Workstreams: `workstreams/W-NNN-<slug>.md`
 
