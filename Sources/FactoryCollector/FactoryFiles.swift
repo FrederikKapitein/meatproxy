@@ -136,6 +136,23 @@ public enum DecisionAnswer {
     }
 }
 
+/// A new file that Meatproxy writes into a factory (an idea, your release): created with O_EXCL, so a file with that name
+/// that appeared in the meantime is never replaced. False when the name is taken; throws on any other failure.
+public enum NewFile {
+    public static func create(_ url: URL, text: String) throws -> Bool {
+        let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o644)
+        if fd < 0 {
+            if errno == EEXIST { return false }
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: String(cString: strerror(errno))])
+        }
+        defer { close(fd) }
+        let data = Data(text.utf8)
+        let ok = data.withUnsafeBytes { write(fd, $0.baseAddress, data.count) == data.count }
+        if !ok { throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO), userInfo: [NSLocalizedDescriptionKey: "short write"]) }
+        return true
+    }
+}
+
 /// Sends the CEO an idea: a new file in `factory/ideas/` (the folder is made when it is missing), the next free id, never
 /// overwriting anything. Besides your answers this is the only thing the app writes into a factory (D44).
 public enum IdeaInbox {
@@ -182,15 +199,8 @@ public enum IdeaInbox {
             ## CEO
 
             """
-            // O_EXCL: a file with this name that appeared in the meantime is never overwritten; try the next number
-            if fm.createFile(atPath: url.path, contents: nil, attributes: nil) == false { continue }
-            let fd = open(url.path, O_WRONLY | O_TRUNC)
-            guard fd >= 0 else { continue }
-            let data = Data(file.utf8)
-            let ok = data.withUnsafeBytes { write(fd, $0.baseAddress, data.count) == data.count }
-            close(fd)
-            if ok { return id }
-            throw Failure.notWritten("short write")
+            // a file with this name that appeared in the meantime is never overwritten: try the next number
+            do { if try NewFile.create(url, text: file) { return id } } catch { throw Failure.notWritten(error.localizedDescription) }
         }
         throw Failure.notWritten("no free id")
     }
@@ -256,16 +266,7 @@ public enum ReleaseRequest {
             \(trimmed.isEmpty ? "Release it." : trimmed)
 
             """
-            let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o644)
-            if fd < 0 {
-                if errno == EEXIST { continue }
-                throw Failure.notWritten(String(cString: strerror(errno)))
-            }
-            let data = Data(file.utf8)
-            let ok = data.withUnsafeBytes { write(fd, $0.baseAddress, data.count) == data.count }
-            close(fd)
-            if ok { return id }
-            throw Failure.notWritten("short write")
+            do { if try NewFile.create(url, text: file) { return id } } catch { throw Failure.notWritten(error.localizedDescription) }
         }
         throw Failure.notWritten("no free id")
     }

@@ -173,3 +173,20 @@ struct TodoReleaseTests {
         #expect(prompt.contains("Never ask the user for anything in the briefing's prose alone"))
     }
 }
+
+/// Meatproxy's own new files in a factory (an idea, a release) are created, never replaced: a file with that name that
+/// appeared in the meantime stays as it was.
+struct NewFileTests {
+    @Test func aNewFileNeverReplacesOneThatIsThere() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sf-newfile-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("I-0003-idea.md")
+        try "the CEO's file".write(to: url, atomically: true, encoding: .utf8)
+        #expect(try NewFile.create(url, text: "Meatproxy's file") == false)
+        #expect(try String(contentsOf: url, encoding: .utf8) == "the CEO's file")
+        let fresh = dir.appendingPathComponent("I-0004-idea.md")
+        #expect(try NewFile.create(fresh, text: "Meatproxy's file") == true)
+        #expect(try String(contentsOf: fresh, encoding: .utf8) == "Meatproxy's file")
+    }
+}
