@@ -1,52 +1,69 @@
 <p align="center">
-  <img src="docs/images/campus-life.webp" alt="The Meatproxy campus: two towers, a pond with ducks, a plaza with a fountain, people walking the roads" width="100%">
+  <img src="docs/images/hero.webp" alt="The Meatproxy campus: two towers, a pond with ducks, a plaza, people walking, and the Needs you list on the left" width="100%">
 </p>
 
-<h1 align="center">Meatproxy</h1>
+<h1 align="center">MEATPROXY</h1>
 
 <p align="center"><b>Approved by a human. Reviewed by nobody.</b><br>
-<a href="https://marcel.tuinstra.dev/en/blog/my-agents-got-a-campus/">Watch the 34-second trailer</a> · <a href="SETUP.md">Set it up</a></p>
+<a href="https://marcel.tuinstra.dev/en/blog/my-agents-got-a-campus/">Watch the trailer</a> · <a href="SETUP.md">Set it up</a></p>
 
-Your AI agents moved out of the terminal. Meatproxy is a Mac app that turns the Claude Code and Codex sessions on your
-Mac into a small blocky campus: **one tower per provider, one floor per project, one person per chat.** You see at a
-glance who works, who is stuck and who waits for you, and you answer them without hunting through terminals.
+### Are you tired of Claude jargon?
 
-## Everything that waits for you, in one list
+*"Compacting conversation…" "Bash(git push) requires approval." "Shall I proceed?"* Twelve terminals open, and
+no idea which one has been waiting for you since lunch?
 
-![Needs you: a ship question from a factory's CEO, with why, evidence and Yes or No](docs/images/decision.webp)
+### Do you feel like an in-between person?
 
-Questions from your factories, to-dos only you can do, finished work that waits for your release, and chats that end
-on a question. Answer with **Yes** or **No**, mark a to-do **Done**, or press **Release now**, right where it asks.
+You don't write the code anymore. You don't review it either. You sit between your agents and production, and you
+say yes. You are, technically, a **meat proxy**.
 
-## A floor per project
+## Introducing: MEATPROXY
 
-![A project's floor: people in rooms for research, planning, development and testing, one waiting for you](docs/images/chat.webp)
+The Mac app that turns your Claude Code and Codex sessions into a tiny blocky campus, so you can finally feel like
+what you are: **the human in the loop.** One tower per provider. One floor per project. One little person per chat.
 
-Every chat is a person who walks to the room of what it is doing: reading in Research, typing in Development, a red
-cloud when a test fails, a raised hand when it waits for you. Click someone to read what they asked, then take over in
-the terminal or open the chat in the Claude app.
+## Say yes. Faster than ever.
 
-## Dark Software Factories
+![Answering a factory's ship question: Yes, then Send yes, and the answer is stamped](docs/images/needs-you.webp)
 
-![A factory floor: CEO Pax with two questions and a to-do, the team, and work ready to release](docs/images/floor.webp)
+Every question, every to-do and every release that waits for you, in **one** list. Click **Yes**. Feel important.
+Repeat.
 
-Switch a project on as a **factory** and an AI CEO works on it on a heartbeat, within a mandate you set: how many
-runs a day, what it may do on its own, and which helpers it may call in. It plans the work, hands it to its team and
-asks you only when it needs a yes. Everything it knows lives as plain files in the project.
+## Watch them work. Or not.
 
-## The Server room
+![A project's floor: people walking between rooms, one raising a hand, one stuck under a storm cloud](docs/images/floor.webp)
 
-![The Server room: status pages and racks, one server down and one with a full disk](docs/images/server.webp)
+Every chat is a little person who walks to the room of what it is doing. Typing in Development. Reading in Research.
+A raised hand when it waits for you, a storm cloud when the tests broke. You will always know who to blame.
 
-Your servers and sites, checked over SSH with your own keys, with alerts when something goes down. A DevOps agent can
-look into them through a small ops tool, as far as each server allows, and writes a journal of what it found.
+## Hire a CEO. Never meet him.
 
-<p align="center"><img src="docs/images/night.webp" alt="The same campus at night: only lamps, windows and what waits for you glow" width="80%"><br>
-<sub>By night only real lights glow. All images use made-up data.</sub></p>
+![A factory floor: CEO Pax with his questions, the team at work, and Release now](docs/images/factory.webp)
 
-## Get it
+Turn any project into a **Dark Software Factory**: an AI CEO plans the work, hands it to his team and ships within
+the mandate you set. He only bothers you when he needs a yes. He always needs a yes.
 
-macOS 15 or newer and Xcode 26. There is no download: you build it yourself.
+## But wait, there's more!
+
+![The Server room: racks with blinking lights, one server down, one warning](docs/images/server.webp)
+
+**The Server room.** Your servers and sites, checked over SSH with your own keys. A DevOps agent looks into them,
+does only what each server allows, and writes a journal. It's basically you, but awake.
+
+## Abandoned a project? Poof.
+
+![A floor leaves the Claude tower in a cloud of blocks, and the floors above drop into place](docs/images/poof.webp)
+
+No chat in 8 hours and the floor leaves the tower. Gone. Like your motivation on a Friday afternoon.
+
+## Open all night
+
+![The campus at night: only lamps, windows and what waits for you glow](docs/images/night.webp)
+
+Your agents don't sleep. Neither does the campus. By night only real lights glow, and the yellow ones are waiting for
+you.
+
+## Order now!*
 
 ```bash
 git clone https://github.com/marcel-tuinstra/meatproxy.git
@@ -54,15 +71,18 @@ cd meatproxy
 scripts/make-app.sh
 ```
 
-That builds Meatproxy, puts it in `/Applications` and you are on the campus. **Take the walk** shows you round in a
-minute. Factories, servers and everything else: [SETUP.md](SETUP.md).
+<sub>*Not available in stores. Not available anywhere, really: you build it yourself. Requires macOS 15 and Xcode 26.
+Everything else, from factories to servers: [SETUP.md](SETUP.md).</sub>
 
-**Local only.** Meatproxy reads your session files read-only. There is no server, no account and no analytics.
-Settings › Privacy lists everything it reads and contacts.
+### What people are saying
 
----
+> "I mostly say yes to things I haven't read. Now it looks great." <br>— the maker
 
-A personal hobby project, made by a human with a lot of agents. MIT licensed, see [LICENSE](LICENSE). Working on the
-code: [docs/development.md](docs/development.md).
+> "Still needed. Legally." <br>— Meatproxy's legal department
 
-> Still needed. Legally.
+### The fine print
+
+Local only: Meatproxy reads your session files read-only. No server, no account, no analytics; Settings › Privacy lists
+everything it reads. Every image here uses made-up data. A personal hobby project, made by a human with a lot of
+agents. Not a Tuinstra.DEV product. MIT licensed, see [LICENSE](LICENSE). Working on the code:
+[docs/development.md](docs/development.md).
