@@ -72,13 +72,13 @@ struct FloorCEOTests {
         let (scene, p) = try factoryFloor()
         let ceo = try #require(p.ceoID), plates = scene.plates()
         let q = p.factory?.openDecisions.filter { !$0.isTodo }.count ?? 0, todos = p.factory?.openDecisions.filter(\.isTodo).count ?? 0
-        #expect(q > 0 && todos == 1, "the fixture factory has open questions and a to-do")
+        #expect(q > 0 && todos == 2, "the fixture factory has open questions and two to-dos")
         let mine = try #require(plates[ceo])
         #expect(mine.room == FloorRoom.planning.rawValue)
         #expect(mine.state == .waiting)
         let parts = mine.plate.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         #expect(parts.count >= 3 && parts[0] == p.sessions.first { $0.id == ceo }?.persona.name)
-        #expect(parts[1] == "CEO · \(q) questions, 1 to-do" && parts[2] == "wait")
+        #expect(parts[1] == "CEO · \(q) questions, 2 to-dos" && parts[2] == "wait")
         // nobody else is plated as the CEO, and nobody else waits on this floor
         for (id, v) in plates where id != ceo {
             #expect(!v.plate.contains("|CEO"), "\(id) is plated as a CEO: \(v.plate)")

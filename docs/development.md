@@ -35,7 +35,7 @@ step is one of:
   `decision:<project id>|<D-id>`, `workstream:<project id>|<W-id>`, `zoom:<factor>`.
 - **Mouse and keys:** `hover:x,y`, `click:x,y` and `uiclick:x,y` (the last through the window, so HUD buttons get it).
 - **The campus:** `hour:<h>`, `apart:<tower>`, `mark:<k>`, `life:demo`, `leave:<project id>` (a floor leaves its
-  tower).
+  tower), `devops:<server>` (the DevOps agent at work at that server's rack; `devops:off` ends it).
 - **Waiting:** `wait:<seconds>`.
 
 Two variables change what a shot captures:
@@ -77,8 +77,8 @@ Change the art, rebuild, and the app follows; `Art/engine.html` also works in a 
 
 What Meatproxy and an agent expect from each other is a versioned contract, never a loose agreement:
 
-- [docs/contracts/factory.md](contracts/factory.md): `meatproxy-factory`, version 5.
-- [docs/contracts/engine-room.md](contracts/engine-room.md): `meatproxy-engine-room`, version 1.
+- [docs/contracts/factory.md](contracts/factory.md): `meatproxy-factory`, version 6.
+- [docs/contracts/engine-room.md](contracts/engine-room.md): `meatproxy-engine-room`, version 2.
 
 A change to either is a new version with its own row, before the app or a factory relies on it.
 

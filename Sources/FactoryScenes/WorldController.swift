@@ -41,6 +41,8 @@ public final class WorldController {
     public private(set) var inOrbit = false
     private weak var view: SKView?
     private var figures: [String: Figure] = [:]
+    /// what the campus shows of the DevOps agent (D87): nil when it does not run, else the server it works on ("" for none yet)
+    private var devopsKey: String??
     private var campusSignature = ""
     private var orbitSignature = ""
     private var painting = false
@@ -144,6 +146,22 @@ public final class WorldController {
 
     private func loadFigures(_ keys: [CastKey]) async {
         for k in keys where figures[k.key] == nil { if let f = try? await engine.figure(k) { figures[k.key] = f } }
+    }
+
+    /// The DevOps agent's run on the campus (D87): while it runs, its person stands at the rack of the server it works on.
+    public func showDevOps(running: Bool, server: String?) {
+        let key: String? = running ? (server ?? "") : nil
+        guard devopsKey != .some(key) else { return }
+        devopsKey = .some(key)
+        guard running else { campus.showDevOps(figure: nil, rack: nil, tag: nil); return }
+        Task { @MainActor in
+            let cast = CastKey(role: .devops, seed: "devops-agent")
+            await loadFigures([cast])
+            let rack = server.flatMap { s in world.racks.prefix(6).firstIndex { $0.name == s } } ?? 0
+            let tag = await engine.tag("DevOps", sub: server ?? "Server room", state: "work", role: FloorScene.roleColour(.devops))
+            guard devopsKey == .some(key) else { return }
+            campus.showDevOps(figure: figures[cast.key], rack: rack, tag: tag)
+        }
     }
 
     public func repaintCampus() async {

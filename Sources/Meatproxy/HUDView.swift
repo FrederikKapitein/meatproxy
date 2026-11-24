@@ -168,6 +168,11 @@ struct HUDView: View {
             // of the campus's life at night, "hour:<h>" sets the clock
             else if step.hasPrefix("apart:") { model.controller.campus.holdApart(String(step.dropFirst(6))) }
             else if step.hasPrefix("mark:"), let k = Int(step.dropFirst(5)) { model.controller.campus.mark(k) }
+            // D87 shots: "devops:<server>" puts the DevOps agent to work at that server's rack ("devops:off" ends it)
+            else if step.hasPrefix("devops:") {
+                let s = String(step.dropFirst(7))
+                model.controller.showDevOps(running: s != "off", server: s.isEmpty || s == "off" ? nil : s)
+            }
             // D82 shots: "leave:<project id>" takes a floor off its tower, as when its last chat ages out
             else if step.hasPrefix("leave:") {
                 let id = String(step.dropFirst(6))
@@ -632,7 +637,7 @@ private struct QuestItem: View {
     private var detail: String {
         switch item {
         case .session(_, let s): s.persona.name
-        case .decision(_, let d): d.isTodo ? "to-do" : d.kind
+        case .decision(_, let d): d.isTodo ? (d.forDevOps ? "to-do for DevOps" : "to-do") : d.kind
         case .release(_, let ws): ws.count == 1 ? "ready to release" : "\(ws.count) ready to release"
         }
     }

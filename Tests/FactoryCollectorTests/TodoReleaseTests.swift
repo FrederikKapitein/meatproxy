@@ -197,3 +197,100 @@ struct NewFileTests {
         #expect(try String(contentsOf: fresh, encoding: .utf8) == "Meatproxy's file")
     }
 }
+
+/// A factory's to-do for DevOps (contract v6, D86): Send to DevOps turns it into a request for the Server room's agent,
+/// and the to-do is answered with where it went. Fictional data only.
+struct SendToDevOpsTests {
+    private let fm = FileManager.default
+
+    @Test func aToDoForDevOpsReadsAsOne() throws {
+        let text = """
+        ---
+        id: D-0017
+        title: Get the CI runner to finish its checks
+        kind: todo
+        for: devops
+        status: open
+        ---
+
+        ## Why
+        The release cannot merge: the runner drops out after the checks pass.
+
+        ## How
+        Look at the runner's service and its last cleanup.
+        """
+        let d = try #require(FactoryText.decision(text, file: "factory/decisions/D-0017-runner.md"))
+        #expect(d.isTodo && d.forDevOps)
+        #expect(FactoryContract.current >= FactoryContract.devopsTodos)
+    }
+
+    @Test func sendingWritesARequestAndAnswersTheToDo() throws {
+        let base = fm.temporaryDirectory.appendingPathComponent("sf-devops-\(UUID().uuidString)")
+        let root = base.appendingPathComponent("pebble"), engine = base.appendingPathComponent("engine-room")
+        try fm.createDirectory(at: root.appendingPathComponent("factory/decisions"), withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+        let file = "factory/decisions/D-0017-runner.md"
+        try """
+        ---
+        id: D-0017
+        title: Get the CI runner to finish its checks
+        kind: todo
+        for: devops
+        status: open
+        asked: 2026-11-24T10:00:00+01:00
+        answered: null
+        ---
+
+        ## Why
+        The runner drops out after the checks pass.
+
+        ## How
+        Look at the runner's service.
+
+        ## Answer
+        """.write(to: root.appendingPathComponent(file), atomically: true, encoding: .utf8)
+        let d = try #require(FactoryFinder.read(root: root.path).decisions.first)
+
+        let id = try EngineRoom.request(d, factory: "Pebble Puzzles", root: root.path, at: engine)
+        #expect(id == "A-0001")
+        let alert = try String(contentsOf: try #require(fm.contentsOfDirectory(at: engine.appendingPathComponent("alerts"), includingPropertiesForKeys: nil).first), encoding: .utf8)
+        #expect(alert.contains("kind: request") && alert.contains("subject: Pebble Puzzles"))
+        #expect(alert.contains("The runner drops out") && alert.contains("Look at the runner's service"))
+        #expect(EngineRoom.openAlerts(at: engine).map(\.id) == ["A-0001"])
+
+        let after = try #require(FactoryFinder.read(root: root.path).decisions.first)
+        #expect(after.status == .yes)
+        #expect(after.answer.contains("A-0001"))
+    }
+
+    @Test func theCEOAndTheDevOpsAgentAreToldAboutRequests() {
+        let ceo = HeartbeatRunner.prompt(root: "/demo/pebble", name: "Pebble", reason: .runNow)
+        #expect(ceo.contains("for: devops") && ceo.contains("Never name a specific agent or tool"))
+        #expect(ceo.contains("withdraw it and file it again with for: devops"))
+        let ops = HeartbeatRunner.opsPrompt(root: "/demo/engine-room", reason: .runNow)
+        #expect(ops.contains("kind: request"))
+        #expect(EngineRoom.readme.contains("kind: request"))
+    }
+
+    /// D87: the campus puts the DevOps agent at the server of its latest ops action in the run that goes now.
+    @Test func lastActionIsTheNewestLineOfThisRun() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sf-actions-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("journal"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let iso = ISO8601DateFormatter(), start = iso.date(from: "2026-11-24T13:00:00Z")!
+        // nothing logged yet: no server
+        #expect(EngineRoom.lastAction(since: start, at: dir) == nil)
+        let log = """
+        2026-11-24T12:40:00Z web-01 status → exit 0
+        2026-11-24T13:02:10Z api-01 disk → exit 0
+        2026-11-24T13:05:44Z db-01 logs postgres → exit 0
+
+        """
+        try log.write(to: dir.appendingPathComponent("journal/actions.log"), atomically: true, encoding: .utf8)
+        let last = try #require(EngineRoom.lastAction(since: start, at: dir))
+        #expect(last.server == "db-01")
+        #expect(last.at == iso.date(from: "2026-11-24T13:05:44Z"))
+        // a line from before this run belongs to an earlier one: the agent has not touched a server yet
+        #expect(EngineRoom.lastAction(since: iso.date(from: "2026-11-24T13:10:00Z")!, at: dir) == nil)
+    }
+}

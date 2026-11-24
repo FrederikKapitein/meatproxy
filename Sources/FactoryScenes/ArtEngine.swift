@@ -121,9 +121,10 @@ public final class ArtEngine: NSObject, WKURLSchemeHandler {
     /// Every frame one person needs, from the blocky rig (D41): cached per role and seed.
     public func figure(_ cast: CastKey) async throws -> Figure {
         if let f = figures[cast.key] { return f }
-        let specs = Figure.specs.map { ["pose": $0.pose, "view": $0.view, "mood": $0.mood, "noProp": $0.noProp] as [String: Any] }
+        let list = Figure.specs(for: cast)
+        let specs = list.map { ["pose": $0.pose, "view": $0.view, "mood": $0.mood, "noProp": $0.noProp] as [String: Any] }
         let d = try await call("return window.sf.figure(who, frames, 6)", ["who": ["role": cast.role.rawValue, "seed": cast.seed], "frames": specs])
-        let f = Figure(d)
+        let f = Figure(d, specs: list)
         figures[cast.key] = f
         return f
     }
@@ -300,6 +301,11 @@ public struct CampusArt {
     /// people who live on the campus (D84): who they are, how they stand and where (tile i, j and height z)
     public struct Npc { public var role: String, seed: String, pose: String, view: String, i: CGFloat, j: CGFloat, z: CGFloat, mood: String }
     public var npcs: [Npc] = []
+    /// where someone stands to work on rack k of the Server room (D87): tile i, j and height z
+    public var rackSpots: [RackSpot] = []
+    /// Inside the Server room, between rack k's front and the glass (D87): where someone squats to work on it, and the
+    /// rack's front face (i0…i1 at j, from z0 up) where its cables come out.
+    public struct RackSpot { public var i, j, z, i0, i1, front, z0: CGFloat }
     public var view: CGRect, ground: ArtImage?, objects: [ArtObject], light: ArtImage?, signs: [SignPart], boxes: [Box]
     /// the island's underside, a coarser image under the ground
     public var under: ArtImage?
@@ -357,6 +363,9 @@ public struct CampusArt {
             Npc(role: n["role"] as? String ?? "dev", seed: n["seed"] as? String ?? "0", pose: n["pose"] as? String ?? "idle",
                 view: n["view"] as? String ?? "SW", i: num(n["i"]), j: num(n["j"]), z: num(n["z"]), mood: n["mood"] as? String ?? "calm")
         }
+        rackSpots = ((d["rackSpots"] as? [[String: Any]]) ?? []).map {
+            RackSpot(i: num($0["i"]), j: num($0["j"]), z: num($0["z"]), i0: num($0["i0"]), i1: num($0["i1"]), front: num($0["front"]), z0: num($0["z0"]))
+        }
         footprints = ((d["footprints"] as? [String: [Any]]) ?? [:]).mapValues { a in
             let v = a.map(num); return v.count == 4 ? CGRect(x: v[0], y: v[1], width: v[2] - v[0], height: v[3] - v[1]) : .zero
         }
@@ -389,20 +398,26 @@ public struct Figure {
         Spec(pose: "read", view: v, mood: "calm", noProp: false), Spec(pose: "point", view: v, mood: "calm", noProp: false),
         Spec(pose: "snooze", view: v, mood: "tired", noProp: true),
     ] }
+    /// The DevOps agent at work in the Server room (D87) also squats at a rack, its back to you.
+    static let rackSpecs = [Spec(pose: "crouch", view: "NE", mood: "focus", noProp: true), Spec(pose: "crouchB", view: "NE", mood: "focus", noProp: true),
+                            Spec(pose: "crouchPull", view: "NE", mood: "focus", noProp: true), Spec(pose: "crouchToss", view: "NE", mood: "focus", noProp: true),
+                            // and its panic, turned to you: flailing with a stuck face
+                            Spec(pose: "cheer", view: "SW", mood: "stuck", noProp: true), Spec(pose: "panic", view: "SW", mood: "stuck", noProp: true)]
+    static func specs(for cast: CastKey) -> [Spec] { cast.role == .devops ? specs + rackSpecs : specs }
     public var frames: [String: (texture: SKTexture, rect: CGRect)] = [:]
     public var portrait: CGImage?
 
-    init(_ d: [String: Any]) {
+    init(_ d: [String: Any], specs: [Spec] = Figure.specs) {
         // one atlas page, or more when the frames do not fit on one
         let pages = ((d["pages"] as? [[String: Any]]) ?? [d["page"] as? [String: Any]].compactMap { $0 })
             .compactMap { decodeImage($0["png"] as? String) }
         guard !pages.isEmpty else { return }
         let textures = pages.map { SKTexture(cgImage: $0) }
-        for (k, f) in ((d["frames"] as? [[String: Any]]) ?? []).enumerated() where k < Self.specs.count {
+        for (k, f) in ((d["frames"] as? [[String: Any]]) ?? []).enumerated() where k < specs.count {
             let n = min(Int(num(f["page"])), pages.count - 1), tex = textures[n], W = CGFloat(pages[n].width), H = CGFloat(pages[n].height)
             let px = num(f["px"]), py = num(f["py"]), pw = num(f["pw"]), ph = num(f["ph"])
             let t = SKTexture(rect: CGRect(x: px / W, y: 1 - (py + ph) / H, width: pw / W, height: ph / H), in: tex)
-            frames[Self.specs[k].name] = (t, CGRect(x: num(f["x"]), y: num(f["y"]), width: num(f["w"]), height: num(f["h"])))
+            frames[specs[k].name] = (t, CGRect(x: num(f["x"]), y: num(f["y"]), width: num(f["w"]), height: num(f["h"])))
             if k == 0 { portrait = pages[n].cropping(to: CGRect(x: px, y: py, width: pw, height: ph * 0.62)) }
         }
     }

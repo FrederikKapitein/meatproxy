@@ -59,7 +59,9 @@ Guardrails, so a factory does not burn through your plan: at most 6 automatic ru
 while the app runs. *Heartbeat when closed* (Settings) installs a launch agent that checks every five minutes.
 
 **What a CEO asks you** shows under Needs you: a yes/no question, a to-do only you can do (with the steps and
-**Done** / **Not now**), or finished work that waits for your release. **Release now** writes your own release, which
+**Done** / **Not now**), or finished work that waits for your release. Work on shared infrastructure (a CI runner,
+a server) is a to-do for DevOps: **Send to DevOps** hands it to the Server room's DevOps agent, on the runtime you set
+in Settings › Server room. **Release now** writes your own release, which
 the CEO ships at its next run, even when your mandate keeps shipping off.
 
 The files, their formats and who writes what are in the factory contract: [docs/contracts/factory.md](docs/contracts/factory.md).
@@ -80,7 +82,7 @@ password. If that fails, it says why (for a missing key: `ssh-copy-id`).
 now**. It reaches a server only through `Meatproxy --ops <server> <action>`, a fixed set of read actions and safe
 fixes. What it may do is set per server: *Leave alone*, *Diagnose and ask* (reads only, every fix is a question for
 you), or *Safe fixes* (restart a known service, prune old images and logs). It writes a journal of every run, shown in
-the Server room. The details: [docs/contracts/engine-room.md](docs/contracts/engine-room.md).
+the Server room. While a run goes, its person squats inside the Server room at the rack of the server it works on. The details: [docs/contracts/engine-room.md](docs/contracts/engine-room.md).
 
 ## 5. Optional connections
 

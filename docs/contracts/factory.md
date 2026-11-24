@@ -1,6 +1,6 @@
 # Meatproxy factory contract
 
-**Name:** `meatproxy-factory` · **Current version:** 5 · **Owner:** this repository
+**Name:** `meatproxy-factory` · **Current version:** 6 · **Owner:** this repository
 
 A Dark Software Factory is a project folder with a `factory/` folder in it. Its CEO agent
 keeps the factory's state there in plain files. Meatproxy reads those files, shows them, and
@@ -21,6 +21,7 @@ feature on only when the factory declares a version that has it.
 | 3 | 2026-11-16 | Your mandate (`mandate.yml`), written by Meatproxy: what the CEO may do on its own (including whether it comes up with ideas of its own, `propose`), its role, your preferences. |
 | 4 | 2026-11-16 | Wake-up sources in `contract.yml`: the factory's Sentry project and Tracker project. Meatproxy wakes the CEO for a new or returning error and for a story that changed (D61). |
 | 5 | 2026-11-24 | To-dos (`kind: todo`, with `## How`) for what only you can do, and decisions you start yourself (`from: you`): your release of finished work. Everything the CEO needs from you is an open decision; the briefing never asks in prose alone (D81). |
+| 6 | 2026-11-24 | To-dos for the Server room's DevOps agent (`for: devops`): work on shared infrastructure goes there through Meatproxy, never to a named agent or tool (D86). |
 
 A factory without `contract.yml` is treated as version 1. A factory that declares a newer
 version than this Meatproxy knows is still read with what this version knows, and the app
@@ -108,6 +109,7 @@ status: open          # open | yes | no | expired | withdrawn
 workstream: W-002     # optional
 workstreams: [W-002]  # optional (v5): every workstream it is about
 from: null            # v5: you, for one you started in Meatproxy
+for: null             # v6: devops, for a to-do the Server room's DevOps agent can take on
 replaces: null        # the decision this one replaces after a "no"
 asked: 2026-11-16T07:05:00+01:00
 answered: null        # set when status leaves open
@@ -141,6 +143,13 @@ A line in the briefing alone is never a way to ask (D81).
   and `workstreams: [...]`, with the next free D-number. It is your own instruction: it holds
   even where the mandate keeps shipping off. The CEO acts on it first and ships the way the
   factory ships.
+
+- **Work on shared infrastructure** (v6): CI runners, servers, the devops repository are never the CEO's own.
+  It files a to-do with `for: devops`, with `## Why` and `## How` written for the DevOps agent, and names no
+  agent or tool. Meatproxy shows **Send to DevOps**: that files the to-do as a request (`kind: request`) in the
+  Server room's `alerts/`, answers the to-do (`status: yes`, the request's id under `## Answer`) and wakes the
+  DevOps agent on the runtime set in Settings › Server room. **Done** and **Not now** stay for when you do it
+  yourself.
 
 The briefing's `## Needs you` lists only the open decisions, by id. Meatproxy's heartbeat
 prompt carries these rules to every factory and asks a CEO on an older version to raise
