@@ -423,6 +423,28 @@ public enum FactoryText {
         return out
     }
 
+    /// Markdown as plain words: links become their title, emphasis markers go. Code spans keep their text exactly,
+    /// and an underscore inside a word stays, so `mcp__sentry__whoami` or ci_runner_job never lose theirs.
+    public static func plain(_ s: String) -> String {
+        let linked = s.replacingOccurrences(of: #"\[([^\]]+)\]\([^)]+\)"#, with: "$1", options: .regularExpression)
+        var out = "", rest = Substring(linked)
+        while let open = rest.firstIndex(of: "`") {
+            let ticks = rest[open...].prefix { $0 == "`" }
+            let after = rest[ticks.endIndex...]
+            guard let close = after.range(of: String(ticks)) else { break }
+            out += unemphasised(rest[..<open]) + after[..<close.lowerBound]
+            rest = after[close.upperBound...]
+        }
+        return out + unemphasised(rest)
+    }
+
+    /// Emphasis markers at the edge of a word go; `*` and `_` inside one (snake_case, a*b) stay.
+    private static func unemphasised(_ s: Substring) -> String {
+        String(s)
+            .replacingOccurrences(of: #"(?<![\p{L}\p{N}*_])[*_]++(?=\S)|(?<=\S)(?<![*_])[*_]++(?![\p{L}\p{N}])"#, with: "",
+                                  options: .regularExpression)
+    }
+
     /// Markdown links `[title](url)` and bare http(s) URLs, in order, without duplicates.
     public static func links(_ text: String) -> [FactoryLink] {
         var out: [FactoryLink] = [], seen = Set<String>()
