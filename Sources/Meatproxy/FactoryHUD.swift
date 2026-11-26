@@ -172,7 +172,7 @@ private struct PlainFloor: View {
         .spelCard()
         if let c = project.cost { CostLine(cost: c) }
         if !project.isChat {
-            Text(project.root.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.mono11).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle)
+            Text(project.root.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.mono11).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
         }
     }
 
@@ -202,17 +202,19 @@ struct FactoryCard: View {
                 Spacer(minLength: 0)
                 Toggle("Factory", isOn: Binding(get: { on }, set: { model.setFactory(project.root, on: $0) })).labelsHidden().toggleStyle(TactileToggleStyle())
             }
-            Text(on ? "Off stops the CEO. The floor and its chats stay." : "A CEO runs this floor on a heartbeat and asks you yes or no. Nothing is written until you set it up; you pick its team later.")
+            Text(on ? "Off stops the CEO. The floor and its chats stay." : "A CEO runs this floor on a schedule and asks you yes or no. Nothing is written until you set it up; you pick its team later.")
                 .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
             if !on {
                 RowDivider().padding(.vertical, 2)
                 HStack(spacing: 10) {
                     PixelIcon("map", color: .muted)
-                    Text("Keep on campus").font(.s13m).foregroundStyle(Color.inkText)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Keep when quiet").font(.s13m).foregroundStyle(Color.inkText)
+                        Text("Its floor stays after 8 hours without chats.").font(.s11n).foregroundStyle(Color.muted)
+                    }
                     Spacer(minLength: 0)
-                    Toggle("Keep on campus", isOn: Binding(get: { pinned }, set: { model.setPinned(project.root, on: $0) })).labelsHidden().toggleStyle(TactileToggleStyle())
+                    Toggle("Keep when quiet", isOn: Binding(get: { pinned }, set: { model.setPinned(project.root, on: $0) })).labelsHidden().toggleStyle(TactileToggleStyle())
                 }
-                .help("Keep this floor on the campus without recent sessions")
             }
         }
         .spelCard(flag: quest && !on ? .signal : nil)
@@ -418,7 +420,7 @@ private struct CEOTab: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("meatproxy-factory v\(factory.contractVersion)\(factory.contract == nil ? " (no contract.yml)" : "")").font(.s13).foregroundStyle(Color.inkText)
             if factory.newerContract { Tag("Newer than this Meatproxy (v\(FactoryContract.current))", tone: .warn) }
-            Text(project.root.replacingOccurrences(of: NSHomeDirectory(), with: "~") + "/factory").font(.mono11).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle)
+            Text(project.root.replacingOccurrences(of: NSHomeDirectory(), with: "~") + "/factory").font(.mono11).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
             Text("The CEO declares it in factory/contract.yml (docs/contracts/factory.md).").font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -432,12 +434,14 @@ private struct CEOTab: View {
     }
 
     private func wakesSummary(_ hb: Heartbeat) -> String {
-        var s: [String] = []
-        if hb.wakeOnSentry && factory.sources.hasSentry { s.append("Sentry") }
-        if hb.wakeOnTracker && factory.sources.tracker != nil { s.append("Tracker") }
+        // only what can wake it now: a source that is not connected yet is counted, not named (UX review 26 Nov)
+        var s: [String] = [], missing = 0
+        if factory.sources.hasSentry { if model.connected(.sentry) { if hb.wakeOnSentry { s.append("Sentry") } } else { missing += 1 } }
+        if factory.sources.tracker != nil { if model.connected(.tracker) { if hb.wakeOnTracker { s.append("Tracker") } } else { missing += 1 } }
         if hb.wakeOnCI { s.append("CI") }
         if hb.wakeOnAnswer { s.append("answers") }
-        return s.isEmpty ? "Heartbeat only" : s.joined(separator: ", ")
+        let head = s.isEmpty ? "Heartbeat only" : s.joined(separator: ", ")
+        return missing > 0 ? head + " · +\(missing) not connected" : head
     }
     private func limitsSummary(_ hb: Heartbeat) -> String {
         (hb.maxCostPerDay.map { "$\(Int($0)) a day · " } ?? "") + "\(hb.runsPerDay) runs"
@@ -468,7 +472,7 @@ private struct Group_<Content: View>: View {
                     if saved == id {
                         HStack(spacing: 4) { PixelIcon("check", color: .done, size: 9); Text("Saved").font(.s13m) }.foregroundStyle(Color.done)
                     } else {
-                        Text(summary).font(.s13).foregroundStyle(Color.muted).lineLimit(1)
+                        Text(summary).font(.s13).foregroundStyle(Color.muted).lineLimit(2).multilineTextAlignment(.trailing)
                     }
                     PixelIcon(open ? "chevd" : "chev", color: .muted, size: 9)
                 }
@@ -493,7 +497,7 @@ struct HeartbeatCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 PixelIcon("pulse", color: .inkText)
-                Text("Heartbeat").font(.s15b).foregroundStyle(Color.inkText)
+                Text("Runs").font(.s15b).foregroundStyle(Color.inkText)
                 Spacer(minLength: 0)
                 status
             }
@@ -520,7 +524,8 @@ struct HeartbeatCard: View {
 
     @ViewBuilder private var status: some View {
         if state.running { Tag("Running", tone: .work, icon: "dot") }
-        else if let b = state.blocked { Tag(b.waitsForYou ? "Held" : "Waiting", tone: b.waitsForYou ? .warn : .neutral) }
+        // "Waiting" is the word for what waits for you: a CEO that may not run now rests
+        else if let b = state.blocked { Tag(b.waitsForYou ? "Held" : "Resting", tone: b.waitsForYou ? .warn : .neutral) }
         else if let last = state.last, last.outcome == .failed || last.outcome == .timedOut {
             Tag(last.detail?.contains("was closed") == true || Self.caughtUp(last) ? "Run skipped" : "Run failed", tone: .warn)
         }
@@ -528,19 +533,27 @@ struct HeartbeatCard: View {
         else { Tag("On schedule", tone: .done, icon: "check") }
     }
 
+    /// "1 of 6 runs today · next: tomorrow 07:10" (the rhythm itself is in its group below)
     private var rhythmLine: String {
-        let c = state.config
-        var s = c.summary + " · \(state.runsToday) of \(c.runsPerDay) today"
+        var s = "\(state.runsToday) of \(state.config.runsPerDay) runs today"
         if state.running, let last = state.last { s += " · running since \(Self.clock(last.started))" }
         else if let p = state.pending { s += " · \(p.reason.label.lowercased()) soon" }
-        else if let n = state.next { s += " · next run \(Self.when(n))" }
+        else if let n = state.next { s += " · next: \(Self.when(n))" }
         return s
+    }
+
+    /// A cooldown is only news when it holds the next run back; then in the Server room's words.
+    private var shownBlock: Block? {
+        guard let b = state.blocked else { return nil }
+        if case .coolingDown(let until) = b, let n = state.next, until <= n { return nil }
+        return b
     }
 
     /// the one problem of the last run, with its one fix; or that nothing needs doing
     @ViewBuilder private var problem: some View {
-        if let b = state.blocked {
-            fix(b.text, button: b.waitsForYou ? "Resume" : nil, warn: b.waitsForYou) { model.resume(project) }
+        if let b = shownBlock {
+            let text = b.text.hasPrefix("Cooling down") ? "Automatic runs: \(b.text.prefix(1).lowercased() + b.text.dropFirst()). Run now starts one anyway." : b.text
+            fix(text, button: b.waitsForYou ? "Resume" : nil, warn: b.waitsForYou) { model.resume(project) }
         } else if let last = state.last, last.outcome != .running {
             if last.outcome == .failed, last.detail?.contains("was closed") == true, !model.projectSettings.heartbeatWhenClosed {
                 fix("Meatproxy was closed during the run of \(Self.when(last.started)), so it was skipped.", button: "Keep running when closed", warn: true) {
@@ -631,16 +644,16 @@ private struct WakesEditor: View {
         VStack(alignment: .leading, spacing: 10) {
             editRow("Your answers and ideas") { toggle(hb.wakeOnAnswer) { v in update { $0.wakeOnAnswer = v } } }
             editRow("A failed CI run on main") { toggle(hb.wakeOnCI) { v in update { $0.wakeOnCI = v } } }
-            editRow(src.hasSentry ? "Sentry · a new error" : "Sentry") {
-                toggle(hb.wakeOnSentry) { v in update { $0.wakeOnSentry = v } }.disabled(!v4 || !src.hasSentry)
+            let sentry = model.connected(.sentry), tracker = model.connected(.tracker)
+            editRow(src.hasSentry ? (sentry ? "Sentry · a new error" : "Sentry · connect it first") : "Sentry") {
+                toggle(sentry && hb.wakeOnSentry) { v in update { $0.wakeOnSentry = v } }.disabled(!v4 || !src.hasSentry || !sentry)
             }
-            if v4, src.hasSentry, hb.wakeOnSentry { health(model.sourceHealth[factory.root]?.sentry, missing: Secrets.get(.sentry) == nil && !model.fixture ? "No Sentry token yet." : nil) }
-            editRow(src.tracker != nil ? "Tracker · a story in Ready" : "Tracker") {
-                toggle(hb.wakeOnTracker) { v in update { $0.wakeOnTracker = v } }.disabled(!v4 || src.tracker == nil)
+            if v4, src.hasSentry, sentry, hb.wakeOnSentry { health(model.sourceHealth[factory.root]?.sentry, missing: nil) }
+            editRow(src.tracker != nil ? (tracker ? "Tracker · a story in Ready" : "Tracker · connect it first") : "Tracker") {
+                toggle(tracker && hb.wakeOnTracker) { v in update { $0.wakeOnTracker = v } }.disabled(!v4 || src.tracker == nil || !tracker)
             }
-            if v4, src.tracker != nil, hb.wakeOnTracker {
-                health(model.sourceHealth[factory.root]?.tracker,
-                       missing: WakeSources.trackerURL(model.projectSettings.trackerURL) == nil ? "No Tracker address yet." : Secrets.get(.tracker) == nil && !model.fixture ? "No Tracker token yet." : nil)
+            if v4, src.tracker != nil, tracker, hb.wakeOnTracker {
+                health(model.sourceHealth[factory.root]?.tracker, missing: nil)
             }
             if !v4 || (!src.hasSentry && src.tracker == nil) {
                 Text(!v4 ? "Sentry and Tracker need factory contract v4: the CEO names its projects in factory/contract.yml."
@@ -1145,7 +1158,7 @@ struct WorkstreamCard: View {
                             .foregroundStyle(Color.inkText)
                     }.buttonStyle(.plain).help(pr)
                 }
-                if let b = w.branch { Text(b).font(.mono11).foregroundStyle(Color.muted).lineLimit(1) }
+                if let b = w.branch { Text(b).font(.mono11).foregroundStyle(Color.muted).lineLimit(1).textSelection(.enabled) }
                 if !tags.isEmpty { HStack(spacing: 6) { ForEach(tags, id: \.self) { Tag($0) } } }
             }
         }
@@ -1313,6 +1326,8 @@ struct AnswerForm: View {
     var noTitle: String? = nil
     var withNote = true
     var yesPrimary = true
+    /// after the answer is written: yes or no
+    var onSent: ((Bool) -> Void)? = nil
     @State private var note = ""
     @State private var pending: Bool?
     @State private var sending = false
@@ -1367,7 +1382,7 @@ struct AnswerForm: View {
         Task {
             let error = await model.answer(decision, in: project, yes: yes, note: note)
             sending = false
-            if let error { failure = error; pending = nil } else { pending = nil; note = ""; noteFocused = false }
+            if let error { failure = error; pending = nil } else { pending = nil; note = ""; noteFocused = false; onSent?(yes) }
         }
     }
 }
@@ -1386,7 +1401,7 @@ private struct Part<Content: View>: View {
 private struct Prose: View {
     let text: String
     var body: some View {
-        Text(BriefingCard.plain(text)).font(.s13).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
+        Text(BriefingCard.plain(text)).font(.s13).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
     }
 }
 

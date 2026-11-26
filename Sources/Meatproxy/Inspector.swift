@@ -161,7 +161,7 @@ private struct BuildingFloors: View {
     }
     private func people(_ p: Project) -> String {
         let n = p.sessions.count
-        return n == 0 ? "Quiet" : "\(n) \(n == 1 ? "person" : "people")"
+        return n == 0 ? "Quiet" : "\(n) chat\(n == 1 ? "" : "s")"
     }
 }
 
@@ -251,6 +251,14 @@ struct SessionDetail: View {
     @EnvironmentObject private var model: AppModel
     let project: Project
     let session: Session
+
+    /// "A command failed 40 sec. ago (npm test). It usually tries again on its own; take over if it keeps failing."
+    static func stuckLine(_ a: Activity, now: Date) -> String {
+        let secs = max(0, now.timeIntervalSince(a.at))
+        let when = secs < 5 ? "just now" : secs < 60 ? "\(Int(secs)) sec. ago" : "\(Int(secs / 60)) min. ago"
+        let what = a.text.hasPrefix("ran ") ? String(a.text.dropFirst(4)) : a.text
+        return "A command failed \(when) (\(what)). It usually tries again on its own; take over if it keeps failing."
+    }
     var body: some View {
         let st = session.state(now: model.world.now)
         VStack(alignment: .leading, spacing: 12) {
@@ -258,6 +266,11 @@ struct SessionDetail: View {
                 PixelIcon("chat", color: .muted)
                 Text(session.title).font(.s15b).foregroundStyle(Color.inkText).lineLimit(2)
                 Text("· \(project.name)").font(.s13).foregroundStyle(Color.muted).lineLimit(1)
+            }
+            // stuck says whether it is yours to act on: usually not yet (UX review 26 Nov)
+            if st == .stuck, let failed = session.activities.last(where: \.failed) {
+                Text(Self.stuckLine(failed, now: model.world.now)).font(.s13).foregroundStyle(Color.inkText)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
             }
             if let said = session.lastSaid?.trimmingCharacters(in: .whitespacesAndNewlines), !said.isEmpty { Bubble(text: said, asks: st == .waiting) }
             if session.inClaudeApp {
@@ -316,8 +329,8 @@ private struct Bubble: View {
         let t = text.count > 1200 ? "…" + text.suffix(1199) : text
         let (lead, question) = asks ? Self.split(String(t)) : (String(t), "")
         VStack(alignment: .leading, spacing: 6) {
-            if !lead.isEmpty { Text(lead).font(.s13).foregroundStyle(asks ? Color.muted : Color.inkText).fixedSize(horizontal: false, vertical: true) }
-            if !question.isEmpty { Text(question).font(.s15b).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true) }
+            if !lead.isEmpty { Text(lead).font(.s13).foregroundStyle(asks ? Color.muted : Color.inkText).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) }
+            if !question.isEmpty { Text(question).font(.s15b).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) }
         }
         .textSelection(.enabled)
         .lineLimit(14)

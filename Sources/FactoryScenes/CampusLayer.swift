@@ -43,7 +43,8 @@ extension CampusScene {
             let st = s.shown(now: now), name = s.name.lowercased(), rt = (s.runtime ?? "").lowercased()
             let key: String? = rt == "claude" || name.contains("claude") || name.contains("anthropic") ? "claude"
                 : rt == "codex" || name.contains("openai") || name.contains("chatgpt") ? "chatgpt" : nil
-            let title = key == "chatgpt" ? "ChatGPT" : key == "claude" ? "Claude" : s.name
+            // the service by its own name (OpenAI, not the tower's ChatGPT): one word per thing
+            let title = s.name
             let line = st == .unknown ? "Not read for a while: unknown" : st.rawValue.capitalized + (s.detail.isEmpty ? "" : " · " + s.detail)
             if let key { pins.append((key, nil, st, title, Self.word(st), line)) }
             else if st != .ok, let f = art?.fountain { pins.append(("fountain", CGPoint(x: f.x + 70, y: f.y - 40), st, title, Self.word(st), line)) }
