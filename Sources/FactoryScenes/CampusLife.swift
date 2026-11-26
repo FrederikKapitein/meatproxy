@@ -88,7 +88,8 @@ extension CampusScene {
             deploying.insert("claude")
         }
         if let f = world.projects.first(where: { ($0.factory?.mandate?.level ?? .assistant) != .assistant }), let m = f.factory?.mandate {
-            onEffect?("dark", "\(f.name)'s floor is dimmed", "Its mandate is \(m.level.rawValue.capitalized): lights on is Assistant, dimmed Hybrid, lights out Dark.")
+            // the effect's name as the title, the cause with the project's name under it (never cut off in the middle)
+            onEffect?("dark", "Dimmed floor", "\(f.name): its mandate is \(m.level.rawValue.capitalized). Lights on is Assistant, dimmed Hybrid, lights out Dark.")
         }
         let sig = alarms.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
             + "|" + deploying.sorted().joined(separator: ",")
@@ -142,7 +143,7 @@ extension CampusScene {
             host.addChild(beams); host.addChild(fixture); life.nodes.append(contentsOf: [beams, fixture])
             life.alarms.append(light)
             explain(fixture, ("Alarm · \(w.project(id: id)?.name ?? "a project")", why))
-            onEffect?("alarm", "Red alarm light on \(w.project(id: id)?.name ?? "a floor")", why)
+            onEffect?("alarm", "Red alarm light", "\(w.project(id: id)?.name ?? "A floor"): " + (why.hasPrefix("CI on main is red") ? "CI on main is red." : why))
         }
         // 5F: a deploy's packets on the road from its tower to the Server room
         life.streams = deploying.compactMap { art?.streams[$0] }.map { $0.map { project($0.x, $0.y, CampusRoads.height($0.x, $0.y) + 0.5) } }
@@ -350,7 +351,8 @@ extension CampusScene {
         let full = CGSize(width: size.width * 1.02, height: size.height * 1.02)
         life.sky?.size = full; life.sky?.alpha = artNight ? 0 : max(life.daylight, 0.4)
         life.shade?.size = full; life.shade?.alpha = artNight ? 0 : (1 - life.daylight) * 0.3
-        starNode?.alpha = artNight ? 1 : 0.4
+        // stars only at night, and faintly at dusk while the night paint is on its way: never in a day sky
+        starNode?.alpha = artNight ? 1 : life.daylight < 0.35 ? 0.4 : 0
         if artNight, moonNode == nil {
             let m = SKSpriteNode(texture: Self.moonTexture); m.size = CGSize(width: 46, height: 46); m.zPosition = -997
             let g = SKSpriteNode(texture: Self.glowTexture); g.size = CGSize(width: 150, height: 150); g.color = SKColor(red: 1, green: 0.95, blue: 0.8, alpha: 1)

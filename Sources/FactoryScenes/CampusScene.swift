@@ -1328,13 +1328,14 @@ public final class CampusScene: WorldScene {
 
     /// The picked rack (D52, Spel+ F7): it stays behind its glass; it lights up there (its strip full, a soft glow in
     /// its state's colour), a cyan outline runs round its front inside the window, and its name hangs above the roof.
-    private struct Slot { var rack: Int; var node: SKNode; var tag: SKNode; var strip: SKShapeNode; var glow: SKSpriteNode }
+    private struct Slot { var rack: Int; var state: String; var node: SKNode; var tag: SKNode; var strip: SKShapeNode; var glow: SKSpriteNode }
 
     /// Picks a server's rack in the Server room; nil lets it go.
     public func showSlot(_ c: Int?, name: String = "", state: String = "ok", animated: Bool = true) {
         // a repaint of the campus took the rack's light with it: start over
         if let s = slot, s.node.scene == nil { slot = nil }
-        if let s = slot, s.rack != c || c == nil {
+        // a new state is a new name tag (its word changes with it)
+        if let s = slot, s.rack != c || c == nil || s.state != state {
             slot = nil
             s.node.run(.sequence([.fadeOut(withDuration: animated ? 0.15 : 0), .removeFromParent()]))
         }
@@ -1357,21 +1358,37 @@ public final class CampusScene: WorldScene {
         node.addChild(bay)
         screenLines.append((bay, 2.2))
         strip.glowWidth = 1.5 * px
-        // the name tag above the pavilion's roof, in the cream of the signs, with a dot in its state's colour
-        let tag = SKNode()
-        let label = SKLabelNode(text: name.uppercased()); label.fontName = "Menlo-Bold"; label.fontSize = 6 * px
-        label.fontColor = SKColor(red: 0.16, green: 0.10, blue: 0.18, alpha: 1); label.verticalAlignmentMode = .center
-        let w = label.frame.width + 9 * px, h = 10 * px
-        let bg = SKShapeNode(rect: CGRect(x: -w / 2, y: -h / 2, width: w, height: h), cornerRadius: 1.5 * px)
-        bg.fillColor = SKColor(red: 0.96, green: 0.94, blue: 0.85, alpha: 1); bg.strokeColor = SKColor(red: 0.16, green: 0.10, blue: 0.18, alpha: 1); bg.lineWidth = px * 0.8
-        let dot = SKShapeNode(circleOfRadius: 2 * px); dot.fillColor = col; dot.strokeColor = .clear; dot.position = CGPoint(x: -w / 2 + 5 * px, y: 0)
-        label.position = CGPoint(x: 2.5 * px, y: 0)
-        tag.addChild(bg); tag.addChild(dot); tag.addChild(label)
+        // the name tag above the pavilion's roof, in the cream of the signs: square corners, its state as a pixel shape
+        // in the state's colour (a square down, a triangle to look at, a tick fine) and as a word, never a round dot
+        let tag = SKNode(), ink = SKColor(red: 0.16, green: 0.10, blue: 0.18, alpha: 1)
+        let word = state == "down" ? "DOWN" : state == "warn" ? "LOOK" : "OK"
+        let label = SKLabelNode(text: name.uppercased() + " · " + word); label.fontName = "Menlo-Bold"; label.fontSize = 6 * px
+        label.fontColor = ink; label.verticalAlignmentMode = .center
+        let w = label.frame.width + 15 * px, h = 10 * px
+        let bg = SKShapeNode(rect: CGRect(x: -w / 2, y: -h / 2, width: w, height: h))
+        bg.fillColor = SKColor(red: 0.96, green: 0.94, blue: 0.85, alpha: 1); bg.strokeColor = ink; bg.lineWidth = px * 0.8
+        let mark = SKShapeNode(path: Self.stateMark(state, size: 5 * px))
+        mark.fillColor = state == "ok" ? .clear : col; mark.strokeColor = state == "ok" ? col : ink
+        mark.lineWidth = state == "ok" ? 1.4 * px : 0.5 * px; mark.isAntialiased = false
+        mark.position = CGPoint(x: -w / 2 + 6 * px, y: 0)
+        label.position = CGPoint(x: 4 * px, y: 0)
+        tag.addChild(bg); tag.addChild(mark); tag.addChild(label)
         tag.position = scenePoint(P((rb.i0 + rb.i1) / 2, rb.j - 2.2, rb.z1 + 24)); tag.zPosition = 2
         node.addChild(tag)
         content.addChild(node)
-        slot = Slot(rack: c, node: node, tag: tag, strip: strip, glow: glow)
+        slot = Slot(rack: c, state: state, node: node, tag: tag, strip: strip, glow: glow)
         if animated && animationsEnabled { node.alpha = 0; node.run(.fadeIn(withDuration: 0.2)) }
+    }
+
+    /// A state's pixel mark round (0, 0), `size` across: a square (down), a triangle (warn) or a tick (ok).
+    static func stateMark(_ state: String, size d: CGFloat) -> CGPath {
+        let p = CGMutablePath(), r = d / 2
+        switch state {
+        case "down": p.addRect(CGRect(x: -r, y: -r, width: d, height: d))
+        case "warn": p.move(to: CGPoint(x: 0, y: r)); p.addLine(to: CGPoint(x: r * 1.15, y: -r)); p.addLine(to: CGPoint(x: -r * 1.15, y: -r)); p.closeSubpath()
+        default: p.move(to: CGPoint(x: -r, y: 0)); p.addLine(to: CGPoint(x: -r * 0.25, y: -r * 0.75)); p.addLine(to: CGPoint(x: r, y: r * 0.75))
+        }
+        return p
     }
 
     // MARK: for window shots

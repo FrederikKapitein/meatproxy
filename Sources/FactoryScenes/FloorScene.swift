@@ -14,6 +14,11 @@ public final class FloorScene: WorldScene {
     private(set) var projectID = ""
     private var art: FloorArt?
     private var people: [String: Person] = [:]
+    /// Reduce motion switched on while the floor is open: the rings stop pulsing at once (people already stand still,
+    /// update() no longer moves them)
+    public override var animationsEnabled: Bool {
+        didSet { if !animationsEnabled { for p in people.values { p.ring?.removeAllActions(); p.ring?.alpha = 1 } } }
+    }
     /// Who stands where with which plate (for tests): room, shown state, and the plate's "name|line|state|role|badge".
     func plates() -> [String: (room: String, state: SessionState, plate: String)] { people.mapValues { ($0.room, $0.state, $0.tagKey) } }
     private var marker: SKShapeNode?
@@ -217,7 +222,7 @@ public final class FloorScene: WorldScene {
             if !p.walking {
                 // where it is, one step up, half a step to either side, or up and to a side: never further, since a plate
                 // far from its person reads as someone else's. The first clear place wins, else the least covered.
-                let w = f.width, h = f.height + 1 * px
+                let w = f.width, h = f.height + 2 * px
                 let moves: [CGPoint] = [.zero, CGPoint(x: 0, y: h), CGPoint(x: -0.6 * w, y: 0), CGPoint(x: 0.6 * w, y: 0),
                                         CGPoint(x: -0.6 * w, y: h), CGPoint(x: 0.6 * w, y: h)]
                 var best = f, least = CGFloat.infinity
@@ -448,8 +453,8 @@ public final class FloorScene: WorldScene {
             // the loud ones (waits for you, stuck) on top of any quiet one they meet
             let n = self.place(SKTexture(cgImage: o.image), o.rect, z: state == "wait" || state == "stuck" ? 4002 : state == "done" || state == "free" ? 3999 : 4000)
             n.name = "tag:" + p.id
-            // done and free plates are quieter
-            n.alpha = state == "done" || state == "free" ? 0.82 : 1
+            // done and free plates are quiet by their paint, never see-through (the floor would show through the letters)
+            n.alpha = 1
             p.tagRect = o.rect
             // it hangs from its tip (the image's (0, 0)), so it can grow and shrink round it
             n.anchorPoint = CGPoint(x: -o.rect.minX / o.rect.width, y: o.rect.maxY / o.rect.height)
@@ -500,7 +505,8 @@ public final class FloorScene: WorldScene {
     static func shownState(_ s: Session, in p: Project, now: Date) -> SessionState {
         let st = s.state(now: now)
         guard s.id == factoryCEO(p) else { return st }
-        if !(p.factory?.openDecisions.isEmpty ?? true) { return .waiting }
+        // its questions, to-dos and a release: the same count as everywhere (Factory.waiting)
+        if (p.factory?.waiting ?? 0) > 0 { return .waiting }
         return st
     }
 
@@ -513,10 +519,11 @@ public final class FloorScene: WorldScene {
     static func plateLine(_ s: Session, in p: Project, state st: SessionState, back: Bool, seated: Bool, now: Date) -> String {
         let ceo = s.id == factoryCEO(p) || s.heartbeatRun == true || s.id.hasPrefix(Project.standingCEOPrefix)
         let open = s.id == factoryCEO(p) ? p.factory?.openDecisions ?? [] : []
-        if !open.isEmpty {
+        let release = s.id == factoryCEO(p) && !(p.factory?.readyToRelease.isEmpty ?? true)
+        if !open.isEmpty || release {
             let todos = open.filter(\.isTodo).count, questions = open.count - todos
             let parts = [questions > 0 ? "\(questions) question\(questions == 1 ? "" : "s")" : nil,
-                         todos > 0 ? "\(todos) to-do\(todos == 1 ? "" : "s")" : nil].compactMap { $0 }
+                         todos > 0 ? "\(todos) to-do\(todos == 1 ? "" : "s")" : nil, release ? "1 release" : nil].compactMap { $0 }
             return "CEO · " + parts.joined(separator: ", ")
         }
         if st == .waiting { return ceo ? "CEO · waits for you" : "Waits for you" }
