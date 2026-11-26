@@ -77,7 +77,6 @@ struct SettingsView: View {
 /// The switches that are not about one project, one source or one server.
 private struct GeneralSettings: View {
     @EnvironmentObject private var model: AppModel
-    @State private var testSent = false
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             RowCard(title: "Campus") {
@@ -93,16 +92,42 @@ private struct GeneralSettings: View {
                 SwitchRow("Keep running when closed", "Off: a run is skipped while Meatproxy is closed.",
                           isOn: Binding(get: { model.projectSettings.heartbeatWhenClosed }, set: { model.setHeartbeatWhenClosed($0) }))
             }
-            RowCard(title: "Alerts") {
-                SwitchRow("Notifications on this Mac", "A server or site goes down, or comes back.",
-                          isOn: Binding(get: { model.projectSettings.devops.notify }, set: { v in model.updateDevOps { $0.notify = v } }))
-                RowDivider()
-                FieldRow(title: "Try it", text: testSent ? "Sent: look top right." : "See how an alert looks.") {
-                    Button { model.alerts.test(); testSent = true } label: { SpelLabel("Send a test", icon: "send", iconColor: .inkText) }
-                        .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s)).disabled(!model.projectSettings.devops.notify)
+            AlertsCard(alerts: model.alerts)
+        }
+    }
+}
+
+/// Notifications on this Mac (UX review 26 Nov, point 5): macOS's own say first (when it has them off, only System
+/// Settings can switch them on), then what may notify. Switching one on asks macOS then, not at the first alert.
+private struct AlertsCard: View {
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var alerts: AlertCenter
+    @State private var testSent = false
+    var body: some View {
+        let denied = alerts.deniedBySystem
+        let any = model.projectSettings.devops.notify || model.notifyNeedsYou
+        RowCard(title: "Notifications") {
+            if denied {
+                FieldRow(title: "Notifications on this Mac", text: "Off in System Settings: nothing below shows until you allow it there.") {
+                    Button { AlertCenter.openSystemSettings() } label: { Text("Open System Settings") }
+                        .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
                 }
+                RowDivider()
+            }
+            SwitchRow("Servers and sites", "Down, and fine again (that replaces the down alert).",
+                      isOn: Binding(get: { model.projectSettings.devops.notify }, set: { v in model.updateDevOps { $0.notify = v }; if v { model.askToNotify() } }))
+            RowDivider()
+            SwitchRow("New in Needs you", "Questions and releases. Gone once you answer.",
+                      isOn: Binding(get: { model.notifyNeedsYou }, set: { v in model.notifyNeedsYou = v; if v { model.askToNotify() } }))
+            RowDivider()
+            FieldRow(title: "Try it", text: testSent ? "Sent: look top right." : "See how an alert looks.") {
+                Button { alerts.test(); testSent = true } label: { SpelLabel("Send a test", icon: "send", iconColor: .inkText) }
+                    .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s)).disabled(!any || denied)
             }
         }
+        // System Settings may have changed while the app was away
+        .task { await alerts.readPermission() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await alerts.readPermission() } }
     }
 }
 
@@ -126,36 +151,36 @@ private struct SourcesSettings: View {
         model.world.projects.compactMap { p in p.factory.map { (p, $0) } }.filter { model.isFactory($0.0) && $0.1.takesSources && named($0.1) }
     }
 
-    private func status(_ key: Secrets.Key, ready: Bool) -> (String, Tag.Tone) {
-        let saved = model.fixture ? model.demoTokens.contains(key) : Secrets.get(key) != nil
-        guard saved, ready else { return ("Not connected", .neutral) }
+    private func status(_ key: Secrets.Key) -> (String, Tag.Tone) {
+        guard model.connected(key) else { return ("Not connected", .neutral) }
         let health = model.sourceHealth.values.compactMap { key == .sentry ? $0.sentry : $0.tracker }
         if health.contains(where: { !$0.ok }) { return ("Failing", .warn) }
         return ("Connected", .done)
     }
 
     private var sentry: some View {
-        let (word, tone) = status(.sentry, ready: true)
+        let (word, tone) = status(.sentry)
         let list = factories { $0.sources.hasSentry }
         return VStack(alignment: .leading, spacing: 0) {
             sourceHead("pulse", "Sentry", word, tone)
-            TokenRow(key: .sentry, placeholder: "Paste a token with read access to issues")
+            TokenRow(key: .sentry, placeholder: "Paste a token with read access to issues", reads: "reads issues")
             RowDivider()
-            wakeRows(list, what: "wakes on a new error", empty: "No factory names a Sentry project yet: its CEO adds sentry: org/project to factory/contract.yml.") { $0.wakeOnSentry } set: { h, v in h.wakeOnSentry = v }
+            wakeRows(list, what: "wakes on a new error", connected: model.connected(.sentry), source: "Sentry",
+                     empty: "No factory names a Sentry project yet: its CEO adds sentry: org/project to factory/contract.yml.") { $0.wakeOnSentry } set: { h, v in h.wakeOnSentry = v }
         }
         .spelCard(pad: 0)
     }
 
     private var tracker: some View {
-        let (word, tone) = status(.tracker, ready: WakeSources.trackerURL(model.projectSettings.trackerURL) != nil)
+        let (word, tone) = status(.tracker)
         let list = factories { $0.sources.tracker != nil }
         return VStack(alignment: .leading, spacing: 0) {
             sourceHead("map", "Tracker", word, tone)
             TrackerAddressRow()
             RowDivider()
-            TokenRow(key: .tracker, placeholder: "Paste a read token")
+            TokenRow(key: .tracker, placeholder: "Paste a read token", reads: "reads stories")
             RowDivider()
-            wakeRows(list, what: "wakes on a story in Ready", empty: "Then pick which factories wake on it: a factory's CEO names its project in factory/contract.yml (tracker: <slug>).") { $0.wakeOnTracker } set: { h, v in h.wakeOnTracker = v }
+            wakeRows(list, what: "wakes on a story in Ready", connected: model.connected(.tracker), source: "Tracker", empty: "Then pick which factories wake on it: a factory's CEO names its project in factory/contract.yml (tracker: <slug>).") { $0.wakeOnTracker } set: { h, v in h.wakeOnTracker = v }
         }
         .spelCard(pad: 0)
     }
@@ -192,7 +217,9 @@ private struct SourcesSettings: View {
         .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 6)
     }
 
-    @ViewBuilder private func wakeRows(_ list: [(Project, Factory)], what: String, empty: String, get: @escaping (Heartbeat) -> Bool, set: @escaping (inout Heartbeat, Bool) -> Void) -> some View {
+    /// a factory's wake switch on a source: dimmed, saying so, until the source is connected (UX review 26 Nov, point 12)
+    @ViewBuilder private func wakeRows(_ list: [(Project, Factory)], what: String, connected: Bool, source: String, empty: String,
+                                       get: @escaping (Heartbeat) -> Bool, set: @escaping (inout Heartbeat, Bool) -> Void) -> some View {
         if list.isEmpty {
             Text(empty).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true).padding(14)
         }
@@ -200,7 +227,8 @@ private struct SourcesSettings: View {
             let (p, _) = pf
             if k > 0 { RowDivider() }
             if let hb = model.projectSettings.entry(p.root)?.heartbeat {
-                SwitchRow(p.name, what, isOn: Binding(get: { get(hb) }, set: { v in model.updateHeartbeat(p.root) { set(&$0, v) } }))
+                SwitchRow(p.name, connected ? what : "Connect \(source) first",
+                          isOn: Binding(get: { connected && get(hb) }, set: { v in model.updateHeartbeat(p.root) { set(&$0, v) } }), disabled: !connected)
             }
         }
     }
@@ -219,7 +247,7 @@ private struct TrackerAddressRow: View {
                 .onSubmit { if text.isEmpty || valid { model.setTrackerURL(text) } }
                 .onChange(of: focused) { _, on in model.typing = on }
         } button: {
-            Button { model.setTrackerURL(text) } label: { Text(saved && !text.isEmpty ? "Saved" : "Save") }
+            Button { model.setTrackerURL(text) } label: { Text(saved && !text.isEmpty ? "In use" : "Use") }
                 .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, wide: true)).frame(width: 84).disabled(saved || !(text.isEmpty || valid))
         }
         .onAppear { text = model.projectSettings.trackerURL }
@@ -231,13 +259,15 @@ private struct TokenRow: View {
     @EnvironmentObject private var model: AppModel
     let key: Secrets.Key
     let placeholder: String
+    /// what a connection lets it read, for the status line ("reads issues")
+    let reads: String
     @State private var saved = false
     @State private var value = ""
     @State private var testing = false
     @State private var result: (ok: Bool, line: String)?
     @FocusState private var focused: Bool
     var body: some View {
-        InputRow(label: "Token", status: result.map { ($0.ok, $0.line) } ?? (saved ? (true, "Saved in the Keychain") : nil)) {
+        InputRow(label: "Token", status: result.map { ($0.ok, $0.line) } ?? (saved ? (model.connected(key) ? (true, "Connected · \(reads)") : (true, "Saved in the Keychain · add the address above to connect")) : nil)) {
             if saved {
                 Text("•••••••••••• in the Keychain").font(.mono).foregroundStyle(Color.muted).lineLimit(1)
             } else {
@@ -253,7 +283,7 @@ private struct TokenRow: View {
                     Button { remove() } label: { Text("Remove") }.buttonStyle(SpelButtonStyle(kind: .ghost, size: .s))
                 }
             } else {
-                Button(action: save) { Text("Save") }.buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, wide: true)).frame(width: 84).disabled(value.isEmpty)
+                Button(action: save) { Text("Connect") }.buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, wide: true)).frame(width: 84).disabled(value.isEmpty)
             }
         }
         .onAppear { saved = model.fixture ? model.demoTokens.contains(key) : Secrets.get(key) != nil }
@@ -859,11 +889,11 @@ private struct ProjectPage: View {
                         .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s)).disabled(project == nil)
                 }
                 RowDivider()
-                SwitchRow("Factory", "A CEO runs this floor on a heartbeat. Switching on writes nothing; setting it up shows each file first.",
+                SwitchRow("Factory", "A CEO runs this floor on a schedule. Switching on writes nothing; setting it up shows each file first.",
                           isOn: Binding(get: { factory }, set: { model.setFactory(root, on: $0) }))
                 if !factory {
                     RowDivider()
-                    SwitchRow("Keep on campus", "Its floor stays without recent chats.",
+                    SwitchRow("Keep when quiet", "Its floor stays after 8 hours without chats.",
                               isOn: Binding(get: { pinned }, set: { v in if v { model.setHidden(root, on: false) }; model.setPinned(root, on: v) }))
                 }
             }
@@ -881,11 +911,15 @@ private struct ProjectPage: View {
                 }
                 .spelCard()
             }
-            HStack(spacing: 10) {
-                Button { model.setHidden(root, on: !hidden) } label: { Text(hidden ? "Show on campus again" : "Remove from campus") }
-                    .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s)).disabled(factory && !hidden)
-                    .help(factory ? "A factory is never hidden: its questions must reach you" : "")
-                Text(factory ? "A factory stays on the campus." : "The folder and its chats stay on your Mac.").font(.s13).foregroundStyle(Color.muted)
+            // a factory has no Remove: one sentence says how, instead of a button that never works (UX review 26 Nov)
+            if factory && !hidden {
+                Text("A factory always has a floor. Switch Factory off to remove it.").font(.s13).foregroundStyle(Color.muted)
+            } else {
+                HStack(spacing: 10) {
+                    Button { model.setHidden(root, on: !hidden) } label: { Text(hidden ? "Show on campus again" : "Remove from campus") }
+                        .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
+                    Text("The folder and its chats stay on your Mac.").font(.s13).foregroundStyle(Color.muted)
+                }
             }
         }
     }
@@ -972,7 +1006,7 @@ private struct SwitchRow: View {
     var disabled = false
     init(_ title: String, _ text: String, isOn: Binding<Bool>, disabled: Bool = false) { self.title = title; self.text = text; self._isOn = isOn; self.disabled = disabled }
     var body: some View {
-        FieldRow(title: title, text: text) {
+        FieldRow(title: title, text: text, disabled: disabled) {
             Toggle(title, isOn: $isOn).labelsHidden().toggleStyle(TactileToggleStyle()).disabled(disabled)
         }
     }

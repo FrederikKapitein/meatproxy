@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import FactoryCore
 import FactoryCollector
 import FactoryScenes
@@ -117,6 +118,9 @@ final class AppModel: ObservableObject {
     struct ServerSample { let at: Date; let metrics: ServerMetrics }
     /// the last two hours of each server's numbers (one check a minute)
     @Published private(set) var serverHistory: [String: [ServerSample]] = [:]
+    /// since when a server has been down (its first failed check), and its last good check: what its card says
+    @Published private(set) var downSince: [String: Date] = [:]
+    @Published private(set) var lastGood: [String: Date] = [:]
     /// the last look at each public address the servers serve
     @Published private(set) var siteChecks: [String: SiteCheck] = [:]
     private var siteTimer: Timer?
@@ -188,6 +192,11 @@ final class AppModel: ObservableObject {
         // a notification opens its server (a site's alert opens the server that serves it)
         alerts.onOpen = { [weak self] key in
             guard let self else { return }
+            // "New in Needs you": the question or release itself
+            if key.hasPrefix("needs:") {
+                if let item = self.world.needsYou.first(where: { $0.id == String(key.dropFirst(6)) }) { self.settingsOpen = false; self.controller.open(item) }
+                return
+            }
             // a factory's notification (a failed run, a source that stopped) opens its floor at the CEO tab
             for prefix in ["ceo:", "source:"] where key.hasPrefix(prefix) {
                 let root = String(key.dropFirst(prefix.count)).components(separatedBy: ":").first ?? ""
@@ -227,6 +236,8 @@ final class AppModel: ObservableObject {
             MainActor.assumeIsolated { self?.followReduceMotion() }
         }
         controller.setStatusLayer(statusLayer)
+        // the menu bar follows the model after each change (objectWillChange comes before it)
+        menuSink = objectWillChange.sink { [weak self] _ in DispatchQueue.main.async { self?.syncMenu() } }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -349,6 +360,11 @@ final class AppModel: ObservableObject {
 
     /// How each factory's Sentry and Tracker did at their last check (root → health).
     @Published var sourceHealth: [String: FactoryHealth] = [:]
+    /// A source is connected: its token is in the Keychain (a demo's only in memory), and Tracker also has its address.
+    func connected(_ key: Secrets.Key) -> Bool {
+        let token = fixture ? demoTokens.contains(key) : Secrets.get(key) != nil
+        return token && (key != .tracker || WakeSources.trackerURL(projectSettings.trackerURL) != nil)
+    }
     /// Your Tracker's MCP address (https); empty switches Tracker off.
     func setTrackerURL(_ text: String) { changeProjects { $0.trackerURL = text.trimmingCharacters(in: .whitespacesAndNewlines) } }
 
@@ -444,12 +460,67 @@ final class AppModel: ObservableObject {
         world = withTeams(w).withUniqueNames()
         lastRead = w.now
         controller.show(world)
+        followNeedsYou()
         // the DevOps agent on the campus while its run goes, at the server of its latest ops action (D87)
         if !fixture, let st = devopsState {
             let server = st.running ? st.last.flatMap { EngineRoom.lastAction(since: $0.started)?.server } : nil
             controller.showDevOps(running: st.running, server: server)
         }
         Task { await controller.ensurePortraits(w.projects.flatMap { p in p.sessions.map { p.cast(of: $0) } }); objectWillChange.send() }
+    }
+
+    // MARK: outside the window (UX review 26 Nov, point 5)
+
+    /// "New in Needs you" (off by default): a notification per new question or release, gone once it is answered.
+    /// Kept in the preferences; a demo never sends one.
+    @Published var notifyNeedsYou: Bool = !AppModel.demo && UserDefaults.standard.bool(forKey: "notifyNeedsYou") {
+        didSet { if !fixture { UserDefaults.standard.set(notifyNeedsYou, forKey: "notifyNeedsYou") } }
+    }
+    /// what waited at the last look: the first look only learns, so a launch never sends a pile
+    private var seenWaiting: Set<String>?
+    private var dockCount = 0
+
+    /// The Dock icon carries the Needs you count; new questions and releases notify when you asked for it.
+    private func followNeedsYou() {
+        let items = world.needsYou
+        if items.count != dockCount {
+            dockCount = items.count
+            NSApp.dockTile.badgeLabel = items.isEmpty ? nil : "\(items.count)"
+        }
+        // questions, to-dos and releases; a chat that waits is the chat's own business
+        let notable = items.filter { if case .session = $0 { return false }; return true }
+        let ids = Set(notable.map(\.id))
+        defer { seenWaiting = ids }
+        guard let seen = seenWaiting, !fixture else { return }
+        alerts.remove(seen.subtracting(ids).map { "needs:" + $0 })
+        guard notifyNeedsYou else { return }
+        for n in notable where !seen.contains(n.id) {
+            let what: String
+            switch n {
+            case .release: what = "Ready to release"
+            case .decision(_, let d): what = d.isTodo ? "A to-do for you" : "A question for you"
+            case .session: what = ""
+            }
+            alerts.post(title: n.title, body: "\(n.project.name) · \(n.detail)", key: "needs:" + n.id, kind: .warn, subtitle: "Needs you · " + what)
+        }
+    }
+
+    /// Switches a notification setting on: macOS asks first, here, not at the first alert.
+    func askToNotify() { Task { await alerts.askPermission() } }
+
+    /// what the menu bar shows (App.swift), kept apart so the menus are rebuilt only when it changes
+    let menu = MenuState()
+    private var menuSink: AnyCancellable?
+    private func syncMenu() {
+        menu.set(MenuState.State(plainKeys: plainKeysFree, waiting: !world.needsYou.isEmpty, statusLayer: statusLayer, terminal: terminalShown,
+                                 pauseAll: projectSettings.pauseAll, factories: world.projects.filter { $0.factory != nil }.map(\.id)))
+    }
+
+    /// What stops when the app quits: its terminals, the CEO runs and the DevOps run it started. nil: nothing.
+    var runningWork: String? {
+        let terminals = terminals.tabs.filter { $0.exited == nil }.count
+        let runs = world.projects.filter { $0.factory != nil && heartbeats.runner.isRunning($0.root) }.map(\.name)
+        return RunningWork.line(terminals: terminals, ceoRuns: runs, devops: heartbeats.runner.isRunning(EngineRoom.folder.path))
     }
 
     // MARK: servers
@@ -468,6 +539,12 @@ final class AppModel: ObservableObject {
 
     /// Checks every server now (the fixture's are made up and never checked).
     func checkServers() {
+        // the demo's servers are made up: Check only pretends, so the button works as it does for real
+        if fixture, !checkingServers {
+            checkingServers = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.checkingServers = false }
+            return
+        }
         guard !fixture, !serverConfigs.isEmpty, !checkingServers else { return }
         checkingServers = true
         monitor.checkAll { [weak self] in
@@ -492,6 +569,11 @@ final class AppModel: ObservableObject {
 
     private func recordHistory(now: Date = Date()) {
         for s in world.servers {
+            let at = s.checkedAt ?? now
+            if s.state == .down { if downSince[s.id] == nil { downSince[s.id] = at } }
+            else { downSince[s.id] = nil; lastGood[s.id] = at }
+        }
+        for s in world.servers {
             guard let m = s.metrics else { continue }
             var h = serverHistory[s.id] ?? []
             h.append(ServerSample(at: s.checkedAt ?? now, metrics: m))
@@ -515,6 +597,9 @@ final class AppModel: ObservableObject {
     }
 
     private func demoHistory(now: Date = Date()) {
+        // made up: nightly went down 50 minutes ago, after its last good check three hours ago
+        downSince["nightly"] = now.addingTimeInterval(-50 * 60)
+        lastGood["nightly"] = now.addingTimeInterval(-3 * 3600)
         for (k, s) in Fixture.servers.enumerated() {
             guard let m = s.metrics else { continue }
             serverHistory[s.id] = (0..<60).map { i in
@@ -564,12 +649,16 @@ final class AppModel: ObservableObject {
     func takeOver(_ s: Session) {
         guard let resume = TerminalCommand.resume(s) else { status = "This session cannot be resumed here (no \(s.provider == .claude ? "claude" : "codex") CLI found)."; return }
         // a chat that waits shows what it asked above the conversation (C5): answering happens there, not in the app
-        let cmd = s.state(now: world.now) == .waiting ? Self.withQuestion(resume, s.lastSaid) : resume
-        let root = world.projects.first { $0.sessions.contains { $0.id == s.id } }?.root
+        var cmd = s.state(now: world.now) == .waiting ? Self.withQuestion(resume, s.lastSaid) : resume
+        let project = world.projects.first { $0.sessions.contains { $0.id == s.id } }
+        let root = project?.root
+        // the tab says whose it is, in the campus's words: "Pebble Puzzles · CEO run"
+        if let project { cmd.title = project.name + " · " + (s.heartbeatRun == true ? "CEO run" : s.title) }
+        let command = cmd
         let ceo = s.heartbeatRun == true && root != nil
         if ceo, let root { heartbeats.takeOver(root) }
-        let open = { [weak self] in
-            self?.terminals.open(cmd, icon: "person.fill.checkmark") { [weak self] in
+        let open: @MainActor @Sendable () -> Void = { [weak self] in
+            self?.terminals.open(command, icon: "person.fill.checkmark") { [weak self] in
                 if ceo, let root { self?.heartbeats.handBack(root) }
                 self?.refresh()
             }
@@ -1031,6 +1120,7 @@ final class AppModel: ObservableObject {
 
     /// When the CEO picks an answer up: a few minutes after it, or at its next beat.
     func pickUp(_ p: Project) -> String {
+        if p.id == World.opsID && !projectSettings.devops.enabled { return "once you switch it on" }
         let wakes = p.id == World.opsID ? projectSettings.devops.heartbeat.wakeOnAnswer : projectSettings.entry(p.root)?.heartbeat.wakeOnAnswer ?? false
         if wakes { return "about \(Int(Heartbeat.answerWindow / 60)) minutes after you answer" }
         if let n = heartbeat(p)?.next { return "at its next beat, " + HeartbeatCard.when(n) }

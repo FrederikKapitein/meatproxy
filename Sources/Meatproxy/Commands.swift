@@ -20,7 +20,14 @@ struct AppCommand: Identifiable {
     /// a portrait or a logo instead of the icon
     var cast: CastKey? = nil
     var logo: String? = nil
+    /// where it sits in the menu bar (UX review 26 Nov, point 9), its title there (Mac title case) and the key the menu
+    /// binds; the HUD's own keys are only those a menu cannot hold (a plain key while you type, Esc, ?)
+    var menu: MenuPlace? = nil
+    var menuTitle: String? = nil
+    var shortcut: KeyboardShortcut? = nil
     let run: @MainActor () -> Void
+
+    enum MenuPlace { case go, view, factories, help }
 }
 
 /// Help's two tabs (D7).
@@ -38,23 +45,40 @@ extension AppModel {
     /// What you can do from anywhere, with its keys.
     var staticCommands: [AppCommand] {
         var c: [AppCommand] = [
-            AppCommand(id: "go.campus", title: "Campus", detail: "The whole island", icon: "campus", group: .go, keys: "⌘1") { [weak self] in self?.controller.showOrbit(false); self?.controller.focusBuilding(nil) },
-            AppCommand(id: "go.engine", title: "Server room", detail: "Servers, services, the DevOps agent", icon: "server", group: .go, keys: "⌘2") { [weak self] in self?.controller.focusBuilding("engine") },
-            AppCommand(id: "go.next", title: "Next that needs you", detail: "Questions and chats that wait", icon: "bang", group: .go, keys: "N") { [weak self] in self?.controller.nextWaiting() },
+            AppCommand(id: "go.campus", title: "Campus", detail: "The whole island", icon: "campus", group: .go, keys: "⌘1",
+                       menu: .go, menuTitle: "Campus", shortcut: KeyboardShortcut("1", modifiers: .command)) { [weak self] in self?.goCampus() },
+            AppCommand(id: "go.engine", title: "Server room", detail: "Servers, services, the DevOps agent", icon: "server", group: .go, keys: "⌘2",
+                       menu: .go, menuTitle: "Server Room", shortcut: KeyboardShortcut("2", modifiers: .command)) { [weak self] in self?.goServerRoom() },
+            // N is a plain key: the menu binds it only while nothing takes typing (`plainKeysFree`)
+            AppCommand(id: "go.next", title: "Next that needs you", detail: "Questions and chats that wait", icon: "bang", group: .go, keys: "N",
+                       menu: .go, menuTitle: "Next That Needs You",
+                       shortcut: plainKeysFree && !world.needsYou.isEmpty ? KeyboardShortcut("n", modifiers: []) : nil) { [weak self] in self?.goNext() },
             AppCommand(id: "go.up", title: "Up a level", detail: "Floor → building → campus", icon: "up", group: .go, keys: "esc") { [weak self] in self?.controller.up() },
-            AppCommand(id: "go.zoomin", title: "Zoom in", icon: "plus", group: .go, keys: "+") { [weak self] in self?.controller.zoom(0.8) },
-            AppCommand(id: "go.zoomout", title: "Zoom out", icon: "minus", group: .go, keys: "−") { [weak self] in self?.controller.zoom(1.25) },
-            AppCommand(id: "show.search", title: "Search", icon: "search", group: .show, keys: "⌘K") { [weak self] in self?.paletteOpen = true },
-            AppCommand(id: "show.status", title: statusLayer ? "Hide the Status layer" : "Status layer", detail: "Status pages and CI on the campus", icon: "layers", group: .show, keys: "⌘L") { [weak self] in guard let self else { return }; self.setStatusLayer(!self.statusLayer) },
-            AppCommand(id: "show.terminal", title: "Terminal", icon: "terminal", group: .show, keys: "⌘J") { [weak self] in self?.terminals.toggle() },
+            AppCommand(id: "go.zoomin", title: "Zoom in", icon: "plus", group: .go, keys: "⌘+",
+                       menu: .view, menuTitle: "Zoom In", shortcut: KeyboardShortcut("+", modifiers: .command)) { [weak self] in self?.controller.zoom(0.8) },
+            AppCommand(id: "go.zoomout", title: "Zoom out", icon: "minus", group: .go, keys: "⌘−",
+                       menu: .view, menuTitle: "Zoom Out", shortcut: KeyboardShortcut("-", modifiers: .command)) { [weak self] in self?.controller.zoom(1.25) },
+            AppCommand(id: "go.actual", title: "Actual size", detail: "Back to how this level is framed", icon: "eye", group: .go, keys: "⌘0",
+                       menu: .view, menuTitle: "Actual Size", shortcut: KeyboardShortcut("0", modifiers: .command)) { [weak self] in self?.controller.actualSize() },
+            AppCommand(id: "show.search", title: "Search", icon: "search", group: .show, keys: "⌘K",
+                       menu: .view, menuTitle: "Search…", shortcut: KeyboardShortcut("k", modifiers: .command)) { [weak self] in self?.toggleSearch() },
+            AppCommand(id: "show.status", title: statusLayer ? "Hide the Status layer" : "Status layer", detail: "Status pages and CI on the campus", icon: "layers", group: .show, keys: "⌘L",
+                       menu: .view, menuTitle: statusLayer ? "Hide Status Layer" : "Show Status Layer", shortcut: KeyboardShortcut("l", modifiers: .command)) { [weak self] in guard let self else { return }; self.setStatusLayer(!self.statusLayer) },
+            AppCommand(id: "show.terminal", title: terminalShown ? "Hide the terminal" : "Terminal", icon: "terminal", group: .show, keys: "⌘J",
+                       menu: .view, menuTitle: terminalShown ? "Hide Terminal" : "Show Terminal", shortcut: KeyboardShortcut("j", modifiers: .command)) { [weak self] in self?.terminals.toggle() },
             AppCommand(id: "show.settings", title: "Settings", icon: "gear", group: .show, keys: "⌘,") { [weak self] in self?.settingsOpen = true },
-            AppCommand(id: "show.commands", title: "Help", detail: "Every key, and the field guide", icon: "help", group: .show, keys: "?") { [weak self] in self?.commandsOpen = true },
+            AppCommand(id: "show.commands", title: "Help", detail: "Every key, and the field guide", icon: "help", group: .show, keys: "?",
+                       menu: .help, menuTitle: "Keys") { [weak self] in self?.openHelp(.keys) },
+            AppCommand(id: "show.guide", title: "Field guide", detail: "Everything that moves on the campus", icon: "star", group: .show,
+                       menu: .help, menuTitle: "Field Guide") { [weak self] in self?.openHelp(.guide) },
             AppCommand(id: "do.answer", title: "Answer yes or no", detail: "On an open question; it asks once more", icon: "check", group: .act, keys: "1 2") { [weak self] in self?.controller.nextWaiting() },
             AppCommand(id: "do.send", title: "Send the answer", icon: "send", group: .act, keys: "⌘↩") { [weak self] in self?.controller.nextWaiting() },
-            AppCommand(id: "do.pause", title: projectSettings.pauseAll ? "Resume all factories" : "Pause all factories", detail: "The kill switch: nothing starts, running CEOs stop", icon: projectSettings.pauseAll ? "play" : "pause", group: .act) { [weak self] in guard let self else { return }; self.setPauseAll(!self.projectSettings.pauseAll) },
-            AppCommand(id: "do.walk", title: "Take the walk", detail: "A minute round your campus", icon: "map", group: .act) { [weak self] in
+            AppCommand(id: "do.pause", title: projectSettings.pauseAll ? "Resume all factories" : "Pause all factories", detail: "The kill switch: nothing starts, running CEOs stop", icon: projectSettings.pauseAll ? "play" : "pause", group: .act,
+                       menu: .factories, menuTitle: projectSettings.pauseAll ? "Resume All" : "Pause All") { [weak self] in guard let self else { return }; self.setPauseAll(!self.projectSettings.pauseAll) },
+            AppCommand(id: "do.walk", title: "Take the walk", detail: "A minute round your campus", icon: "map", group: .act,
+                       menu: .help, menuTitle: "Take the Walk") { [weak self] in
                 guard let self else { return }
-                self.walkGoalDone = false; self.walkStep = 1; self.controller.showOrbit(false); self.controller.focusBuilding(nil)
+                self.settingsOpen = false; self.walkGoalDone = false; self.walkStep = 1; self.controller.showOrbit(false); self.controller.focusBuilding(nil)
             },
         ]
         if projectSettings.devops.enabled {
@@ -104,6 +128,16 @@ extension AppModel {
 
     func openProjectSettings(_ root: String) { settingsPage = "project:" + root; settingsOpen = true }
 
+    /// The plain keys (N, Esc, 1, 2, ?) are free: no text field, terminal or sheet takes typing now.
+    var plainKeysFree: Bool { !(typing || terminalShown || overlayOpen || settingsOpen) }
+
+    // what the menu bar, the HUD and ⌘K do alike; from the menu bar they also close Settings, which hides the HUD
+    func goCampus() { settingsOpen = false; controller.showOrbit(false); controller.focusBuilding(nil) }
+    func goServerRoom() { settingsOpen = false; controller.showOrbit(false); controller.focusBuilding("engine") }
+    func goNext() { settingsOpen = false; nextPulse += 1; nextPressed += 1; controller.nextWaiting() }
+    func toggleSearch() { settingsOpen = false; commandsOpen = false; factoryPickerOpen = false; paletteOpen.toggle() }
+    func openHelp(_ tab: HelpTab) { settingsOpen = false; paletteOpen = false; factoryPickerOpen = false; helpTab = tab; commandsOpen = true }
+
     /// The right-click menu for what you clicked (nil: the empty world).
     func contextMenu(for t: ContextTarget?, at point: CGPoint) -> ContextMenuState {
         var items: [AppCommand] = [], title = "Campus"
@@ -129,7 +163,7 @@ extension AppModel {
             if !p.isChat {
                 if p.factory == nil {
                     let pinned = isPinned(p)
-                    items.append(AppCommand(id: "c.pin", title: pinned ? "Don't keep on campus" : "Keep on campus", icon: "map", group: .act) { [weak self] in self?.setPinned(p.root, on: !pinned) })
+                    items.append(AppCommand(id: "c.pin", title: pinned ? "Don't keep when quiet" : "Keep when quiet", icon: "map", group: .act) { [weak self] in self?.setPinned(p.root, on: !pinned) })
                     items.append(AppCommand(id: "c.hide", title: "Hide from campus", detail: "Nothing is deleted", icon: "eye", group: .act) { [weak self] in self?.setHidden(p.root, on: true) })
                 }
                 items.append(AppCommand(id: "c.reveal", title: "Show in Finder", icon: "folder", group: .act) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: p.root)]) })
@@ -176,8 +210,8 @@ extension AppModel {
 
     /// What the mouse and trackpad do, for Help.
     static let gestures: [(String, String)] = [
-        ("Click", "opens it"), ("Right-click", "a menu"), ("Drag", "moves"),
-        ("Scroll or + −", "zooms"), ("Hover a tower", "opens it up"), ("Wheel on a tower", "walks floors"),
+        ("Click", "opens it"), ("Right-click", "a menu"), ("Scroll or drag", "moves"),
+        ("Pinch or + −", "zooms"), ("Hover a tower", "opens it up"), ("Wheel on a tower", "walks floors"),
     ]
 }
 
@@ -304,7 +338,7 @@ struct CommandSheet: View {
 private struct KeysTab: View {
     @EnvironmentObject private var model: AppModel
     var body: some View {
-        let all = model.staticCommands.filter { !$0.id.hasPrefix("do.run:") && $0.id != "show.commands" }
+        let all = model.staticCommands.filter { !$0.id.hasPrefix("do.run:") && $0.id != "show.commands" && $0.id != "show.guide" }
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 18) {
                 ForEach([AppCommand.Group.go, .show, .act], id: \.self) { g in
@@ -430,6 +464,7 @@ private struct CommandRow: View {
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)
+        .accessibilityHint(command.keys.map(KeyCap.spoken) ?? "")
     }
 
     @ViewBuilder private var icon: some View {

@@ -26,6 +26,26 @@ final class TerminalCenter: NSObject, ObservableObject, LocalProcessTerminalView
     var onShown: ((Bool) -> Void)?
     @Published var height: CGFloat = 320
 
+    /// ⌘W with a terminal focused closes its tab, as in every terminal, and not the window (closing the last tab hides
+    /// the drawer); anywhere else ⌘W is the window's.
+    private var keyMonitor: Any?
+    override init() {
+        super.init()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            let cmdW = e.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command && e.charactersIgnoringModifiers == "w"
+            guard cmdW else { return e }
+            let closed = MainActor.assumeIsolated { self?.closeFocusedTab() == true }
+            return closed ? nil : e
+        }
+    }
+    private func closeFocusedTab() -> Bool {
+        guard shown, let id = selected, let t = tabs.first(where: { $0.id == id }),
+              let responder = t.view.window?.firstResponder as? NSView, responder === t.view || responder.isDescendant(of: t.view) else { return false }
+        close(id)
+        if let next = tabs.first(where: { $0.id == selected }) { DispatchQueue.main.async { next.view.window?.makeFirstResponder(next.view) } }
+        return true
+    }
+
     /// Opens a tab with a command and shows the panel. `onClose` runs when you close the tab (hand a factory back).
     func open(_ c: TerminalCommand, icon: String = "terminal", onClose: (() -> Void)? = nil) {
         let v = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))

@@ -441,6 +441,16 @@ struct KeyCap: View {
             .padding(.bottom, 1.5)
             .accessibilityHidden(true)
     }
+
+    /// The cap hides itself from VoiceOver: what it shows goes into its button's hint instead ("Shortcut: Command K").
+    static func spoken(_ key: String) -> String {
+        let names: [(String, String)] = [("⌘", "Command "), ("⇧", "Shift "), ("⌥", "Option "), ("⌃", "Control "), ("↩", "Return"),
+                                          ("esc", "Escape"), ("↑", "Up Arrow"), ("↓", "Down Arrow"), ("?", "Question Mark"),
+                                          ("+", "Plus"), ("−", "Minus"), (",", "Comma")]
+        var s = key.replacingOccurrences(of: " ", with: " or ")   // "1 2": either key
+        for (k, v) in names { s = s.replacingOccurrences(of: k, with: v) }
+        return "Shortcut: " + s.trimmingCharacters(in: .whitespaces)
+    }
 }
 
 /// The app's resources: inside Meatproxy.app they sit in Contents/Resources (scripts/make-app.sh); in a bare build,

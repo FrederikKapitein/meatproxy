@@ -460,6 +460,8 @@ public final class WorldController {
     /// Debug aid for window shots: a person on the open floor walks to another room.
     public func debugWalk(_ session: String, to room: String) { floor?.debugWalk(session, to: room) }
     public func zoom(_ factor: CGFloat) { (current as? WorldScene)?.zoom(by: factor) }
+    /// back to how the level was framed (⌘0)
+    public func actualSize() { (current as? WorldScene)?.actualSize() }
     /// Debug aid for window shots: where a person on the open floor is, in view points from the top left.
     public func personViewPoint(_ id: String) -> CGPoint? { floor?.personViewPoint(id) }
 

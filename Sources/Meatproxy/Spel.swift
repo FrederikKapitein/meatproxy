@@ -431,6 +431,7 @@ struct SpelLabel: View {
             if let title { Text(title) }
             if let key { KeyCap(key, onYellow: onYellow) }
         }
+        .accessibilityHint(key.map(KeyCap.spoken) ?? "")
     }
 }
 
@@ -772,11 +773,12 @@ struct FieldRow<Control: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.s15).foregroundStyle(Color.inkText)
+                // a row that cannot be used yet is dimmed, its line saying why
+                Text(title).font(.s15).foregroundStyle(disabled ? Color.muted : Color.inkText)
                 if let text, !text.isEmpty { Text(text).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true) }
             }
             Spacer(minLength: 8)
-            control()
+            control().opacity(disabled ? 0.45 : 1)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
     }

@@ -241,7 +241,7 @@ struct HUDView: View {
             // "terminal:demo": a tab with made-up output (screenshots), nothing real runs in it
             else if step == "terminal:demo" {
                 let text = "\\033[1;32m✓\\033[0m Pebble Puzzles · CEO run (taken over)\\n\\033[2m> Resuming the conversation where the CEO left it…\\033[0m\\n\\nW-003 timer keeps time after resume: the tester reports the timer resets on resume.\\nNext step: delegate the fix to the developer, then ask the tester again.\\n\\n\\033[1m>\\033[0m "
-                model.terminals.open(TerminalCommand(title: "Pebble factory: CEO run", executable: "/bin/sh", args: ["-c", "printf '\(text)'; sleep 60"], cwd: nil),
+                model.terminals.open(TerminalCommand(title: "Pebble Puzzles · CEO run", executable: "/bin/sh", args: ["-c", "printf '\(text)'; sleep 60"], cwd: nil),
                                      icon: "person.fill.checkmark")
             }
             else if step.hasPrefix("runnow:") { model.runNow(root: String(step.dropFirst(7))) }
@@ -292,23 +292,19 @@ enum Shell {
 
 // MARK: keys
 
-/// The HUD's plain keys in one place, so they work whatever panel is open: N (next that waits), Esc (up), ⌘K (search),
-/// ? (Help), ⌘1 (Campus), ⌘2 (Server room), 1 and 2 (answer the open question). A text field, the terminal or an open
-/// sheet keeps them.
+/// The HUD's own keys: the ones a menu cannot hold. Esc (up), ? (Help), and 1 and 2 (answer the open question); a text
+/// field, the terminal or an open sheet keeps them. ⌘K, ⌘L, ⌘J, ⌘1, ⌘2, zoom and N are in the menu bar (App.swift).
 private struct KeyCatcher: View {
     @EnvironmentObject private var model: AppModel
     var body: some View {
-        let free = !(model.typing || model.terminalShown || model.overlayOpen)
+        let free = model.plainKeysFree
         ZStack {
-            Button("") { model.nextPulse += 1; model.nextPressed += 1; model.controller.nextWaiting() }
-                .keyboardShortcut(free && !model.world.needsYou.isEmpty ? KeyboardShortcut("n", modifiers: []) : nil)
             Button("") { model.upPulse += 1; model.controller.up() }
                 .keyboardShortcut(free ? KeyboardShortcut(.escape, modifiers: []) : nil)
-            Button("") { model.commandsOpen = false; model.factoryPickerOpen = false; model.paletteOpen.toggle() }.keyboardShortcut("k", modifiers: .command)
             Button("") { model.paletteOpen = false; model.commandsOpen.toggle() }
                 .keyboardShortcut(model.typing || model.terminalShown || model.paletteOpen ? nil : KeyboardShortcut("/", modifiers: .shift))
-            Button("") { model.controller.showOrbit(false); model.controller.focusBuilding(nil) }.keyboardShortcut("1", modifiers: .command)
-            Button("") { model.controller.showOrbit(false); model.controller.focusBuilding("engine") }.keyboardShortcut("2", modifiers: .command)
+            // ⌘= zooms in too: on most keyboards + is shift-=, and the menu's ⌘+ wants the shift
+            Button("") { model.controller.zoom(0.8) }.keyboardShortcut("=", modifiers: .command)
             // the open question's answers (C4): 1 is yes, 2 is no; both still ask once more before anything is written
             Button("") { guard model.answerable else { return }; model.answerKey = AppModel.AnswerKey(count: model.answerKey.count + 1, yes: true) }
                 .keyboardShortcut(free ? KeyboardShortcut("1", modifiers: []) : nil)
@@ -397,14 +393,11 @@ private struct Toolbar: View {
     @EnvironmentObject private var model: AppModel
     var body: some View {
         HStack(spacing: 6) {
-            ToolButton(icon: "search", title: "Search", key: "⌘K", help: "Search projects, people, questions and servers (⌘K)") {
-                model.commandsOpen = false; model.paletteOpen.toggle()
-            }
+            ToolButton(icon: "search", title: "Search", key: "⌘K", help: "Search projects, people, questions and servers (⌘K)") { model.toggleSearch() }
             ToolButton(icon: "layers", title: "Status", key: "⌘L", on: model.statusLayer,
                        help: model.statusLayer ? "Hide the Status layer (⌘L)" : "Show the Status layer: status pages and CI on the campus (⌘L)") {
                 model.setStatusLayer(!model.statusLayer)
             }
-            .keyboardShortcut("l", modifiers: .command)
             TerminalButton(center: model.terminals)
             ToolButton(icon: "help", title: "Help", key: "?", help: "Every key, and the field guide (?)") {
                 model.paletteOpen = false; model.commandsOpen.toggle()
@@ -452,6 +445,7 @@ private struct ToolButton: View {
         .help(help)
         .accessibilityLabel(badge > 0 ? "\(title), \(badge) open" : title)
         .accessibilityValue(on ? "On" : "")
+        .accessibilityHint(KeyCap.spoken(key))
     }
 }
 
@@ -490,7 +484,6 @@ private struct TerminalButton: View {
                    help: center.shown ? "Hide the terminal (⌘J)" : "Terminal (⌘J)") {
             withAnimation(.easeOut(duration: 0.2)) { center.toggle() }
         }
-        .keyboardShortcut("j", modifiers: .command)
     }
 }
 
@@ -504,10 +497,10 @@ private struct QuestLog: View {
     @State private var all = false
 
     /// the place the log can narrow to: this floor, or the Server room
-    private var here: (label: String, match: (NeedsYou) -> Bool)? {
+    private var here: (label: String, inWords: String, match: (NeedsYou) -> Bool)? {
         let s = model.selection
-        if s.engineRoom { return ("Server room", { $0.group == .serverRoom }) }
-        if let id = s.projectID, id != World.opsID { return ("This floor", { $0.project.id == id }) }
+        if s.engineRoom { return ("Server room", "In the Server room", { $0.group == .serverRoom }) }
+        if let id = s.projectID, id != World.opsID { return ("This floor", "On this floor", { $0.project.id == id }) }
         return nil
     }
 
@@ -529,6 +522,10 @@ private struct QuestLog: View {
                     .disabled(items.isEmpty)
                     .help("Go to the next one that waits for you (N)")
             }
+            // D25's middle way (UX review 26 Nov): what is broken is no question for you, so it is one quiet line here,
+            // outside every count and out of N's way; it shows where on the Status layer
+            let broken = model.world.broken
+            if !broken.isEmpty { brokenLine(broken).padding(.top, 12) }
             // while the walk runs, the log says so in a line of its own, never over a card
             if walking { Tag("Waits until the walk is done", icon: "pause").padding(.top, 12).zIndex(1) }
             if let here, !items.isEmpty {
@@ -541,7 +538,7 @@ private struct QuestLog: View {
             } else {
                 ScrollFit {
                     VStack(alignment: .leading, spacing: 8) {
-                        if narrowed, let here { Eyebrow("On \(here.label.lowercased())") }
+                        if narrowed, let here { Eyebrow(here.inWords) }
                         ForEach(Array(shown.prefix(16).enumerated()), id: \.element.id) { k, item in
                             if !narrowed && (k == 0 || shown[k - 1].group != item.group) {
                                 Eyebrow(item.group.label).padding(.top, k == 0 ? 0 : 6)
@@ -553,7 +550,7 @@ private struct QuestLog: View {
                                                                                   removal: .scale(scale: 0.94, anchor: .top).combined(with: .opacity)))
                         }
                         if narrowed, let here {
-                            if mine.isEmpty { Text("Nothing waits on \(here.label.lowercased()).").font(.s13).foregroundStyle(Color.muted) }
+                            if mine.isEmpty { Text("Nothing waits \(here.inWords.prefix(1).lowercased() + here.inWords.dropFirst()).").font(.s13).foregroundStyle(Color.muted) }
                             if items.count > mine.count { moreRow(items.count - mine.count) }
                         }
                     }
@@ -569,7 +566,7 @@ private struct QuestLog: View {
             if walking {
                 UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 10, bottomTrailingRadius: 10, topTrailingRadius: 0)
                     .fill(Color.ink.opacity(0.62))
-                    .padding(.top, 96)
+                    .padding(.top, model.world.broken.isEmpty ? 96 : 132)   // under the broken line too
                     .allowsHitTesting(false)
             }
         }
@@ -579,11 +576,29 @@ private struct QuestLog: View {
         .accessibilityElement(children: .contain).accessibilityLabel("Needs you")
     }
 
+    /// "2 things are broken · Status ⌘L": a red square and its words; a click shows the Status layer
+    private func brokenLine(_ broken: [String]) -> some View {
+        Button { model.setStatusLayer(true) } label: {
+            HStack(spacing: 6) {
+                PixelIcon("sq", color: .stuck, size: 9)
+                Text("\(broken.count) thing\(broken.count == 1 ? " is" : "s are") broken").foregroundStyle(Color.inkText)
+                Text("· Status").foregroundStyle(Color.muted)
+                KeyCap("⌘L")
+                Spacer(minLength: 0)
+            }
+            .font(.s13m).frame(height: 24).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(broken.joined(separator: "\n") + "\nShows them on the Status layer (⌘L)")
+        .accessibilityLabel("\(broken.count) broken: " + broken.joined(separator: ", "))
+        .accessibilityHint("Shows the Status layer. Shortcut: Command L")
+    }
+
     /// a quiet row on a solid edge with a chevron: it opens All (a dashed edge means "not yet", never "more")
     private func moreRow(_ n: Int) -> some View {
         Button { all = true } label: {
             HStack(spacing: 6) {
-                Text("\(n) more \(model.selection.engineRoom ? "elsewhere" : "on other floors")").font(.s13m)
+                Text("\(n) more elsewhere").font(.s13m)
                 Spacer(minLength: 0)
                 PixelIcon("chev", color: .muted, size: 9)
             }
@@ -856,7 +871,7 @@ struct FieldNoteBanner: View {
 struct WalkCard: View {
     @EnvironmentObject private var model: AppModel
     static let steps: [(title: String, text: String, goal: String)] = [
-        ("Your campus", "Every Claude Code and Codex chat from the last 8 hours lives here. One tower per tool: Claude and ChatGPT (Codex). One floor per project.", "Open a floor: click one, or scroll in"),
+        ("Your campus", "Every Claude Code and Codex chat from the last 8 hours lives here. One tower per tool: Claude and ChatGPT (Codex). One floor per project.", "Open a floor: click one, or zoom in"),
         ("People are your chats", "The room someone is in is what that chat does now: research, development, testing, or waiting at the front desk for you.", "Click someone to see their last step"),
         ("Needs you", "Chats that stopped to ask you something, and the factories' questions, line up on the left. N takes you to the next one.", "Press N"),
         ("Everything explains itself", "Hover anything that moves to see why it moves. Help keeps every key and a field guide of what you have seen.", "Open Help: press ?"),
@@ -1055,7 +1070,7 @@ struct FactoryPicker: View {
                         .font(.s13).foregroundStyle(Color.muted)
                 }
                 Spacer(minLength: 0)
-                if factory { Tag(factory ? "Factory already" : "", tone: .done) }
+                if factory { Tag("Already a factory", tone: .done) }
                 else if picked == p.id { PixelIcon("check", color: .selection) }
             }
             .spelCard(selected: picked == p.id, pad: 10)

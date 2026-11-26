@@ -89,7 +89,15 @@ public class WorldScene: SKScene {
                width: size.width * cam.xScale, height: size.height * cam.yScale)
     }
 
+    /// where the last flight framed the level: Actual Size (⌘0) goes back there after zooming by hand
+    private var framed: (center: CGPoint, scale: CGFloat)?
+    public func actualSize() {
+        guard let f = framed else { goHome(duration: 0.35); return }
+        fly(center: f.center, scale: f.scale, duration: 0.35)
+    }
+
     func fly(center: CGPoint, scale: CGFloat, duration: TimeInterval = 0.7, completion: (() -> Void)? = nil) {
+        framed = (center, scale)
         cam.removeAllActions()
         // a view that draws no frames (paused, hidden, its display asleep) runs no actions: jump there, so what waits on the flight still happens
         guard animationsEnabled, view.map({ $0.drawsFrames }) ?? true else { cam.position = center; cam.setScale(scale); completion?(); return }
@@ -192,8 +200,16 @@ public class WorldScene: SKScene {
         let q = v.convert(event.locationInWindow, from: nil)
         onContext?(contextTarget(at: event.location(in: self)), CGPoint(x: q.x, y: v.isFlipped ? q.y : v.bounds.height - q.y))
     }
+    /// A trackpad's two fingers move the world, as in a map; pinch, ⌘-scroll or a mouse wheel zoom. The wheel on a
+    /// tower that stands apart walks its floors.
     public override func scrollWheel(with event: NSEvent) {
-        if wheel(event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas) { return }
+        let command = event.modifierFlags.contains(.command)
+        if event.hasPreciseScrollingDeltas && !command {
+            if abs(event.scrollingDeltaX) + abs(event.scrollingDeltaY) > 0 { pointerMoved(to: nil) }
+            pan(dx: event.scrollingDeltaX, dy: event.scrollingDeltaY)
+            return
+        }
+        if !command, wheel(event.scrollingDeltaY, precise: false) { return }
         let k: CGFloat = event.hasPreciseScrollingDeltas ? 0.006 : 0.06
         zoom(by: exp(-event.scrollingDeltaY * k), around: event.location(in: self))
     }
