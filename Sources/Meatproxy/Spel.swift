@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import FactoryCore
 
 // Spel+ (D80): Y · Spel's shapes and type scale on X · Rust's cool neutrals, with X's restraint. One frame with a bevel
@@ -28,14 +29,16 @@ extension Color {
     /// recessed: inputs, meters, sockets
     static let well = Color(hex: 0x0E0E0E)
     /// the 2 pt frame and card edge
-    static let divider = Color(hex: 0x2C2C2C)
+    static let divider = Color.contrast(0x2C2C2C, increased: 0x6E6E6E)
     /// a control's edge
-    static let border = Color(hex: 0x3A3A3A)
+    static let border = Color.contrast(0x3A3A3A, increased: 0x767676)
+    /// the edge of what you type in and of a live ghost button: clear of the dark around it (about 3:1)
+    static let inputEdge = Color.contrast(0x5C5C5C, increased: 0x8A8A8A)
     /// the hard shadow under a frame or a button
     static let plinth = Color(hex: 0x050505)
     // two text levels only (X): main and secondary, both at least 4.5:1 on every surface
     static let inkText = Color(hex: 0xF2F2F2)
-    static let muted = Color(hex: 0xA3A3A3)
+    static let muted = Color.contrast(0xA3A3A3, increased: 0xC8C8C8)
     // yellow: the one primary action and what waits for you; its gradient top, its edge, its ledge, ink on it
     static let signal = Color(hex: 0xFFD83D)
     static let signalTop = Color(hex: 0xFFE268)
@@ -59,6 +62,18 @@ extension Color {
     static let lit = Color(hex: 0xF2F2F2)
     static let lit2 = Color(hex: 0xD6D6D6)
     static let litLedge = Color(hex: 0x6E6E6E)
+    /// A colour that follows the Mac's Increase contrast (its high-contrast appearance): edges and secondary text step
+    /// up there, everything else stays.
+    static func contrast(_ normal: UInt32, increased: UInt32) -> Color {
+        func ns(_ h: UInt32) -> NSColor {
+            NSColor(srgbRed: CGFloat((h >> 16) & 255) / 255, green: CGFloat((h >> 8) & 255) / 255, blue: CGFloat(h & 255) / 255, alpha: 1)
+        }
+        let lo = ns(normal), hi = ns(increased)
+        return Color(nsColor: NSColor(name: nil) { a in
+            let high = a.bestMatch(from: [.accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua, .darkAqua, .aqua])
+            return high == .accessibilityHighContrastDarkAqua || high == .accessibilityHighContrastAqua ? hi : lo
+        })
+    }
     /// a provider's colour lives in the world and its emblem only (E5), never on HUD text
     static func provider(_ p: Provider) -> Color { p == .claude ? Color(hex: 0xE8916B) : Color(hex: 0x6FD3B8) }
     static func state(_ s: SessionState) -> Color {
@@ -245,6 +260,7 @@ struct SpelCard: ViewModifier {
     var selected = false
     var pad: CGFloat = 12
     var fill: Color = .surface
+    @Environment(\.colorSchemeContrast) private var contrast
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 10)
         content
@@ -261,7 +277,7 @@ struct SpelCard: ViewModifier {
             }
             .background(shape.fill(Color.plinth).offset(y: 2))
             // the selection's halo: a faint ring just outside the edge (a shadow would blur everything inside)
-            .overlay { if selected { RoundedRectangle(cornerRadius: 12).strokeBorder(Color.selection.opacity(0.3), lineWidth: 2).padding(-3).allowsHitTesting(false) } }
+            .overlay { if selected { RoundedRectangle(cornerRadius: 12).strokeBorder(Color.selection.opacity(contrast == .increased ? 0.7 : 0.3), lineWidth: 2).padding(-3).allowsHitTesting(false) } }
     }
 }
 
@@ -307,7 +323,8 @@ struct Socket<Inner: View>: View {
 
 /// The chunky button (Y's shape, X's neutrals): a 2 pt edge and a hard ledge below; pressed, it lands on the ledge.
 /// Primary is the one yellow action of a view; secondary everything else; ghost a quiet link-like control; danger a
-/// confirmed removal. Disabled is flat with a dashed edge and keeps a readable label (E9). m is 34 high, s 28, l 40.
+/// confirmed removal. Disabled is flat and grey on a solid edge, with no ledge, so it never looks pressable (a dashed edge
+/// means "not yet" or an empty slot, nothing else); its label stays readable (E9). m is 34 high, s 28, l 40.
 struct SpelButtonStyle: ButtonStyle {
     enum Kind { case primary, secondary, ghost, danger }
     enum Size { case s, m, l }
@@ -373,7 +390,7 @@ private struct SpelButtonBody: View {
     }
     @ViewBuilder private func face(_ r: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: r)
-        if !enabled { shape.fill(Color.clear) }
+        if !enabled { shape.fill(Color.surface) }
         else {
             switch kind {
             case .primary: shape.fill(LinearGradient(colors: [hover ? Color(hex: 0xFFE987) : .signalTop, .signal], startPoint: .top, endPoint: .bottom))
@@ -386,12 +403,12 @@ private struct SpelButtonBody: View {
     }
     @ViewBuilder private func edge(_ r: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: r)
-        if !enabled { shape.strokeBorder(Color.border, style: StrokeStyle(lineWidth: 2, dash: [4, 3])) }
+        if !enabled { shape.strokeBorder(Color.divider, lineWidth: 2) }
         else {
             switch kind {
             case .primary: shape.strokeBorder(Color.signalEdge, lineWidth: 2)
             case .danger: shape.strokeBorder(Color(hex: 0xB23A3A), lineWidth: 2)
-            case .ghost: shape.strokeBorder(Color.divider, lineWidth: 2)
+            case .ghost: shape.strokeBorder(Color.inputEdge, lineWidth: 2)
             case .secondary: shape.strokeBorder(Color.border, lineWidth: 2)
             }
         }

@@ -26,13 +26,15 @@ struct FactoryOverview: View {
     let project: Project
     let factory: Factory
     private var tab: Tab { model.factoryTabs[project.id] ?? .overview }
+    /// the release row's Release button opens the release card's confirmation below it
+    @State private var releasing = false
 
     enum Tab: String, Hashable { case overview, work, ceo, team }
 
     var body: some View {
         let hb = model.heartbeat(project)
         let items: [FolderTabs<Tab>.Item] = [
-            .init(id: .overview, title: "Overview", badge: factory.openDecisions.count, help: "What waits for you, the CEO's briefing and your ideas"),
+            .init(id: .overview, title: "Overview", badge: factory.waiting, help: "What waits for you, the CEO's briefing and your ideas"),
             .init(id: .work, title: "Work", badge: project.sessions.filter { $0.state(now: model.world.now) == .waiting }.count, help: "Workstreams and sessions; a badge for chats that wait for you"),
             .init(id: .ceo, title: "CEO", badge: hb?.blocked?.waitsForYou == true ? 1 : 0, help: "Heartbeat, what it may do, autonomy and limits"),
             .init(id: .team, title: "Team", help: "Who the CEO may call in, and how many at once"),
@@ -56,11 +58,12 @@ struct FactoryOverview: View {
         }
     }
 
-    /// "1 decision waits for you", "2 to-dos wait for you", "3 things wait for you"
-    static func waiting(_ open: [FactoryDecision]) -> String {
-        let todos = open.filter(\.isTodo).count
-        let noun = todos == 0 ? "decision" : todos == open.count ? "to-do" : "thing"
-        return "\(open.count) \(noun)\(open.count == 1 ? " waits" : "s wait") for you"
+    /// "1 decision waits for you", "2 to-dos wait for you", "5 things wait for you": a release counts as one more
+    /// thing, the same count as everywhere else (Factory.waiting)
+    static func waiting(_ open: [FactoryDecision], release: Bool = false) -> String {
+        let n = open.count + (release ? 1 : 0), todos = open.filter(\.isTodo).count
+        let noun = release ? (open.isEmpty ? "release" : "thing") : todos == 0 ? "decision" : todos == open.count ? "to-do" : "thing"
+        return "\(n) \(noun)\(n == 1 ? " waits" : "s wait") for you"
     }
 
     @ViewBuilder private var overview: some View {
@@ -73,12 +76,12 @@ struct FactoryOverview: View {
             }
             .spelCard(flag: .stuck)
         }
-        let open = factory.openDecisions
-        if !open.isEmpty {
+        let open = factory.openDecisions, ready = factory.readyToRelease
+        if !open.isEmpty || !ready.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     QuestMarker(size: 20)
-                    Text(Self.waiting(open)).font(.s15b).foregroundStyle(Color.inkText)
+                    Text(Self.waiting(open, release: !ready.isEmpty)).font(.s15b).foregroundStyle(Color.inkText)
                 }
                 ForEach(open) { d in
                     HStack(spacing: 10) {
@@ -89,10 +92,23 @@ struct FactoryOverview: View {
                             .accessibilityLabel("\(d.isTodo ? "Open" : "Answer"): \(d.title)")
                     }
                 }
+                // the release last: the card's one yellow button (the others are plain), until its confirmation is open
+                if !ready.isEmpty {
+                    HStack(spacing: 10) {
+                        Text(NeedsYou.releaseTitle(ready)).font(.s13).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 6)
+                        Button { releasing = true } label: { Text("Release") }
+                            .buttonStyle(SpelButtonStyle(kind: releasing ? .secondary : .primary, size: .s))
+                            .disabled(releasing)
+                            .accessibilityLabel("Release: \(NeedsYou.releaseTitle(ready))")
+                    }
+                }
             }
             .spelCard(flag: .signal)
         }
-        if !factory.readyToRelease.isEmpty { ReleaseCard(project: project, workstreams: factory.readyToRelease) }
+        if !ready.isEmpty {
+            ReleaseCard(project: project, workstreams: ready, confirm: $releasing).onChange(of: project.id) { _, _ in releasing = false }
+        }
         if factory.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text("No briefing yet").font(.s15).foregroundStyle(Color.inkText)
@@ -139,8 +155,7 @@ private struct PlainFloor: View {
                     HStack(spacing: 6) {
                         // the state as a shape too, never colour alone
                         let st = s.state(now: model.world.now)
-                        PixelIcon(st == .stuck ? "sq" : st == .waiting ? "bang" : st == .done ? "check" : "dot", color: Color.state(st), size: 9)
-                            .accessibilityLabel(st.label)
+                        StateGlyph(state: st)
                         Text(s.title).font(.s13).foregroundStyle(Color.inkText).lineLimit(1)
                         Text("· \(s.persona.name)").font(.s13).foregroundStyle(Color.muted).lineLimit(1).fixedSize()
                         Spacer(minLength: 0)
@@ -235,7 +250,7 @@ private struct WorkTab: View {
 
 /// A workstream on the Work tab: its id and title once, its road (E9), and where it stands in the CEO's words (its
 /// latest log line), so a phase nobody works on says why (D81); a yellow edge when it waits for you.
-private struct WorkstreamRow: View {
+struct WorkstreamRow: View {
     let workstream: Workstream
     var waits = false
     var ready = false
@@ -244,10 +259,11 @@ private struct WorkstreamRow: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Tag(w.id)
-                Text(w.title).font(.s15b).foregroundStyle(Color.inkText).lineLimit(1)
+                Text(w.title).font(.s15b).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
-                if w.wentBack { Tag("↩ back").help(w.backSteps.last?.text ?? "") }
             }
+            // on a line of its own, so the title keeps its room
+            if w.wentBack { Tag(WorkstreamRow.sentBack(w)).help(w.backSteps.last?.text ?? "") }
             PhaseTrack(phases: WorkstreamCard.phases, current: WorkstreamCard.current(w))
             if ready {
                 HStack(spacing: 6) {
@@ -265,6 +281,21 @@ private struct WorkstreamRow: View {
 }
 
 extension WorkstreamRow {
+    /// "↩ Sent back to build": where the tester sent it, in words
+    static func sentBack(_ w: Workstream) -> String {
+        "↩ Sent back" + (w.backSteps.last?.phase.map { " to \($0.rawValue)" } ?? "")
+    }
+    /// Where its work came from, in words: "Found by CI", "Proposed by Product", "From Sentry"
+    static func origin(_ source: String) -> String {
+        switch source.lowercased() {
+        case "ci": "Found by CI"
+        case "sentry": "Found by Sentry"
+        case "product": "Proposed by Product"
+        case "you", "idea": "Your idea"
+        default: "From " + source.prefix(1).uppercased() + source.dropFirst()
+        }
+    }
+
     /// "24 Nov · No change: DevOps #222 … still open." The log line in plain words, with its day.
     static func gist(_ e: WorkLogEntry) -> String {
         let text = BriefingCard.plain(e.text).split(whereSeparator: \.isWhitespace).joined(separator: " ")
@@ -281,7 +312,12 @@ struct ReleaseCard: View {
     @EnvironmentObject private var model: AppModel
     let project: Project
     let workstreams: [Workstream]
-    @State private var confirming = false
+    /// on Overview the release is a row of the waiting card, whose Release button opens this card's confirmation; the
+    /// card then says why it waits and has no Release now of its own (one yellow button per view)
+    var confirm: Binding<Bool>? = nil
+    @State private var own = false
+    private var confirming: Bool { confirm?.wrappedValue ?? own }
+    private func setConfirming(_ on: Bool) { if let confirm { confirm.wrappedValue = on } else { own = on } }
     @State private var sending = false
     @State private var failure: String?
 
@@ -305,12 +341,12 @@ struct ReleaseCard: View {
                     Button { send() } label: { SpelLabel(sending ? "Sending…" : "Send release", key: "⌘↩", onYellow: true) }
                         .buttonStyle(SpelButtonStyle(kind: .primary, wide: true)).disabled(sending)
                         .keyboardShortcut(.return, modifiers: .command)
-                    Button { confirming = false } label: { Text("Cancel") }.buttonStyle(SpelButtonStyle(kind: .secondary)).disabled(sending)
+                    Button { setConfirming(false) } label: { Text("Cancel") }.buttonStyle(SpelButtonStyle(kind: .secondary)).disabled(sending)
                 }
                 Text("Writes your release into factory/decisions/. The CEO releases it \(model.pickUp(project)), the way this factory ships.")
                     .font(.s13m).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
-            } else {
-                Button { confirming = true; failure = nil } label: { SpelLabel("Release now", icon: "ship", onYellow: true) }
+            } else if confirm == nil {
+                Button { setConfirming(true); failure = nil } label: { SpelLabel("Release now", icon: "ship", onYellow: true) }
                     .buttonStyle(SpelButtonStyle(kind: .primary))
             }
             if let failure { Text(failure).font(.s13m).foregroundStyle(Color.stuck).fixedSize(horizontal: false, vertical: true) }
@@ -322,17 +358,23 @@ struct ReleaseCard: View {
         let shipping = project.factory?.takesMandate == true ? model.mandate(project.root).items[.ship] : nil
         if shipping == .off { return "Done and tested. Shipping is off in your mandate, so the CEO will not ask: it waits for you." }
         if let no = project.factory?.decisions.last(where: { $0.kind.lowercased() == "ship" && $0.status == .no && !Set($0.workstreams).isDisjoint(with: workstreams.map(\.id)) }) {
-            return "Done and tested. You said no on \(no.id)\(no.answer.isEmpty ? "" : " (“\(BriefingCard.plain(no.answer))”)"); it waits until you release it."
+            // your own words and the day you said them, not the question's id
+            let day = no.answered.map { " on " + Self.day.string(from: $0) } ?? ""
+            let said = no.answer.isEmpty ? "no" : "“\(BriefingCard.plain(no.answer))”"
+            return "You said \(said)\(day); it waits until you release it."
         }
         return "Done and tested, and no release question is open for it."
     }
+
+    /// "Tue 24 Nov"
+    private static let day: DateFormatter = { let f = DateFormatter(); f.locale = Locale(identifier: "en_GB"); f.dateFormat = "EEE d MMM"; return f }()
 
     private func send() {
         sending = true
         Task {
             let error = await model.release(workstreams, in: project)
             sending = false
-            if let error { failure = error } else { confirming = false }
+            if let error { failure = error } else { setConfirming(false) }
         }
     }
 }
@@ -367,7 +409,7 @@ private struct CEOTab: View {
                 LimitsEditor(root: root, hb: hb, update: update("limits"), saved: { flash("limits") })
             }
             Group_(id: "models", icon: "box", title: "Models", summary: modelsSummary(hb), saved: $saved) { ModelsEditor(hb: hb, update: update("models")) }
-            Group_(id: "contract", icon: "file", title: "Contract", summary: "v\(factory.contractVersion)", saved: $saved) { contract }
+            Group_(id: "contract", icon: "file", title: "Factory files", summary: "version \(factory.contractVersion)\(factory.newerContract ? "" : " ✓")", saved: $saved) { contract }
         }
         FactoryCard(project: project)
     }
@@ -788,7 +830,7 @@ private struct AutonomyEditor: View {
         case .ship: "Shipping"
         case .store: "Store releases"
         case .spend: "Spending"
-        case .promote: "Its own gates"
+        case .promote: "Asking less"
         }
     }
 }
@@ -1049,14 +1091,15 @@ struct WorkstreamCard: View {
             }
             PhaseTrack(phases: Self.phases, current: Self.current(w))
             ForEach(questions.filter { $0.status == .open }) { d in
+                // a to-do is something to do, not a yes to give: its own words and Open, as on Overview
                 HStack(spacing: 10) {
-                    QuestMarker(size: 22)
+                    QuestMarker(glyph: d.isTodo ? "check" : "bang", size: 22)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Waits for your yes").font(.s15b).foregroundStyle(Color.inkText)
-                        Text("\(d.id) · \(d.title)").font(.s13).foregroundStyle(Color.muted).lineLimit(2)
+                        Text(d.isTodo ? (d.forDevOps ? "DevOps to-do" : "To-do for you") : "Waits for your yes").font(.s15b).foregroundStyle(Color.inkText)
+                        Text(d.title).font(.s13).foregroundStyle(Color.muted).lineLimit(2).help(d.id)
                     }
                     Spacer(minLength: 4)
-                    Button { model.controller.select(decision: d.id, in: project.id) } label: { Text("Answer") }
+                    Button { model.controller.select(decision: d.id, in: project.id) } label: { Text(d.isTodo ? "Open" : "Answer") }
                         .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
                 }
                 .spelCard(flag: .signal)
@@ -1069,9 +1112,9 @@ struct WorkstreamCard: View {
                         Button { model.controller.select(decision: d.id, in: project.id) } label: {
                             HStack(spacing: 8) {
                                 Tag(d.status.rawValue, tone: d.status == .yes ? .done : .neutral)
-                                Text("\(d.id) · \(d.title)").font(.s13).foregroundStyle(Color.inkText).lineLimit(1)
+                                Text(d.title).font(.s13).foregroundStyle(Color.inkText).lineLimit(1)
                                 Spacer(minLength: 0)
-                            }.contentShape(Rectangle())
+                            }.contentShape(Rectangle()).help(d.id)
                         }.buttonStyle(CardPressStyle())
                     }
                 }
@@ -1093,7 +1136,7 @@ struct WorkstreamCard: View {
     }
 
     @ViewBuilder private func links(_ w: Workstream) -> some View {
-        let tags: [String] = [w.source.map { "from \($0)" }, w.release.map { "release \($0)" }].compactMap { $0 }
+        let tags: [String] = [w.source.map { WorkstreamRow.origin($0) }, w.release.map { "release \($0)" }].compactMap { $0 }
         if w.pr != nil || w.branch != nil || !tags.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 if let pr = w.pr, let url = URL(string: pr) {
@@ -1149,9 +1192,9 @@ struct DecisionCard: View {
     var body: some View {
         let d = decision
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 6) {
-                Tag(d.id)
-                Tag(d.isTodo ? (d.forDevOps ? "to-do · DevOps" : "to-do") : d.kind)
+            // its id and kind are in the head (the kind in words, the id on hover): here only who started it and what
+            // it is about
+            if d.fromYou || d.workstream != nil { HStack(spacing: 6) {
                 if d.fromYou { Tag("from you") }
                 if let w = d.workstream, let ws = project.factory?.workstreams.first(where: { $0.id == w }) {
                     Button { model.controller.select(workstream: w, in: project.id) } label: {
@@ -1162,6 +1205,17 @@ struct DecisionCard: View {
                     .buttonStyle(.plain).help("Open the workstream")
                 } else if let w = d.workstream { Tag(w) }
                 Spacer(minLength: 0)
+            } }
+            // a promote in the Autonomy tab's own words: what changes, from what to what
+            if d.status == .open, let g = model.promotedGate(d, in: project) {
+                HStack(spacing: 8) {
+                    Text(Self.gateWord(g.name)).font(.s13m).foregroundStyle(Color.inkText)
+                    Tag(g.notify ? "Tell me" : "Ask")
+                    PixelIcon("chev", color: .muted, size: 9)
+                    Tag(g.notify ? "Off" : "Tell me", tone: .sel)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(Self.gateWord(g.name)): from \(g.notify ? "Tell me" : "Ask") to \(g.notify ? "Off" : "Tell me")")
             }
             if d.status == .open, let t = model.trigger(for: d, in: project) {
                 HStack(alignment: .top, spacing: 6) {
@@ -1187,6 +1241,13 @@ struct DecisionCard: View {
                 else { AnswerForm(project: project, decision: d) }
             } else { answered(d) }
         }
+    }
+
+    /// A gate as the Autonomy tab names it: "Shipping", "Store releases", "Planning"
+    static func gateWord(_ gate: String) -> String {
+        if let i = FactoryMandate.Item(rawValue: gate.lowercased()) { return AutonomyEditor.short(i) }
+        if gate.lowercased() == "plan" { return "Planning" }
+        return gate.prefix(1).uppercased() + gate.dropFirst()
     }
 
     /// Yes, No, … ; a to-do says Done and Not now.
@@ -1230,6 +1291,9 @@ private struct SendToDevOps: View {
             if let failure { Text(failure).font(.s13m).foregroundStyle(Color.stuck).fixedSize(horizontal: false, vertical: true) }
         }
     }
+    /// "Tue 24 Nov"
+    private static let day: DateFormatter = { let f = DateFormatter(); f.locale = Locale(identifier: "en_GB"); f.dateFormat = "EEE d MMM"; return f }()
+
     private func send() {
         sending = true
         Task {

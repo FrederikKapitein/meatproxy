@@ -61,8 +61,11 @@ struct InspectorPanel: View {
                      place: nil, close: up)
             ScrollFit { SessionDetail(project: p, session: session).padding(.bottom, 4) }
         } else if let id = s.decisionID, let pid = s.projectID, let (p, d) = model.world.decision(project: pid, id) {
-            InspectorHead(eyebrow: "Decision · asked \(d.asked?.ago ?? "")", title: d.title, marker: d.status == .open, titleLines: 5, close: up,
+            // what it asks in plain words; its id (D-0008) only on hover, for whoever reads the files
+            InspectorHead(eyebrow: (d.isTodo ? d.plainKind : "Question · " + d.plainKind) + (d.asked.map { " · " + $0.ago } ?? ""),
+                          title: d.title, marker: d.status == .open, titleLines: 5, close: up,
                           closeHelp: "Back to \(p.name) (Esc)") { EmptyView() }
+                .help(d.id)
             ScrollFit { DecisionCard(project: p, decision: d).padding(.bottom, 4) }
         } else if let id = s.workstreamID, let pid = s.projectID, let p = model.world.project(id: pid), let w = p.factory?.workstreams.first(where: { $0.id == id }) {
             InspectorHead(eyebrow: "Workstream · \(w.type)", title: w.title, titleLines: 3, close: up, closeHelp: "Back to \(p.name) (Esc)") { EmptyView() }
@@ -108,7 +111,7 @@ struct CharHead: View {
                 Text(name).font(.s26).foregroundStyle(Color.inkText).lineLimit(1)
                 RoleTag(role: role)
                 HStack(spacing: 5) {
-                    PixelIcon(tone == .stuck ? "sq" : "dot", color: c, size: 9)
+                    PixelIcon(tone == .stuck ? "sq" : tone == .quest ? "bang" : "dot", color: c).frame(width: 18, height: 18)
                     Text(mood).font(.s13m).foregroundStyle(c).lineLimit(1)
                     if let place { Text("· " + place).font(.s13).foregroundStyle(Color.muted).lineLimit(1) }
                 }
@@ -210,21 +213,31 @@ private struct ServerRow: View {
     var picked = false
     var body: some View {
         let asks = model.world.ops.flatMap { AppModel.question(about: server.name, in: $0) } != nil
+        let light: StateLight.S = server.state == .down ? .down : server.state == .warn ? .warn : .ok
+        // one signal each: the state as shape, colour and word (also with a question), the flag in the state's colour,
+        // and a question as a small yellow chip of its own
         HStack(spacing: 10) {
-            StateLight(state: server.state == .down ? .down : server.state == .warn ? .warn : .ok)
+            StateLight(state: light)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(server.name).font(.mono).foregroundStyle(Color.inkText).lineLimit(1).fixedSize()
                     Tag(server.kind.label)
                 }
-                if let d = server.detail { Text(d).font(.s11n).foregroundStyle(server.state == .ok ? Color.muted : color).lineLimit(1) }
+                if let d = server.detail {
+                    Text(d).font(.s11n).foregroundStyle(server.state == .ok ? Color.muted : color).lineLimit(1).layoutPriority(1)
+                }
             }
             Spacer(minLength: 6)
-            if asks { QuestMarker(glyph: "bang", size: 20) }
-            if server.state != .ok && !asks { Text(server.state.label).font(.s13m).foregroundStyle(color).lineLimit(1) }
+            if server.state != .ok { Text(server.state.label).font(.s13m).foregroundStyle(color).lineLimit(1).fixedSize() }
+            if asks {
+                Text("1 question").font(.s11).foregroundStyle(Color.onSignal).lineLimit(1).fixedSize()
+                    .padding(.horizontal, 6).frame(height: 20)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.signal))
+            }
         }
-        .spelCard(flag: asks ? .signal : server.state == .down ? .stuck : server.state == .warn ? .warn : nil, selected: picked, pad: 10)
-        .accessibilityElement(children: .combine)
+        .spelCard(flag: server.state == .down ? .stuck : server.state == .warn ? .warn : nil, selected: picked, pad: 10)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([server.name, light.word, server.detail, asks ? "1 question" : nil].compactMap { $0 }.joined(separator: ", "))
     }
     private var color: Color { server.state == .down ? .stuck : server.state == .warn ? .warn : .done }
 }
@@ -360,7 +373,7 @@ struct SessionCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(session.persona.name) · \(session.title)").font(.s15).foregroundStyle(Color.inkText).lineLimit(1)
                 HStack(spacing: 5) {
-                    PixelIcon(st == .stuck ? "sq" : "dot", color: Color.state(st), size: 9)
+                    PixelIcon(st == .stuck ? "sq" : st == .waiting ? "bang" : st == .done ? "check" : "dot", color: Color.state(st)).frame(width: 18, height: 18)
                     Text(Self.mood(session, st)).font(.s13).foregroundStyle(Color.state(st)).lineLimit(1)
                 }
             }

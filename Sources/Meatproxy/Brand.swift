@@ -189,7 +189,7 @@ struct LiftedField: ViewModifier {
         return content
             .background(shape.fill(Color.well))
             .overlay(alignment: .top) { Rectangle().fill(Color.black.opacity(0.35)).frame(height: 2).padding(.horizontal, radius / 2).padding(.top, 2) }
-            .overlay(shape.strokeBorder(focused ? Color.inkText : Color.border, lineWidth: 2))
+            .overlay(shape.strokeBorder(focused ? Color.inkText : Color.inputEdge, lineWidth: 2))
     }
 }
 

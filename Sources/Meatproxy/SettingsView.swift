@@ -342,6 +342,7 @@ private struct StatusSourcesRows: View {
 /// How each server is reached and what it may fix itself (D6); its live state lives in the Server room building.
 private struct EngineRoomSettings: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// the server open on its page ("new" for adding one)
     @State private var open: String?
     @State private var importing = false
@@ -352,9 +353,9 @@ private struct EngineRoomSettings: View {
     @ViewBuilder private var content: some View {
         if let open {
             ServerPage(id: open == "new" ? nil : open) { withAnimation(.easeOut(duration: 0.2)) { self.open = nil } }
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .transition(.slide(from: .trailing, reduce: reduceMotion))
         } else {
-            list.transition(.move(edge: .leading).combined(with: .opacity))
+            list.transition(.slide(from: .leading, reduce: reduceMotion))
         }
     }
 
@@ -752,6 +753,7 @@ private struct SSHImportCard: View {
 /// every factory that does not have its own, is at the end (D1: it comes after you have a factory).
 private struct ProjectsSettings: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var open: String?
     init(open: String? = nil) { _open = State(initialValue: open) }
 
@@ -760,9 +762,9 @@ private struct ProjectsSettings: View {
     @ViewBuilder private var content: some View {
         if let open {
             ProjectPage(root: open) { withAnimation(.easeOut(duration: 0.2)) { self.open = nil } }
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .transition(.slide(from: .trailing, reduce: reduceMotion))
         } else {
-            list.transition(.move(edge: .leading).combined(with: .opacity))
+            list.transition(.slide(from: .leading, reduce: reduceMotion))
         }
     }
 

@@ -22,7 +22,8 @@ struct HUDView: View {
             RadialGradient(colors: [.clear, Color.ink.opacity(0.55)], center: .center, startRadius: 380, endRadius: 980)
                 .ignoresSafeArea().allowsHitTesting(false)
             // while the campus is first built, the window is the loading screen alone: no HUD over it
-            if !loading { hud.allowsHitTesting(!model.settingsOpen) }   // under Settings it stays, dimmed and asleep, as under every sheet
+            // under Settings it stays, dimmed and asleep, as under every sheet: faint, so its cards never look clickable
+            if !loading { hud.allowsHitTesting(!model.settingsOpen).opacity(model.settingsOpen ? 0.35 : 1) }
             // D72: a right-click menu at the pointer, ⌘K search, Help and the factory picker; a click outside closes them
             if !model.settingsOpen && !loading {
                 if let m = model.contextMenuState {
@@ -38,7 +39,7 @@ struct HUDView: View {
                     .onExitCommand { model.contextMenuState = nil }
                 }
                 if model.paletteOpen || model.commandsOpen || model.factoryPickerOpen {
-                    Color.ink.opacity(0.5).ignoresSafeArea().contentShape(Rectangle())
+                    Color.ink.opacity(0.62).ignoresSafeArea().contentShape(Rectangle())
                         .onTapGesture { model.paletteOpen = false; model.commandsOpen = false; model.factoryPickerOpen = false }.transition(.opacity)
                     // each its own view with a steady identity, so what you typed survives the world's refreshes
                     VStack {
@@ -48,7 +49,7 @@ struct HUDView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.top, Shell.top).padding(.horizontal, Shell.gutter).ignoresSafeArea()   // on the same top line as Settings
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.slide(from: .top, reduce: reduceMotion))
                 }
             }
             // what the pointer is on in the world, beside the pointer (one tooltip style for everything, D54)
@@ -57,7 +58,7 @@ struct HUDView: View {
             }
             // Settings (E8): the same floating frame as every sheet, over the dimmed world; a click beside it closes it
             if model.settingsOpen {
-                Color.ink.opacity(0.55).ignoresSafeArea().contentShape(Rectangle())
+                Color.ink.opacity(0.72).ignoresSafeArea().contentShape(Rectangle())
                     .onTapGesture { model.settingsOpen = false }.transition(.opacity)
                 GeometryReader { geo in
                     SettingsView(page: model.settingsPage, atProjects: model.settingsAtProjects, atForm: model.settingsAtForm)
@@ -121,13 +122,12 @@ struct HUDView: View {
             .frame(height: Shell.bar)
             .padding(.horizontal, Shell.gutter).padding(.top, Shell.gutter)
             .zIndex(2)
-            .overlay(alignment: .bottom) { FieldNoteBanner().offset(y: Shell.gutter + 64).zIndex(3) }
             HStack(alignment: .top, spacing: 0) {
                 QuestLog().frame(width: Shell.side).arrive(hudShown, from: .leading, order: 1)
                 Spacer(minLength: Shell.gutter)
                 if model.selection.level != .all {
                     InspectorPanel().frame(width: Shell.side)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .transition(.slide(from: .trailing, reduce: reduceMotion))
                         .arrive(hudShown, from: .trailing, order: 2)
                 }
             }
@@ -137,12 +137,20 @@ struct HUDView: View {
                 // the drawer is a panel like the others, on the shell's gutters; the side panels end 16 above it
                 TerminalPanel(center: model.terminals)
                     .padding(.horizontal, Shell.gutter).padding(.bottom, Shell.gutter)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(.slide(from: .bottom, reduce: reduceMotion))
             } else {
                 if model.walkStep != nil {
-                    WalkCard().padding(.bottom, Shell.gap).transition(.move(edge: .bottom).combined(with: .opacity))
+                    WalkCard().padding(.bottom, Shell.gap).transition(.slide(from: .bottom, reduce: reduceMotion))
                 }
                 BottomBar().padding(.bottom, Shell.gutter).arrive(hudShown, from: .bottom, order: 3)
+                    // a field note docks where the walk's offer sits, 12 over Up and zoom: never on a tower's roof, and
+                    // the walk's card always goes first. It floats, so the side panels keep their height.
+                    .overlay(alignment: .bottom) {
+                        if model.walkStep == nil && model.fieldNote != nil {
+                            FieldNoteBanner().fixedSize().padding(.bottom, Shell.gutter + Shell.bar + Shell.gap)
+                                .transition(.slide(from: .bottom, reduce: reduceMotion))
+                        }
+                    }
             }
         }
         .ignoresSafeArea(edges: .top)
@@ -351,7 +359,7 @@ private struct LocationPlate: View {
         if s.engineRoom {
             c.append(Crumb(icon: "server", name: "Server room"))
             if let id = s.serverID, let sv = world.servers.first(where: { $0.id == id }) { c.append(Crumb(icon: "server", name: sv.name)) }
-            if let d = s.decisionID { c.append(Crumb(icon: "bang", name: d)) }
+            if let d = s.decisionID { c.append(Crumb(icon: "bang", name: decisionCrumb(world.decision(project: World.opsID, d)?.decision))) }
             return c
         }
         if let p = s.provider { c.append(Crumb(icon: "tower", name: p.displayName)) }
@@ -359,9 +367,11 @@ private struct LocationPlate: View {
         if let (_, session) = model.session(s.sessionID) { c.append(Crumb(icon: "person", name: session.persona.name)) }
         if let a = s.subAgentID, let sub = world.projects.flatMap(\.sessions).flatMap(\.subAgents).first(where: { $0.id == a }) { c.append(Crumb(icon: "person", name: sub.type)) }
         if let w = s.workstreamID { c.append(Crumb(icon: "branch", name: w)) }
-        if let d = s.decisionID { c.append(Crumb(icon: "bang", name: d)) }
+        if let d = s.decisionID { c.append(Crumb(icon: "bang", name: decisionCrumb(s.projectID.flatMap { world.decision(project: $0, d)?.decision }))) }
         return c
     }
+    /// a question in the crumbs by what it is, not its id: "Question", "To-do"
+    static func decisionCrumb(_ d: FactoryDecision?) -> String { d?.isTodo == true ? "To-do" : "Question" }
 }
 
 private struct CrumbButton: View {
@@ -569,15 +579,17 @@ private struct QuestLog: View {
         .accessibilityElement(children: .contain).accessibilityLabel("Needs you")
     }
 
+    /// a quiet row on a solid edge with a chevron: it opens All (a dashed edge means "not yet", never "more")
     private func moreRow(_ n: Int) -> some View {
         Button { all = true } label: {
             HStack(spacing: 6) {
-                PixelIcon("chevd", color: .muted, size: 9)
                 Text("\(n) more \(model.selection.engineRoom ? "elsewhere" : "on other floors")").font(.s13m)
+                Spacer(minLength: 0)
+                PixelIcon("chev", color: .muted, size: 9)
             }
             .foregroundStyle(Color.muted).frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10).frame(height: 30)
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.border, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.divider, lineWidth: 2))
             .contentShape(Rectangle())
         }.buttonStyle(.plain)
     }
@@ -598,7 +610,7 @@ private struct QuestItem: View {
     let selected: Bool
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            QuestMarker(glyph: glyph)
+            QuestMarker(glyph: item.glyph)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title).font(.s15).foregroundStyle(Color.inkText).lineLimit(2).multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -606,10 +618,12 @@ private struct QuestItem: View {
                     Text(gist).font(.s13).foregroundStyle(Color.muted).lineLimit(2).multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                HStack(spacing: 5) {
-                    PixelIcon(metaIcon, color: .muted, size: 9)
-                    Text(item.project.name).lineLimit(1).truncationMode(.tail)
-                    Text("· \(detail) · \(item.since.ago)").lineLimit(1).fixedSize().layoutPriority(1)
+                // the project's name first: the detail gives way before it does, the time never
+                HStack(spacing: 3) {
+                    PixelIcon(metaIcon, color: .muted, size: 9).padding(.trailing, 2)
+                    Text(item.project.name).lineLimit(1).truncationMode(.tail).layoutPriority(1)
+                    Text("· " + item.detail).lineLimit(1).truncationMode(.tail)
+                    Text("· " + item.since.ago).lineLimit(1).fixedSize()
                 }
                 .font(.s11n).foregroundStyle(Color.muted).padding(.top, 2)
             }
@@ -624,21 +638,26 @@ private struct QuestItem: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
     }
-    private var glyph: String {
-        switch item {
+    private var metaIcon: String {
+        switch item { case .session: "chat"; case .decision(let p, _): p.id == World.opsID ? "server" : "floor"; case .release: "floor" }
+    }
+}
+
+/// One glyph and one word per thing that waits, shared by Needs you and ⌘K so they never tell it two ways.
+extension NeedsYou {
+    var glyph: String {
+        switch self {
         case .session: "help"
         case .decision(let p, let d): p.id == World.opsID ? "server" : d.isTodo ? "check" : "bang"
         case .release: "ship"
         }
     }
-    private var metaIcon: String {
-        switch item { case .session: "chat"; case .decision(let p, _): p.id == World.opsID ? "server" : "floor"; case .release: "floor" }
-    }
-    private var detail: String {
-        switch item {
+    /// who asks, or what kind of question in plain words ("ship it?", "DevOps to-do"), or "done and tested"
+    var detail: String {
+        switch self {
         case .session(_, let s): s.persona.name
-        case .decision(_, let d): d.isTodo ? (d.forDevOps ? "to-do for DevOps" : "to-do") : d.kind
-        case .release(_, let ws): ws.count == 1 ? "ready to release" : "\(ws.count) ready to release"
+        case .decision(_, let d): d.plainKind
+        case .release: "done and tested"
         }
     }
 }
@@ -652,7 +671,7 @@ struct ScrollFit<Content: View>: View {
             // the "more" line has a row of its own under the list, so it never prints over the last row's text
             VStack(spacing: 4) {
                 ScrollView { content() }.scrollIndicators(.automatic)
-                    .mask(VStack(spacing: 0) { Color.black; LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 16) })
+                    .mask(VStack(spacing: 0) { Color.black; LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 32) })
                 HStack(spacing: 5) { PixelIcon("chevd", color: .muted, size: 9); Text("More · scroll").font(.s11n) }
                     .foregroundStyle(Color.muted).frame(maxWidth: .infinity).frame(height: 16)
                     .accessibilityHidden(true)
@@ -728,11 +747,11 @@ struct ServicesCard: View {
             VStack(spacing: 0) {
                 ForEach(Array(model.world.services.enumerated()), id: \.element.id) { k, s in
                     if k > 0 { RowDivider() }
-                    ServiceRow(name: s.name, state: s.shown(now: now), detail: Self.detail(s, now: now), checked: s.checkedAt.map { "Checked " + $0.ago }, page: s.page)
+                    ServiceRow(name: s.name, state: s.shown(now: now), detail: Self.detail(s, now: now), checked: s.checkedAt.map(\.ago), page: s.page)
                 }
                 ForEach(red, id: \.id) { p in
                     RowDivider()
-                    ServiceRow(name: p.name, state: .down, detail: "CI on main is red: " + (p.github?.failing.joined(separator: ", ") ?? ""), checked: p.github.map { "Checked " + $0.checkedAt.ago }, page: nil)
+                    ServiceRow(name: p.name, state: .down, detail: "CI on main is red: " + (p.github?.failing.joined(separator: ", ") ?? ""), checked: p.github.map(\.checkedAt.ago), page: nil)
                 }
                 if model.world.services.isEmpty && red.isEmpty {
                     Text("No status pages watched. Add them in Settings › Sources.").font(.s13).foregroundStyle(Color.muted).padding(12)
@@ -752,11 +771,14 @@ private struct ServiceRow: View {
     let name: String, state: ServiceStatus.State, detail: String, checked: String?, page: String?
     var body: some View {
         HStack(spacing: 10) {
-            StateLight(state: state == .ok ? .ok : state == .degraded ? .warn : state == .down ? .down : .unknown)
+            let light: StateLight.S = state == .ok ? .ok : state == .degraded ? .warn : state == .down ? .down : .unknown
+            StateLight(state: light).accessibilityHidden(true)   // its word is in the row's label
             VStack(alignment: .leading, spacing: 1) {
                 Text(name).font(.s13m).foregroundStyle(Color.inkText).lineLimit(1)
                 Text([detail, checked].compactMap { $0 }.joined(separator: " · ")).font(.s11n).foregroundStyle(Color.muted).lineLimit(1)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel([name, light.word, detail, checked.map { "checked " + $0 }].compactMap { $0 }.joined(separator: ", "))
             Spacer(minLength: 0)
             if let page, let u = URL(string: page) {
                 Link(destination: u) { PixelIcon("chev", color: .muted, size: 9).frame(width: 20, height: 20) }.help("Open the status page").accessibilityLabel("Open the status page of \(name)")
@@ -766,24 +788,47 @@ private struct ServiceRow: View {
     }
 }
 
-/// A state as shape and colour, never colour alone: a green dot, an amber triangle, a red square, a grey ring.
+/// A state as shape and colour, never colour alone: a green dot, an amber triangle, a red square, a grey ring. 18 pt
+/// (2 pt cells), so the shape reads, in an 18 pt column of its own. It is its own accessibility element with the word,
+/// since a PixelIcon hides itself; a row that combines its children reads the word with it.
 struct StateLight: View {
-    enum S { case ok, warn, down, unknown, busy }
+    enum S {
+        case ok, warn, down, unknown, busy
+        var word: String {
+            switch self { case .ok: "OK"; case .warn: "Warning"; case .down: "Down"; case .busy: "Busy"; case .unknown: "Unknown" }
+        }
+    }
     let state: S
     var body: some View {
-        switch state {
-        case .ok: PixelIcon("dot", color: .done, size: 9).accessibilityLabel("OK")
-        case .warn: PixelIcon("warn", color: .warn, size: 9).accessibilityLabel("Warning")
-        case .down: PixelIcon("sq", color: .stuck, size: 9).accessibilityLabel("Down")
-        case .busy: PixelIcon("dot", color: .working, size: 9).accessibilityLabel("Busy")
-        case .unknown: PixelIcon("ring", color: .muted, size: 9).accessibilityLabel("Unknown")
+        Group {
+            switch state {
+            case .ok: PixelIcon("dot", color: .done)
+            case .warn: PixelIcon("warn", color: .warn)
+            case .down: PixelIcon("sq", color: .stuck)
+            case .busy: PixelIcon("dot", color: .working)
+            case .unknown: PixelIcon("ring", color: .muted)
+            }
         }
+        .frame(width: 18, height: 18)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(state.word)
+    }
+}
+
+/// A session's state as an 18 pt glyph with its word for VoiceOver: a dot working, "!" waiting, a square stuck, a tick done.
+struct StateGlyph: View {
+    let state: SessionState
+    var body: some View {
+        PixelIcon(state == .stuck ? "sq" : state == .waiting ? "bang" : state == .done ? "check" : "dot", color: Color.state(state))
+            .frame(width: 18, height: 18)
+            .accessibilityElement(children: .ignore).accessibilityLabel(state.label)
     }
 }
 
 // MARK: the first walk and the field notes (D78)
 
-/// The first time an effect shows on the campus: what it is, for a few seconds under the top bar.
+/// The first time an effect shows on the campus: its name, its cause with the project's name, for a few seconds above
+/// Up and zoom. The name is never cut: two lines may.
 struct FieldNoteBanner: View {
     @EnvironmentObject private var model: AppModel
     var body: some View {
@@ -791,16 +836,16 @@ struct FieldNoteBanner: View {
             HStack(alignment: .top, spacing: 10) {
                 Socket(size: 36) { PixelIcon("star", color: .inkText) }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("New on the campus: " + n.title).font(.s15).foregroundStyle(Color.inkText)
-                    Text(n.line).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
-                    Text("Kept in the field guide (Help › Field guide)").font(.s11n).foregroundStyle(Color.muted)
+                    Text(n.title).font(.s15).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    Text(n.line).font(.s13).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    Text("Saved in Help › Field guide").font(.s11n).foregroundStyle(Color.muted)
                 }
                 Spacer(minLength: 0)
                 CloseButton(action: { model.fieldNote = nil }, help: "Close")
             }
             .padding(12).frame(width: 460, alignment: .leading).spelFrame()
-            .transition(.move(edge: .top).combined(with: .opacity))
             .accessibilityElement(children: .combine)
+            .accessibilityLabel("New on the campus: \(n.title). \(n.line)")
         }
     }
 }
@@ -955,23 +1000,30 @@ struct WalkCard: View {
 struct FactoryPicker: View {
     @EnvironmentObject private var model: AppModel
     @State private var picked: String?
+    /// the guide's face, once drawn (the portraits are no published state)
+    @State private var faces = 0
     private struct Floor: Identifiable { let project: Project; let provider: Provider; let number: Int; var id: String { project.id } }
     private var floors: [Floor] {
         model.world.buildings.flatMap { b in b.projects.enumerated().map { Floor(project: $0.element, provider: b.provider, number: $0.offset + 1) } }
             .filter { !$0.project.isChat }
     }
     var body: some View {
-        let floors = self.floors
+        let floors = self.floors; let _ = faces
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                Portrait(image: model.controller.portrait(WalkCard.guideKey), role: .lead, size: 48)
+            // the same head as every sheet: a 44 pt socket, the eyebrow, the title at 26; the guide's face once drawn,
+            // a tower until then (never an empty square)
+            HStack(alignment: .center, spacing: 12) {
+                if let face = model.controller.portrait(WalkCard.guideKey) { Portrait(image: face, role: .lead, size: 44) }
+                else { Socket(size: 44) { PixelIcon("tower", color: .inkText) } }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) { Eyebrow("Quest · step 1 of 2"); Pips(count: 2, current: 0) }
-                    Text("Start a factory").font(.s19).foregroundStyle(Color.inkText)
+                    Text("Start a factory").font(.s26).foregroundStyle(Color.inkText)
                 }
                 Spacer(minLength: 0)
-                CloseButton(action: { model.factoryPickerOpen = false })
+                CloseButton(action: { model.factoryPickerOpen = false }).frame(maxHeight: .infinity, alignment: .top)
             }
+            .fixedSize(horizontal: false, vertical: true)
+            .task { await model.controller.ensurePortraits([WalkCard.guideKey]); faces += 1 }
             Text("Which project should get a CEO? It works on that floor; you answer its questions.").font(.s13).foregroundStyle(Color.muted)
                 .fixedSize(horizontal: false, vertical: true)
             ScrollFit {

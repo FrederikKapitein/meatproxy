@@ -133,7 +133,8 @@ private struct TabChip: View {
     var body: some View {
         let on = tab.id == center.selected
         HStack(spacing: 6) {
-            PixelIcon(tab.exited == nil ? "dot" : "ring", color: tab.exited == nil ? .done : .muted, size: 9)
+            PixelIcon(tab.exited == nil ? "dot" : "ring", color: tab.exited == nil ? .done : .muted).frame(width: 18, height: 18)
+                .accessibilityElement(children: .ignore).accessibilityLabel(tab.exited == nil ? "Running" : "Ended")
             Text(tab.title).font(.system(size: 13, weight: on ? .bold : .semibold)).foregroundStyle(on ? Color.inkText : Color.muted)
                 .lineLimit(1).frame(maxWidth: 240, alignment: .leading)
             if let code = tab.exited { Text(code.map { "exit \($0)" } ?? "ended").font(.mono11).foregroundStyle(Color.muted) }

@@ -158,6 +158,12 @@ final class AppModel: ObservableObject {
     static let firstRunDemo = CommandLine.arguments.contains("--first-run")
     let firstRun: Bool
 
+    private var motionObserver: NSObjectProtocol?
+    private func followReduceMotion() {
+        let recording = ProcessInfo.processInfo.environment["SF_WINDOW_SHOT_RECORD"] != nil
+        controller.animationsEnabled = recording || !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
     init(fixture: Bool, firstRun: Bool = false) {
         self.fixture = fixture
         self.firstRun = fixture && firstRun
@@ -212,6 +218,13 @@ final class AppModel: ObservableObject {
         }
         heartbeats.costToday = { [weak self] root in
             MainActor.assumeIsolated { self?.world.projects.filter { $0.root == root }.compactMap { $0.cost?.today }.reduce(0, +) ?? 0 }
+        }
+        // the world follows "Reduce motion" (UX review 26 Nov): the camera jumps, people stand, rings hold still; and it
+        // changes along with the setting. A window-shot recording keeps its motion: that is what it records.
+        followReduceMotion()
+        motionObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                                                                           object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.followReduceMotion() }
         }
         controller.setStatusLayer(statusLayer)
         refresh()
@@ -995,18 +1008,25 @@ final class AppModel: ObservableObject {
     /// What brought the question up now: your yeses in a row (a promote), your idea, or where its work came from.
     func trigger(for d: FactoryDecision, in p: Project) -> String? {
         let f = p.factory
-        if d.kind == "promote", let gates = f?.autonomy?.gates,
-           let g = gates.first(where: { $0.name.lowercased() == d.gate?.lowercased() && $0.streak > 0 })
-                ?? gates.first(where: { d.title.lowercased().contains($0.name.lowercased()) && $0.streak > 0 })
-                ?? gates.max(by: { $0.streak < $1.streak }), g.streak > 0 {
+        if let g = promotedGate(d, in: p) {
             return "You said yes \(g.streak) times in a row to \(g.name.lowercased()): it asks to stop asking"
         }
         if let w = d.workstream {
             if let idea = f?.ideas.first(where: { $0.workstream == w || $0.decision == d.id }) { return "From your idea: \(idea.title)" }
-            if let src = f?.workstreams.first(where: { $0.id == w })?.source, !src.isEmpty { return "Its work came from \(src)" }
+            if let src = f?.workstreams.first(where: { $0.id == w })?.source, !src.isEmpty { return WorkstreamRow.origin(src) }
         }
         if let idea = f?.ideas.first(where: { $0.decision == d.id }) { return "From your idea: \(idea.title)" }
         return p.id == World.opsID ? "Found by the DevOps agent on its round" : nil
+    }
+
+    /// The gate a promote question is about: the one it names, else the one the title is about, else the longest
+    /// streak of yeses. A promote file carries no gate change of its own (its `gate` is always-ask).
+    func promotedGate(_ d: FactoryDecision, in p: Project) -> Autonomy.Gate? {
+        guard d.kind.lowercased() == "promote", let gates = p.factory?.autonomy?.gates,
+              let g = gates.first(where: { $0.name.lowercased() == d.gate?.lowercased() && $0.streak > 0 })
+                ?? gates.first(where: { d.title.lowercased().contains($0.name.lowercased()) && $0.streak > 0 })
+                ?? gates.max(by: { $0.streak < $1.streak }), g.streak > 0 else { return nil }
+        return g
     }
 
     /// When the CEO picks an answer up: a few minutes after it, or at its next beat.
@@ -1051,6 +1071,8 @@ final class AppModel: ObservableObject {
         guard !seenEffects.contains(kind) else { return }
         seenEffects.insert(kind)
         if !fixture { UserDefaults.standard.set(Array(seenEffects), forKey: "seenEffects") }
+        // while the walk talks, a field note keeps quiet: it is in the field guide all the same
+        if let step = walkStep, (1...WalkCard.steps.count).contains(step) { return }
         fieldNote = (title, line)
         fieldNoteToken += 1
         let token = fieldNoteToken
