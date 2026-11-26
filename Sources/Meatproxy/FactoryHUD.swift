@@ -963,10 +963,7 @@ private struct BriefingCard: View {
     }
 
     /// Markdown emphasis and links read as plain words.
-    static func plain(_ s: String) -> String {
-        s.replacingOccurrences(of: #"\[([^\]]+)\]\([^)]+\)"#, with: "$1", options: .regularExpression)
-            .replacingOccurrences(of: #"[*_`]+"#, with: "", options: .regularExpression)
-    }
+    static func plain(_ s: String) -> String { FactoryText.plain(s) }
 }
 
 /// Send the CEO an idea (a feature, a wish, a worry): it lands in factory/ideas/ and wakes the CEO a few minutes later.
