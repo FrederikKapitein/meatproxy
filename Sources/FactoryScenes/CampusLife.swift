@@ -323,8 +323,8 @@ extension CampusScene {
         host.addChild(flash)
         explain(flash, ("A helper arrives", "A chat started a helper (a sub-agent) on this floor"))
         flash.run(.sequence([.fadeAlpha(to: 0.55, duration: 0.25), .wait(forDuration: 0.5), .fadeAlpha(to: 0.2, duration: 0.3), .fadeAlpha(to: 0.45, duration: 0.25), .fadeOut(withDuration: 1.2), .removeFromParent()]))
-        if let sg = signs.first(where: { $0.plaque && $0.owner == st.building && $0.storey == st.index })?.node {
-            sg.run(.sequence([.scale(by: 1.12, duration: 0.15), .scale(by: 1 / 1.12, duration: 0.25)]))
+        for sg in signs where sg.plaque && sg.owner == st.building && sg.storey == st.index {
+            sg.node.run(.sequence([.scale(by: 1.12, duration: 0.15), .scale(by: 1 / 1.12, duration: 0.25)]))
         }
     }
 

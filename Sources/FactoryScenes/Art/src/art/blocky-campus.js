@@ -104,7 +104,8 @@
       footprints["building:" + prov] = [S.i - .3, S.j - .3, S.i + S.w + .3, S.j + S.d + .3];
       t.storeys.forEach((s, k) => storeys.push({building: prov, index: k, kind: list[k].kind || "project", faces: s.faces, windows: s.windows, mount: s.mount}));
       towers.push({building: prov, antenna: t.antenna, chimney: t.chimney, empty: list.length === 0});
-      t.blades.forEach((bl, k) => { tp(`plaque:${prov}:${k}`, bl.markup); labels.push({building: prov, rect: bl.rect}); });
+      // each blade twice: its name (readable from tower zoom on) and its floor number (what reads across the campus)
+      t.blades.forEach((bl, k) => { tp(`plaque:${prov}:${k}`, bl.markup); tp(`plaquenum:${prov}:${k}`, bl.num); labels.push({building: prov, rect: bl.rect}); });
       // the way a deploy's packets go: out of the door, down the forecourt, along the sidewalks to the Server room
       streams[prov] = prov === "claude" ? [[S.door, S.j + S.d + .6], [S.door, 25.6], [47.6, 25.6], [47.6, 36], [52.3, 36], [52.3, 34.8]]
         : [[S.door, S.j + S.d + .6], [S.door, 20.4], [47.6, 20.4], [47.6, 36], [52.3, 36], [52.3, 34.8]];
@@ -374,7 +375,33 @@
     g += `<text x="${f(x0 + icon + tw / 2)}" y="${f(sz * .36)}" text-anchor="middle" font-family="${GAME}" font-weight="900" font-size="${sz}" fill="${L(ink)}">${esc(txt)}</text></g>`;
     // where it hangs, as a box round its corners (the sheared board)
     const xs = [at[0], at[0] + x0 + bw], ys = [at[1] - hh * 1.08, at[1] + (x0 + bw) * .5 + hh * 1.08];
-    return {markup: g, rect: [xs[0], ys[0], xs[1] - xs[0], ys[1] - ys[0]]};
+    return {markup: g, rect: [xs[0], ys[0], xs[1] - xs[0], ys[1] - ys[0]], num: bladeNumber(k + 1, wait, bg, ink, at, hh, L)};
+  }
+
+  /* the same blade with only its floor number (1 is the lowest), a big pixel digit, for when the names would be too
+     small to read: same brackets, board, colours and "!" as the name board, from the same corner, so the app can swap them */
+  const DIGITS = ["111101101101111", "010110010010111", "111001111100111", "111001011001111", "101101111001001",
+    "111100111001111", "111100111101111", "111001010010010", "111101111101111", "111101111001111"];
+  function bladeNumber(n, wait, bg, ink, at, hh, L) {
+    const ds = String(n), p = Math.min(2.9, (hh * 2 - 4.4) / 5), cy = -.5;
+    const nw = ds.length * 3 * p + (ds.length - 1) * p, icon = wait ? 12 : 0;
+    const x0 = 6.4, bw = icon + nw + (wait ? 7 : 8), H = hh * 2, edge = K.shade(bg, .7);
+    let g = `<g transform="translate(${f(at[0])} ${f(at[1])}) matrix(1 .5 0 1.08 0 0)">`;
+    for (const y of [-hh + .6, hh - .6]) g += `<rect x="0" y="${f(y - .6)}" width="8" height="1.2" fill="${L("#2a2433")}"/>`;
+    g += `<rect x="${x0}" y="${f(-hh)}" width="${f(bw)}" height="${f(H)}" fill="${L(bg)}" stroke="${L("#2a1a2e")}" stroke-width=".8"/>`;
+    g += `<rect x="${x0}" y="${f(hh - 1)}" width="${f(bw)}" height="1" fill="${L(edge)}"/>`;
+    if (wait) g += `<rect x="${x0 + 2.6}" y="${f(-5.4)}" width="8.6" height="10.8" fill="#2a1a2e"/><rect x="${x0 + 5.8}" y="-4.2" width="2.2" height="5.6" fill="#FFD83D"/><rect x="${x0 + 5.8}" y="2.4" width="2.2" height="1.8" fill="#FFD83D"/>`;
+    // one path for all the digit's pixels, so neighbouring squares meet without a hairline between them
+    let d = "", u = x0 + (wait ? icon + 3 : 4);
+    for (const ch of ds) {
+      [...DIGITS[+ch]].forEach((b, q) => {
+        if (b !== "1") return;
+        const a0 = f(u + (q % 3) * p), a1 = f(u + (q % 3 + 1) * p), b0 = f(cy + (Math.floor(q / 3) - 2.5) * p), b1 = f(cy + (Math.floor(q / 3) - 1.5) * p);
+        d += `M${a0} ${b0}H${a1}V${b1}H${a0}z`;
+      });
+      u += 4 * p;
+    }
+    return g + `<path d="${d}" fill="${L(ink)}"/></g>`;
   }
 
   /* the Server room's open front, its sill and transom: a sprite of its own over the room (D87), so someone at work

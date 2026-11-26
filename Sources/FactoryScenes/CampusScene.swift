@@ -69,8 +69,12 @@ public final class CampusScene: WorldScene {
     }
     private var poofs: [Poof] = []
     private var fountainGlow: SKSpriteNode?
-    /// the signs, each sorted with what it hangs on: owner is the building key for its roof sign and plaques
-    var signs: [(node: SKSpriteNode, owner: String?, plaque: Bool, storey: Int?)] = []
+    /// the signs, each sorted with what it hangs on: owner is the building key for its roof sign and plaques. A storey's
+    /// blade comes twice, as its name and as its floor number (`num`); one of the two shows, by the camera's zoom
+    var signs: [(node: SKSpriteNode, owner: String?, plaque: Bool, storey: Int?, num: Bool)] = []
+    /// how far the blades have gone over from their floor numbers (0) to their names (1), and where they are heading
+    private var plaqueMix: CGFloat = 0
+    private var plaqueNames = false
     /// plaques of storeys that wait for you ("claude:0"): yellow, so they fade less when someone walks behind them
     private var waitingPlaques: Set<String> = []
     private var waiting = 0
@@ -153,8 +157,8 @@ public final class CampusScene: WorldScene {
             // (+0.45: over the building's overlay, so a waiting band never runs across a plaque)
             guard let n = place(sg.image, z: (objectZ[base] ?? 3490) + 0.45) else { continue }
             content.addChild(n)
-            let plaque = parts.first == "plaque"
-            signs.append((n, owner, plaque, plaque && parts.count > 2 ? Int(parts[2]) : nil))
+            let num = parts.first == "plaquenum", plaque = parts.first == "plaque" || num
+            signs.append((n, owner, plaque, plaque && parts.count > 2 ? Int(parts[2]) : nil, num))
         }
         storeys = art.storeys.compactMap { st in
             guard let p = Provider(rawValue: st.building), let b = world.building(p), st.index < b.projects.count else { return nil }
@@ -588,7 +592,7 @@ public final class CampusScene: WorldScene {
             guard let p = world.project(id: id), p.waits(now: world.now),
                   let ov = overlays[st.building] else { continue }
             waitingPlaques.insert("\(st.building):\(st.index)")
-            guard let sg = signs.first(where: { $0.plaque && $0.owner == st.building && $0.storey == st.index }) else { continue }
+            guard let sg = signs.first(where: { $0.plaque && !$0.num && $0.owner == st.building && $0.storey == st.index }) else { continue }
             let f = sg.node.frame, c = artPoint(CGPoint(x: f.midX, y: f.midY))
             let g = glow(c, size: CGSize(width: f.width / px * 1.5, height: f.height / px * 1.6), color: Self.wait)
             g.zPosition = 0.08; g.alpha = 0.3
@@ -938,11 +942,9 @@ public final class CampusScene: WorldScene {
         }
         tickStacks(dt)
         tickLife(dt)
-        // close up, the storey plaques keep about their size on screen instead of filling the view
-        // (the blade signs are part of the facades: they only shrink once you come really close)
-        let k = max(0.5, min(1, 2.2 * cam.xScale / max(homeScale, 0.0001)))
-        for sg in signs where sg.plaque && abs(sg.node.xScale - k) > 0.005 { sg.node.setScale(k) }
+        scalePlaques()
         animateLights()
+        updatePlaqueForm(dt)
         fadePlaques(dt)
         for l in screenLines { l.node.lineWidth = screenWidth(l.width) }
         if let r = hoverRing, let w = walkers[r.walker] {
@@ -957,6 +959,10 @@ public final class CampusScene: WorldScene {
     /// sprite's box with its empty margin; a yellow plaque (it waits for you) stays readable.
     private func fadePlaques(_ dt: Double) {
         for sg in signs where sg.plaque {
+            // the form that is not shown is gone, not faint: it is never hit, hovered or seen through the other
+            let form = sg.num ? 1 - plaqueMix : plaqueMix
+            if form <= 0 { sg.node.alpha = 0; sg.node.isHidden = true; continue }
+            sg.node.isHidden = false
             let f = sg.node.frame.insetBy(dx: 1 * px, dy: 1 * px)
             let behind = walkers.values.contains { w in
                 guard w.node.zPosition < sg.node.zPosition, w.node.alpha > 0.1 else { return false }
@@ -964,9 +970,41 @@ public final class CampusScene: WorldScene {
                 return !x.isNull && x.width * x.height > 0.3 * body.width * body.height
             }
             let waits = sg.owner.flatMap { o in sg.storey.map { waitingPlaques.contains("\(o):\($0)") } } ?? false
-            let target: CGFloat = behind ? (waits ? 0.8 : 0.55) : 1
-            sg.node.alpha = animationsEnabled && dt > 0 ? sg.node.alpha + (target - sg.node.alpha) * CGFloat(min(1, dt * 8)) : target
+            let target: CGFloat = (behind ? (waits ? 0.8 : 0.55) : 1) * form
+            // while the two forms swap, they follow the swap itself (it is already timed)
+            sg.node.alpha = animationsEnabled && dt > 0 && plaqueMix == (plaqueNames ? 1 : 0) ? sg.node.alpha + (target - sg.node.alpha) * CGFloat(min(1, dt * 8)) : target
         }
+    }
+
+    /// From afar a blade's name is a few points high (about 5 pt at the overview) and unreadable, so it shows its floor
+    /// number instead; once the camera comes in to a tower's framing (that lands at 0.5 to 0.7 of the overview's scale,
+    /// depending on what the tower carries; the camera focuses a tower below 0.8) it shows its name, about 6 pt and
+    /// growing. The way in (0.76) and the way out (0.84) lie apart, so a camera resting near the line does not flicker;
+    /// the two forms swap in a short cross-fade, never both for longer, and at once with animations off.
+    private func updatePlaqueForm(_ dt: Double) {
+        let z = zoomRatio
+        if plaqueNames ? z > 0.84 : z <= 0.76 { plaqueNames.toggle() }
+        let want: CGFloat = plaqueNames ? 1 : 0
+        guard plaqueMix != want else { return }
+        plaqueMix = animationsEnabled && dt > 0 ? (want > plaqueMix ? min(want, plaqueMix + CGFloat(dt / 0.2)) : max(want, plaqueMix - CGFloat(dt / 0.2))) : want
+    }
+
+    /// Close up, the storey plaques keep about their size on screen instead of filling the view (the blade signs are
+    /// part of the facades: they only shrink once you come really close).
+    private func scalePlaques() {
+        let k = max(0.5, min(1, 2.2 * zoomRatio))
+        for sg in signs where sg.plaque && abs(sg.node.xScale - k) > 0.005 { sg.node.setScale(k) }
+    }
+
+    /// A camera that moved without frames (a covered window, a sleeping display, a window shot) still lands with the
+    /// right plaques: what the frames would have done happens at once.
+    private func settlePlaques() {
+        guard !(view?.drawsFrames ?? false) else { return }
+        scalePlaques(); updatePlaqueForm(0); fadePlaques(0)
+    }
+
+    override func fly(center: CGPoint, scale: CGFloat, duration: TimeInterval = 0.7, completion: (() -> Void)? = nil) {
+        super.fly(center: center, scale: scale, duration: duration) { [weak self] in self?.settlePlaques(); completion?() }
     }
 
     /// The rack LEDs, the beacon, the waiting bands and the fountain, all from one clock; a still frame (no
@@ -1236,6 +1274,7 @@ public final class CampusScene: WorldScene {
     func clearHover() { hoverLayer?.removeFromParent(); hoverLayer = nil; hoverTarget = nil; hoverRing = nil }
 
     override func didZoom(zoomingIn: Bool) {
+        settlePlaques()
         let z = zoomRatio
         if z > 0.8 { if focus != nil { focus = nil; applyFocus(animated: true); onFocus?(nil) }; return }
         let c = artPoint(cam.position)
