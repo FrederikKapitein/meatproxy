@@ -50,13 +50,16 @@ enum Brand {
     /// The app icon, as the Dock shows it.
     static var appIcon: NSImage? { AppResources.bundle.url(forResource: "AppIcon", withExtension: "png", subdirectory: "Brand").flatMap(NSImage.init(contentsOf:)) }
 
-    /// The native About panel: the icon, the name, the story and the line about you.
+    /// The build's version (scripts/make-app.sh writes it into the bundle); a bare `swift build` is "dev".
+    static var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev" }
+
+    /// The native About panel: the icon, the name, the story, its version and the line about you.
     @MainActor static func showAbout() {
         let centred = NSMutableParagraphStyle(); centred.alignment = .center
         let credits = NSMutableAttributedString(string: story + "\n\n", attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: centred])
         credits.append(NSAttributedString(string: userLine, attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .bold), .foregroundColor: NSColor.labelColor, .paragraphStyle: centred]))
         var options: [NSApplication.AboutPanelOptionKey: Any] = [.applicationName: name, .credits: credits,
-                                                                  .applicationVersion: "Hobby build", .version: ""]
+                                                                  .applicationVersion: "Hobby build \(version)", .version: ""]
         if let appIcon { options[.applicationIcon] = appIcon }
         NSApp.orderFrontStandardAboutPanel(options: options)
         NSApp.activate(ignoringOtherApps: true)
@@ -286,14 +289,15 @@ struct BrandLockup: View {
 
 /// A segmented choice (Spel+): a well with chunky keys; the chosen one is lit white on its ledge, never yellow (E1).
 /// The key slides to the segment you pick; the others are quiet. A segment that cannot be picked keeps its readable
-/// label with a dashed edge (E9).
+/// label with a dashed edge (E9). Two sizes, as SpelButton (UX review 26 Nov, Henk): s has 22 pt keys in a 28 pt well
+/// (radius 6), m 28 pt keys in a 34 pt well (radius 10); both 13 pt labels.
 struct LiftedSegments<ID: Hashable>: View {
     struct Item { var id: ID; var title: String; var icon: String? = nil; var enabled = true; var help: String? = nil }
+    enum Size { case s, m }
     let items: [Item]
     let selected: ID
+    var size: Size = .m
     var mono = false
-    var fontSize: CGFloat = 13
-    var padding = EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10)
     /// stretch the segments to the width they are given
     var fill = false
     let pick: (ID) -> Void
@@ -301,6 +305,7 @@ struct LiftedSegments<ID: Hashable>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let key: CGFloat = size == .s ? 22 : 28, well: CGFloat = size == .s ? 6 : 10
         HStack(spacing: 2) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 let on = item.id == selected
@@ -309,32 +314,36 @@ struct LiftedSegments<ID: Hashable>: View {
                         if let icon = item.icon { PixelIcon(icon, color: on ? .onSignal : .muted) }
                         Text(item.title).lineLimit(1).fixedSize()
                     }
-                    .font(.system(size: fontSize <= 12 ? 11 : 13, weight: on ? .bold : .semibold, design: mono ? .monospaced : .default))
-                    .padding(padding)
+                    .font(.spel(13, weight: on ? .bold : .semibold, design: mono ? .monospaced : .default))
+                    .padding(.horizontal, size == .s ? 8 : 12)
                     .frame(maxWidth: fill ? .infinity : nil)
+                    .frame(height: key)
                 }
-                .buttonStyle(SegmentKeyStyle(on: on, keySpace: keySpace))
+                .buttonStyle(SegmentKeyStyle(on: on, radius: size == .s ? 4 : 6, keySpace: keySpace))
                 .disabled(!item.enabled && !on)
                 .help(item.help ?? "")
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
         .animation(reduceMotion ? nil : Motion.slide, value: selected)
+        // 2 above the keys, 4 below (their 2 pt ledge and 2 of well): 28 or 34 in all
         .padding(.horizontal, 2).padding(.top, 2).padding(.bottom, 4)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.well))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.divider, lineWidth: 2))
+        .background(RoundedRectangle(cornerRadius: well).fill(Color.well))
+        .overlay(RoundedRectangle(cornerRadius: well).strokeBorder(Color.divider, lineWidth: 2))
     }
 }
 
 private struct SegmentKeyStyle: ButtonStyle {
     let on: Bool
+    let radius: CGFloat
     let keySpace: Namespace.ID
-    func makeBody(configuration: Configuration) -> some View { SegmentKey(configuration: configuration, on: on, keySpace: keySpace) }
+    func makeBody(configuration: Configuration) -> some View { SegmentKey(configuration: configuration, on: on, radius: radius, keySpace: keySpace) }
 }
 
 private struct SegmentKey: View {
     let configuration: ButtonStyleConfiguration
     let on: Bool
+    let radius: CGFloat
     let keySpace: Namespace.ID
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -342,24 +351,25 @@ private struct SegmentKey: View {
     var body: some View {
         let pressed = configuration.isPressed && enabled
         let ink: Color = on ? Color.onSignal : hover && enabled ? Color.inkText : Color.muted
+        let shape = RoundedRectangle(cornerRadius: radius)
         return configuration.label
             .foregroundStyle(ink)
             .background {
                 if on {
                     // the key: a white face and edge, its grey ledge straight below; pressed, it lands on the ledge
-                    RoundedRectangle(cornerRadius: 6).fill(LinearGradient(colors: [.lit, .lit2], startPoint: .top, endPoint: .bottom))
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white, lineWidth: 2))
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.litLedge).offset(y: pressed ? 0 : 2))
+                    shape.fill(LinearGradient(colors: [.lit, .lit2], startPoint: .top, endPoint: .bottom))
+                        .overlay(shape.strokeBorder(Color.white, lineWidth: 2))
+                        .background(shape.fill(Color.litLedge).offset(y: pressed ? 0 : 2))
                         .matchedGeometryEffect(id: "key", in: keySpace)
                 } else if !enabled {
-                    RoundedRectangle(cornerRadius: 6).strokeBorder(Color.border, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+                    shape.strokeBorder(Color.border, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
                 } else if hover {
-                    RoundedRectangle(cornerRadius: 6).fill(Color.raised)
+                    shape.fill(Color.raised)
                 }
             }
             .offset(y: pressed ? (on ? (reduceMotion ? 1 : 2) : 1) : 0)
             .animation(reduceMotion ? nil : pressed ? Motion.pressIn : Motion.springBack, value: pressed)
-            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .contentShape(shape)
             .onHover { hover = $0 }
     }
 }
@@ -432,7 +442,7 @@ struct KeyCap: View {
         let face: Color = onYellow ? Color.onSignal.opacity(0.12) : Color.well
         let edge: Color = onYellow ? Color.onSignal.opacity(0.45) : Color.border
         let shape = RoundedRectangle(cornerRadius: 6)
-        return Text(key).font(.system(size: 11, weight: .semibold)).lineLimit(1).fixedSize()
+        return Text(key).font(.spel(11, weight: .semibold)).lineLimit(1).fixedSize()
             .foregroundStyle(ink)
             .padding(.horizontal, 5).frame(minWidth: 20, minHeight: 18, maxHeight: 18)
             .background(shape.fill(face))

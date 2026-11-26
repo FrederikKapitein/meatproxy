@@ -15,14 +15,13 @@ final class AppModel: ObservableObject {
     @Published var lastRead: Date?
     /// The settings page, inside the window over the world.
     @Published var settingsOpen = false
-    /// D72: ⌘K search, the ? sheet of commands, and the open right-click menu
+    /// D72: ⌘K search and the ? sheet of commands (the right-click menu is the Mac's own: popUp)
     @Published var paletteOpen = false
     /// window shots: what the search starts with
     var paletteSeed = ""
     @Published var commandsOpen = false
-    @Published var contextMenuState: ContextMenuState?
     /// a panel of the HUD is open over the world: plain keys (N, Esc) belong to it, not to the world
-    var overlayOpen: Bool { paletteOpen || commandsOpen || factoryPickerOpen || contextMenuState != nil }
+    var overlayOpen: Bool { paletteOpen || commandsOpen || factoryPickerOpen }
     /// the walk's last quest (D1): which project gets a CEO
     @Published var factoryPickerOpen = false
     /// the floor that quest landed on: its Factory switch is step 2 of 2 until you switch it on
@@ -212,7 +211,7 @@ final class AppModel: ObservableObject {
         controller.onHoverTitle = { [weak self] t in if self?.hoverTitle != t { self?.hoverTitle = t } }
         controller.onEffect = { [weak self] kind, title, line in MainActor.assumeIsolated { self?.effectAppeared(kind, title, line) } }
         controller.onContext = { [weak self] t, p in
-            MainActor.assumeIsolated { guard let self else { return }; self.contextMenuState = self.contextMenu(for: t, at: p) }
+            MainActor.assumeIsolated { guard let self else { return }; self.popUp(self.contextMenu(for: t, at: p)) }
         }
         // a factory's cost cap (D61) reads today's API price of its floors (the CEO may run on either provider)
         // a factory waits while its provider is down on its status page (D69)
@@ -236,6 +235,8 @@ final class AppModel: ObservableObject {
             MainActor.assumeIsolated { self?.followReduceMotion() }
         }
         controller.setStatusLayer(statusLayer)
+        TypeScale.larger = textLarger
+        watchQuestionMark()
         // the menu bar follows the model after each change (objectWillChange comes before it)
         menuSink = objectWillChange.sink { [weak self] _ in DispatchQueue.main.async { self?.syncMenu() } }
         refresh()
@@ -476,17 +477,46 @@ final class AppModel: ObservableObject {
     @Published var notifyNeedsYou: Bool = !AppModel.demo && UserDefaults.standard.bool(forKey: "notifyNeedsYou") {
         didSet { if !fixture { UserDefaults.standard.set(notifyNeedsYou, forKey: "notifyNeedsYou") } }
     }
+    // MARK: reading and keys (UX review 26 Nov, round 3)
+
+    /// Text size Larger: every size one step up the scale (TypeScale); the HUD is drawn again with it
+    @Published var textLarger: Bool = !AppModel.demo && UserDefaults.standard.bool(forKey: "textLarger") {
+        didSet { TypeScale.larger = textLarger; if !fixture { UserDefaults.standard.set(textLarger, forKey: "textLarger") } }
+    }
+    /// N, 1, 2 and ? on their own (on by default, as before); off, only Esc and the ⌘ keys remain, for voice control
+    @Published var singleKeys: Bool = AppModel.demo || (UserDefaults.standard.object(forKey: "singleKeys") as? Bool ?? true) {
+        didSet { if !fixture { UserDefaults.standard.set(singleKeys, forKey: "singleKeys") } }
+    }
+    /// Open at login, as System Settings has it (a demo only pretends)
+    @Published private(set) var loginItem: LoginItem.State = AppModel.demo ? .off : LoginItem.state
+    func readLoginItem() { if !fixture { let s = LoginItem.state; if s != loginItem { loginItem = s } } }
+    func setOpenAtLogin(_ on: Bool) {
+        if fixture { loginItem = on ? .on : .off; return }
+        do { try LoginItem.set(on) } catch { status = "Could not \(on ? "add Meatproxy to" : "remove Meatproxy from") Login Items: \(error.localizedDescription)" }
+        readLoginItem()
+    }
+
     /// what waited at the last look: the first look only learns, so a launch never sends a pile
     private var seenWaiting: Set<String>?
     private var dockCount = 0
 
-    /// The Dock icon carries the Needs you count; new questions and releases notify when you asked for it.
+    /// every Needs you item at the last look, so a new one is said once (VoiceOver)
+    private var seenAll: Set<String>?
+
+    /// The Dock icon carries the Needs you count; new questions and releases notify when you asked for it, and VoiceOver
+    /// says each new one as it arrives (UX review 26 Nov, point 10).
     private func followNeedsYou() {
         let items = world.needsYou
         if items.count != dockCount {
             dockCount = items.count
             NSApp.dockTile.badgeLabel = items.isEmpty ? nil : "\(items.count)"
         }
+        let all = Set(items.map(\.id))
+        if let before = seenAll, let new = items.first(where: { !before.contains($0.id) }) {
+            let more = all.subtracting(before).count - 1
+            AccessibilityNotification.Announcement("Needs you: \(new.title), \(new.project.name)" + (more > 0 ? ", and \(more) more" : "")).post()
+        }
+        seenAll = all
         // questions, to-dos and releases; a chat that waits is the chat's own business
         let notable = items.filter { if case .session = $0 { return false }; return true }
         let ids = Set(notable.map(\.id))
@@ -512,7 +542,7 @@ final class AppModel: ObservableObject {
     let menu = MenuState()
     private var menuSink: AnyCancellable?
     private func syncMenu() {
-        menu.set(MenuState.State(plainKeys: plainKeysFree, waiting: !world.needsYou.isEmpty, statusLayer: statusLayer, terminal: terminalShown,
+        menu.set(MenuState.State(plainKeys: plainKeysFree && singleKeys, waiting: !world.needsYou.isEmpty, statusLayer: statusLayer, terminal: terminalShown,
                                  pauseAll: projectSettings.pauseAll, factories: world.projects.filter { $0.factory != nil }.map(\.id)))
     }
 
@@ -1156,6 +1186,8 @@ final class AppModel: ObservableObject {
     @Published var seenEffects: Set<String> = Set(AppModel.demo ? [] : UserDefaults.standard.stringArray(forKey: "seenEffects") ?? [])
     /// The first time an effect shows: what it is, for a few seconds at the top of the campus.
     @Published var fieldNote: (title: String, line: String)?
+    /// the pointer is on the field note: it stays until it leaves
+    var fieldNoteHovered = false
     private var fieldNoteToken = 0
     func effectAppeared(_ kind: String, _ title: String, _ line: String) {
         guard !seenEffects.contains(kind) else { return }
@@ -1165,8 +1197,38 @@ final class AppModel: ObservableObject {
         if let step = walkStep, (1...WalkCard.steps.count).contains(step) { return }
         fieldNote = (title, line)
         fieldNoteToken += 1
-        let token = fieldNoteToken
-        DispatchQueue.main.asyncAfter(deadline: .now() + 9) { [weak self] in if self?.fieldNoteToken == token { self?.fieldNote = nil } }
+        AccessibilityNotification.Announcement("New on the campus: \(title). \(line)").post()
+        closeFieldNoteLater(fieldNoteToken, after: 9)
+    }
+    /// A field note goes after 9 seconds, but never from under the pointer, and not while VoiceOver runs: then its
+    /// close button is the way (UX review 26 Nov, point 10).
+    private func closeFieldNoteLater(_ token: Int, after seconds: Double) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self, self.fieldNoteToken == token, self.fieldNote != nil else { return }
+            if self.fieldNoteHovered || NSWorkspace.shared.isVoiceOverEnabled { self.closeFieldNoteLater(token, after: 2); return }
+            self.fieldNote = nil
+        }
+    }
+
+    // MARK: VoiceOver and keys
+
+    /// What the world says to VoiceOver: where you are and how to get on (the people and floors themselves are reached
+    /// through ⌘K and Needs you).
+    var worldLabel: String { world.spoken(serverRoom: selection.engineRoom, project: selection.projectID, tower: selection.provider) }
+
+    /// ? opens Help by what it types, so it works on every keyboard layout (on a German one ? is ⇧ß, not ⇧/); only
+    /// while single-key shortcuts are on and nothing takes typing.
+    private var questionMonitor: Any?
+    private func watchQuestionMark() {
+        questionMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard e.characters == "?", e.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return e }
+            let took = MainActor.assumeIsolated { () -> Bool in
+                guard let self, self.singleKeys, !self.typing, !self.terminalShown, !self.paletteOpen, !self.settingsOpen, !self.factoryPickerOpen else { return false }
+                self.commandsOpen.toggle()
+                return true
+            }
+            return took ? nil : e
+        }
     }
 
     /// The guided first walk: nil when not walking; 0 offers it, 1…4 its steps, 5 done. Offered once, at the first launch.

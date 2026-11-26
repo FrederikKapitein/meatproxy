@@ -33,7 +33,7 @@ struct AppCommand: Identifiable {
 /// Help's two tabs (D7).
 enum HelpTab: Hashable { case keys, guide }
 
-/// A right-click menu: where it opens and what is in it.
+/// A right-click menu: where it opens (window points from the top left) and what is in it.
 struct ContextMenuState: Equatable {
     let at: CGPoint
     let title: String
@@ -52,7 +52,7 @@ extension AppModel {
             // N is a plain key: the menu binds it only while nothing takes typing (`plainKeysFree`)
             AppCommand(id: "go.next", title: "Next that needs you", detail: "Questions and chats that wait", icon: "bang", group: .go, keys: "N",
                        menu: .go, menuTitle: "Next That Needs You",
-                       shortcut: plainKeysFree && !world.needsYou.isEmpty ? KeyboardShortcut("n", modifiers: []) : nil) { [weak self] in self?.goNext() },
+                       shortcut: plainKeysFree && singleKeys && !world.needsYou.isEmpty ? KeyboardShortcut("n", modifiers: []) : nil) { [weak self] in self?.goNext() },
             AppCommand(id: "go.up", title: "Up a level", detail: "Floor → building → campus", icon: "up", group: .go, keys: "esc") { [weak self] in self?.controller.up() },
             AppCommand(id: "go.zoomin", title: "Zoom in", icon: "plus", group: .go, keys: "⌘+",
                        menu: .view, menuTitle: "Zoom In", shortcut: KeyboardShortcut("+", modifiers: .command)) { [weak self] in self?.controller.zoom(0.8) },
@@ -196,6 +196,22 @@ extension AppModel {
 
     static func copy(_ s: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string) }
 
+    /// The right-click menu as the Mac's own (UX review 26 Nov, point 10): arrows, Return, type-to-select and VoiceOver
+    /// work as in every app. Built from the same commands as ⌘K and Help, with their pixel icons and keys.
+    func popUp(_ m: ContextMenuState) {
+        guard let view = WorldSKView.current else { return }
+        let menu = NSMenu(title: m.title)
+        menu.autoenablesItems = false
+        menu.addItem(NSMenuItem.sectionHeader(title: m.title))
+        for c in m.items {
+            if c.id == "c.search" { menu.addItem(.separator()) }
+            menu.addItem(CommandMenuItem(c))
+        }
+        let at = NSPoint(x: m.at.x, y: view.isFlipped ? m.at.y : view.bounds.height - m.at.y)
+        // after the click's own handling, so the world has finished with the mouse
+        DispatchQueue.main.async { menu.popUp(positioning: nil, at: at, in: view) }
+    }
+
     /// What the campus shows, for Help's field guide (D74, D78): its kind (what you have seen is kept), a title, what it
     /// means, and its pixel icon and colour on the collector's card.
     static let legend: [(kind: String, title: String, text: String, icon: String, color: UInt32)] = [
@@ -210,7 +226,7 @@ extension AppModel {
 
     /// What the mouse and trackpad do, for Help.
     static let gestures: [(String, String)] = [
-        ("Click", "opens it"), ("Right-click", "a menu"), ("Scroll or drag", "moves"),
+        ("Click", "opens it"), ("Right-click or ⌃-click", "a menu"), ("Scroll or drag", "moves"),
         ("Pinch or + −", "zooms"), ("Hover a tower", "opens it up"), ("Wheel on a tower", "walks floors"),
     ]
 }
@@ -268,8 +284,10 @@ struct CommandPalette: View {
                                             Eyebrow(g.group == .go || g.group == .show || g.group == .act ? "Commands · \(g.group.rawValue)" : g.group.rawValue)
                                                 .padding(.horizontal, 4).padding(.top, 8).padding(.bottom, 2)
                                         }
-                                        CommandRow(command: c, picked: i == picked, query: query)
-                                            .onTapGesture { model.paletteOpen = false; c.run() }
+                                        Button { model.paletteOpen = false; c.run() } label: {
+                                            CommandRow(command: c, picked: i == picked, query: query, spoken: Self.spoken(c, i, of: flat.count))
+                                        }
+                                        .buttonStyle(.plain)
                                     }
                                     .id(i)
                                 }
@@ -295,10 +313,45 @@ struct CommandPalette: View {
         .onAppear { model.paletteSeed = ""; DispatchQueue.main.async { focused = true } }
         // the people's portraits, drawn once (a person in the list shows their face, not an empty socket)
         .task { await model.controller.ensurePortraits(model.searchable.compactMap(\.cast)); faces += 1 }
-        .onChange(of: query) { _, _ in picked = 0 }
-        .onKeyPress(.downArrow) { picked = min(picked + 1, max(0, flat.count - 1)); return .handled }
-        .onKeyPress(.upArrow) { picked = max(picked - 1, 0); return .handled }
+        .onChange(of: query) { _, q in picked = 0; announceCount(q) }
+        .onKeyPress(.downArrow) { picked = min(picked + 1, max(0, flat.count - 1)); announcePicked(); return .handled }
+        .onKeyPress(.upArrow) { picked = max(picked - 1, 0); announcePicked(); return .handled }
         .onExitCommand { model.paletteOpen = false }
+        .accessibilityElement(children: .contain).accessibilityLabel("Search")
+    }
+
+    private func results(_ q: String) -> [AppCommand] {
+        FuzzyMatch.rankGrouped(q, model.searchable, groups: q.isEmpty ? Self.emptyOrder : Self.typedOrder, limit: q.isEmpty ? 6 : 8,
+                               group: { $0.group }, text: { $0.title + " " + $0.detail }).flatMap(\.items)
+    }
+
+    /// VoiceOver hears the picked row as the arrows move it: "Pebble Puzzles, project, Claude tower · floor 2, 1 of 3"
+    static func spoken(_ c: AppCommand, _ i: Int, of n: Int) -> String {
+        let kind: String
+        switch c.group {
+        case .projects: kind = "project"
+        case .questions: kind = "waits for you"
+        case .sessions: kind = "chat"
+        case .servers: kind = "server"
+        case .go, .show, .act: kind = "command"
+        }
+        return [c.title, kind, c.detail.isEmpty ? nil : c.detail, "\(i + 1) of \(n)"].compactMap { $0 }.joined(separator: ", ")
+    }
+    private func announcePicked() {
+        let flat = results(query)
+        guard flat.indices.contains(picked) else { return }
+        AccessibilityNotification.Announcement(Self.spoken(flat[picked], picked, of: flat.count)).post()
+    }
+    /// how many it found, once you stop typing for a moment
+    @State private var countToken = 0
+    private func announceCount(_ q: String) {
+        countToken += 1
+        let mine = countToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            guard mine == countToken else { return }
+            let n = results(q).count
+            AccessibilityNotification.Announcement(n == 0 ? "Nothing matches \(q)" : "\(n) result\(n == 1 ? "" : "s")").post()
+        }
     }
 
     private func run(_ results: [AppCommand]) {
@@ -314,12 +367,14 @@ struct CommandPalette: View {
 /// strip. Field guide: a card for each thing on the campus; what you have not seen yet is an empty card.
 struct CommandSheet: View {
     @EnvironmentObject private var model: AppModel
+    @AccessibilityFocusState private var titleFocus: Bool
     var body: some View {
         let seen = AppModel.legend.filter { model.seenEffects.contains($0.kind) }.count
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 Socket(size: 44) { PixelIcon("help", color: .inkText) }
                 Text("Help").font(.s26).foregroundStyle(Color.inkText)
+                    .accessibilityAddTraits(.isHeader).accessibilityFocused($titleFocus)
                 Spacer()
                 CloseButton(action: { model.commandsOpen = false })
             }
@@ -332,20 +387,31 @@ struct CommandSheet: View {
         .frame(width: Shell.wideSheet)
         .spelFrame()
         .onExitCommand { model.commandsOpen = false }
+        .onAppear { DispatchQueue.main.async { titleFocus = true } }
     }
 }
 
 private struct KeysTab: View {
     @EnvironmentObject private var model: AppModel
     var body: some View {
-        let all = model.staticCommands.filter { !$0.id.hasPrefix("do.run:") && $0.id != "show.commands" && $0.id != "show.guide" }
+        // with single-key shortcuts off, N, 1, 2 and ? show no key: they do nothing then
+        let all = model.staticCommands.filter { !$0.id.hasPrefix("do.run:") && $0.id != "show.commands" && $0.id != "show.guide" }.map { c in
+            var c = c
+            if !model.singleKeys, let k = c.keys, ["N", "?", "1 2"].contains(k) { c.keys = nil }
+            return c
+        }
         VStack(alignment: .leading, spacing: 14) {
+            if !model.singleKeys {
+                Text("Single-key shortcuts are off: switch them on in Settings › General.").font(.s13).foregroundStyle(Color.muted)
+            }
             HStack(alignment: .top, spacing: 18) {
                 ForEach([AppCommand.Group.go, .show, .act], id: \.self) { g in
                     VStack(alignment: .leading, spacing: 4) {
                         Eyebrow(g.rawValue).padding(.bottom, 4).padding(.leading, 8)
                         ForEach(all.filter { $0.group == g }) { c in
-                            CommandRow(command: c, picked: false, compact: true).onTapGesture { model.commandsOpen = false; c.run() }
+                            // a real button: Tab, Space and VoiceOver reach it, not only the pointer
+                            Button { model.commandsOpen = false; c.run() } label: { CommandRow(command: c, picked: false, compact: true) }
+                                .buttonStyle(.plain)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -378,11 +444,11 @@ private struct FieldGuideTab: View {
                         if on {
                             PixelIcon(r.icon, color: Color(hex: r.color), size: 27)
                                 .frame(maxWidth: .infinity).frame(height: 44)
-                                .background(RoundedRectangle(cornerRadius: 8).fill(RadialGradient(colors: [Color(hex: r.color).opacity(0.28), Color.well], center: .center, startRadius: 0, endRadius: 40)))
+                                .background(RoundedRectangle(cornerRadius: 10).fill(RadialGradient(colors: [Color(hex: r.color).opacity(0.28), Color.well], center: .center, startRadius: 0, endRadius: 40)))
                         } else {
                             PixelIcon("help", color: .muted, size: 27).frame(maxWidth: .infinity).frame(height: 44)
                         }
-                        Text(r.title).font(.s13m).foregroundStyle(on ? Color.inkText : Color.muted).lineLimit(1).minimumScaleFactor(0.8)
+                        Text(r.title).font(.s13m).foregroundStyle(on ? Color.inkText : Color.muted).lineLimit(2).multilineTextAlignment(.center)
                     }
                     .padding(6)
                     .frame(maxWidth: .infinity)
@@ -406,33 +472,55 @@ private struct FieldGuideTab: View {
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
-            .frame(minHeight: 36, alignment: .topLeading)
+            .frame(minHeight: 18, alignment: .topLeading)
         }
     }
 }
 
 // MARK: - rows and menus
 
-/// The right-click menu (D72): a small frame at the pointer. Click outside or Esc closes it.
-struct ContextMenuView: View {
-    @EnvironmentObject private var model: AppModel
-    let menu: ContextMenuState
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Eyebrow(menu.title).padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 4)
-            ForEach(menu.items) { c in
-                if c.id == "c.search" { RowDivider().padding(.vertical, 3) }
-                CommandRow(command: c, picked: false, compact: true)
-                    .onTapGesture { model.contextMenuState = nil; c.run() }
-            }
-        }
-        .padding(6)
-        .frame(width: 290)
-        .spelFrame()
+/// An accessibility label only when there is one to give (otherwise the row's own words).
+private struct SpokenLabel: ViewModifier {
+    let text: String?
+    func body(content: Content) -> some View {
+        if let text { content.accessibilityLabel(text) } else { content }
     }
 }
 
-/// One line in search, Help and the right-click menu: an icon (or a portrait or logo), the name with what you typed
+/// One command as a Mac menu item: its title in title case, its pixel icon and its key; choosing it runs it.
+final class CommandMenuItem: NSMenuItem {
+    private let run: @MainActor () -> Void
+    init(_ c: AppCommand) {
+        run = c.run
+        let key = MenuWords.key(c.keys)
+        super.init(title: MenuWords.titleCase(c.title), action: #selector(fire), keyEquivalent: key?.key ?? "")
+        keyEquivalentModifierMask = key?.command == true ? .command : []
+        target = self
+        image = PixelIcon.image(c.icon)
+        if !c.detail.isEmpty { toolTip = c.detail }
+    }
+    required init(coder: NSCoder) { fatalError("not from a nib") }
+    @objc private func fire() { MainActor.assumeIsolated { run() } }
+}
+
+extension PixelIcon {
+    /// The icon as a template image for a Mac menu: 9 × 9 cells at 2 pt.
+    static func image(_ name: String, size: CGFloat = 18) -> NSImage? {
+        guard let rows = cells[name] else { return nil }
+        let img = NSImage(size: NSSize(width: size, height: size), flipped: true) { r in
+            let u = r.width / 9
+            NSColor.black.setFill()
+            for (y, row) in rows.enumerated() {
+                for (x, ch) in row.enumerated() where ch == "#" { NSRect(x: CGFloat(x) * u, y: CGFloat(y) * u, width: u, height: u).fill() }
+            }
+            return true
+        }
+        img.isTemplate = true
+        return img
+    }
+}
+
+/// One line in search and Help: an icon (or a portrait or logo), the name with what you typed
 /// marked, where it lives, and on the right a yellow badge when something waits there and the key when it has one.
 private struct CommandRow: View {
     @EnvironmentObject private var model: AppModel
@@ -440,6 +528,8 @@ private struct CommandRow: View {
     let picked: Bool
     var query = ""
     var compact = false
+    /// what VoiceOver says for it, when that is more than its words (⌘K: its kind and place in the list)
+    var spoken: String? = nil
     @State private var hover = false
     var body: some View {
         HStack(spacing: 10) {
@@ -463,7 +553,8 @@ private struct CommandRow: View {
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(picked ? Color.selection : .clear, lineWidth: 2))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
-        .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)
+        .accessibilityElement(children: .combine).accessibilityAddTraits(picked ? [.isButton, .isSelected] : .isButton)
+        .modifier(SpokenLabel(text: spoken))
         .accessibilityHint(command.keys.map(KeyCap.spoken) ?? "")
     }
 

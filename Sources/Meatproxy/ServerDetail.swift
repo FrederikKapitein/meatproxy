@@ -18,9 +18,10 @@ struct ServerDetail: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 stateTag
-                if let h = config?.host { Text(h).font(.mono11).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled) }
+                if let h = config?.host { Text(h).font(.mono12).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled) }
                 Spacer(minLength: 0)
             }
+            .contextMenu { ServerMenu(server: server, host: config?.host) }
             problem(question)
             if let m = server.metrics { gauges(m) }
             let history = model.serverHistory[server.id] ?? []
@@ -152,7 +153,7 @@ struct ServerDetail: View {
                     StateLight(state: r.map { $0.state == .down ? .down : $0.state == .warn ? .warn : .ok } ?? .unknown)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(URL(string: u)?.host ?? u).font(.mono).foregroundStyle(Color.inkText).lineLimit(1).textSelection(.enabled)
-                        Text(r?.detail ?? "not checked yet").font(.s11n).foregroundStyle(r?.state == .ok || r == nil ? Color.muted : r?.state == .down ? Color.stuck : Color.warn).lineLimit(1)
+                        Text(r?.detail ?? "not checked yet").font(.s12).foregroundStyle(r?.state == .ok || r == nil ? Color.muted : r?.state == .down ? Color.stuck : Color.warn).lineLimit(1)
                     }
                     Spacer(minLength: 0)
                 }
@@ -196,7 +197,7 @@ struct ServerDetail: View {
                     HStack(spacing: 6) { PixelIcon("warn", color: .warn, size: 9); Text("\(a.id) \(a.title)").font(.s13m).foregroundStyle(Color.warn).lineLimit(1) }
                 }
                 ForEach(Array(done.enumerated()), id: \.offset) { _, line in
-                    Text(line).font(.mono11).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                    Text(line).font(.mono12).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                 }
             }
             .spelCard()
@@ -234,7 +235,7 @@ private struct HistoryCard: View {
     let samples: [AppModel.ServerSample]
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionHead("Last 2 hours") { Text("\(samples.count) checks").font(.s11n).foregroundStyle(Color.muted) }
+            SectionHead("Last 2 hours") { Text("\(samples.count) checks").font(.s12).foregroundStyle(Color.muted) }
             line("Disk", samples.map { $0.metrics.disk.map { Double($0) / 100 } })
             line("Memory", samples.map { $0.metrics.memory.map { Double($0) / 100 } })
             line("Load", samples.map { $0.metrics.loadShare.map { min($0 / 2, 1) } })
@@ -243,7 +244,7 @@ private struct HistoryCard: View {
     }
     private func line(_ label: String, _ values: [Double?]) -> some View {
         HStack(spacing: 10) {
-            Text(label).font(.s11n).foregroundStyle(Color.muted).frame(width: 52, alignment: .leading)
+            Text(label).font(.s12).foregroundStyle(Color.muted).frame(width: 52, alignment: .leading)
             Sparkline(values: values).frame(height: 22)
         }
     }
@@ -267,5 +268,16 @@ private struct Sparkline: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// A server's right-click menu, in the inspector and in the racks list: its host, and its settings.
+struct ServerMenu: View {
+    @EnvironmentObject private var model: AppModel
+    let server: Server
+    let host: String?
+    var body: some View {
+        if let host { Button("Copy Host") { AppModel.copy(host) } }
+        Button("Server Settings") { model.settingsPage = "server:" + server.id; model.settingsOpen = true }
     }
 }

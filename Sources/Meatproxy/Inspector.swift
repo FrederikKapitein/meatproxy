@@ -63,12 +63,12 @@ struct InspectorPanel: View {
         } else if let id = s.decisionID, let pid = s.projectID, let (p, d) = model.world.decision(project: pid, id) {
             // what it asks in plain words; its id (D-0008) only on hover, for whoever reads the files
             InspectorHead(eyebrow: (d.isTodo ? d.plainKind : "Question · " + d.plainKind) + (d.asked.map { " · " + $0.ago } ?? ""),
-                          title: d.title, marker: d.status == .open, titleLines: 5, close: up,
+                          title: d.title, marker: d.status == .open, sentence: true, close: up,
                           closeHelp: "Back to \(p.name) (Esc)") { EmptyView() }
                 .help(d.id)
             ScrollFit { DecisionCard(project: p, decision: d).padding(.bottom, 4) }
         } else if let id = s.workstreamID, let pid = s.projectID, let p = model.world.project(id: pid), let w = p.factory?.workstreams.first(where: { $0.id == id }) {
-            InspectorHead(eyebrow: "Workstream · \(w.type)", title: w.title, titleLines: 3, close: up, closeHelp: "Back to \(p.name) (Esc)") { EmptyView() }
+            InspectorHead(eyebrow: "Workstream · \(w.type)", title: w.title, sentence: true, close: up, closeHelp: "Back to \(p.name) (Esc)") { EmptyView() }
             ScrollFit { WorkstreamCard(project: p, workstream: w).padding(.bottom, 4) }
         } else if let id = s.projectID, let p = model.world.project(id: id) {
             InspectorHead(eyebrow: floorEyebrow(p), title: p.name, close: up) {
@@ -185,16 +185,20 @@ private struct ServerRoomCard: View {
                 .spelCard()
             } else {
                 let s = model.world.serverSummary
-                SectionHead("Racks · \(model.world.racks.count)", icon: "server") {
-                    HStack(spacing: 6) {
-                        if s.down > 0 { Tag("\(s.down) down", tone: .stuck) }
-                        if s.warn > 0 { Tag("\(s.warn) warning", tone: .warn) }
-                    }
+                let tags = HStack(spacing: 6) {
+                    if s.down > 0 { Tag("\(s.down) down", tone: .stuck) }
+                    if s.warn > 0 { Tag("\(s.warn) warning", tone: .warn) }
+                }
+                // the tags beside the head while they fit (with Text size Larger they go under it, never past the panel)
+                ViewThatFits(in: .horizontal) {
+                    SectionHead("Racks · \(model.world.racks.count)", icon: "server") { tags }
+                    VStack(alignment: .leading, spacing: 6) { SectionHead("Racks · \(model.world.racks.count)", icon: "server"); tags }
                 }
                 VStack(spacing: 8) {
                     ForEach(problemsFirst) { server in
                         Button { model.controller.select(server: server.id) } label: { ServerRow(server: server, picked: server.id == picked).contentShape(Rectangle()) }
                             .buttonStyle(CardPressStyle())
+                            .contextMenu { ServerMenu(server: server, host: model.serverConfigs.first { $0.id == server.id }?.host) }
                     }
                 }
             }
@@ -224,22 +228,32 @@ private struct ServerRow: View {
                     Tag(server.kind.label)
                 }
                 if let d = server.detail {
-                    Text(d).font(.s11n).foregroundStyle(server.state == .ok ? Color.muted : color).lineLimit(1).layoutPriority(1)
+                    Text(d).font(.s12).foregroundStyle(server.state == .ok ? Color.muted : color).lineLimit(1).layoutPriority(1)
                 }
             }
             Spacer(minLength: 6)
-            if server.state != .ok { Text(server.state.label).font(.s13m).foregroundStyle(color).lineLimit(1).fixedSize() }
-            if asks {
-                Text("1 question").font(.s11).foregroundStyle(Color.onSignal).lineLimit(1).fixedSize()
-                    .padding(.horizontal, 6).frame(height: 20)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.signal))
+            // the word and the chip side by side while they fit; with Text size Larger the chip goes under the word
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { stateWord; questionChip }
+                VStack(alignment: .trailing, spacing: 4) { stateWord; questionChip }
             }
+            .layoutPriority(1)
         }
         .spelCard(flag: server.state == .down ? .stuck : server.state == .warn ? .warn : nil, selected: picked, pad: 10)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([server.name, light.word, server.detail, asks ? "1 question" : nil].compactMap { $0 }.joined(separator: ", "))
     }
     private var color: Color { server.state == .down ? .stuck : server.state == .warn ? .warn : .done }
+    @ViewBuilder private var stateWord: some View {
+        if server.state != .ok { Text(server.state.label).font(.s13m).foregroundStyle(color).lineLimit(1).fixedSize() }
+    }
+    @ViewBuilder private var questionChip: some View {
+        if model.world.ops.flatMap({ AppModel.question(about: server.name, in: $0) }) != nil {
+            Text("1 question").font(.s11).foregroundStyle(Color.onSignal).lineLimit(1).fixedSize()
+                .padding(.horizontal, 6).frame(height: 20)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.signal))
+        }
+    }
 }
 
 // MARK: a session (C5)
@@ -312,7 +326,7 @@ struct SessionDetail: View {
                             if a.failed { PixelIcon("sq", color: .stuck, size: 9) }
                             Text(a.text.prefix(1).uppercased() + a.text.dropFirst()).font(.s13).foregroundStyle(a.failed ? Color.stuck : Color.inkText).lineLimit(1)
                             Spacer(minLength: 4)
-                            Text(a.at.ago).font(.s11n).foregroundStyle(Color.muted)
+                            Text(a.at.ago).font(.s12).foregroundStyle(Color.muted)
                         }
                     }
                 }
@@ -410,22 +424,27 @@ struct SessionCard: View {
     }
 }
 
-/// Sessions by state as one thin bar.
+/// Sessions by state as one thin bar, with its words under it ("2 working · 1 stuck · 1 waits · 4 done"): colour is
+/// never the only way it is said (blue and green read alike to many eyes).
 struct StateBar: View {
     let sessions: [Session]; let now: Date
     var body: some View {
         let counts = SessionState.allCases.map { st in (st, sessions.filter { $0.state(now: now) == st }.count) }.filter { $0.1 > 0 }
-        GeometryReader { g in
-            HStack(spacing: 2) {
-                ForEach(counts, id: \.0) { st, n in Rectangle().fill(Color.state(st)).frame(width: max(0, (g.size.width - CGFloat(counts.count - 1) * 2) * CGFloat(n) / CGFloat(max(sessions.count, 1)))) }
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { g in
+                HStack(spacing: 2) {
+                    ForEach(counts, id: \.0) { st, n in Rectangle().fill(Color.state(st)).frame(width: max(0, (g.size.width - CGFloat(counts.count - 1) * 2) * CGFloat(n) / CGFloat(max(sessions.count, 1)))) }
+                }
             }
+            .frame(height: 8).padding(2)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.well))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.divider, lineWidth: 2))
+            Text(legend).font(.s12).foregroundStyle(Color.muted).lineLimit(2)
         }
-        .frame(height: 8).padding(2)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.well))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.divider, lineWidth: 2))
-        .accessibilityElement().accessibilityLabel(counts.map { "\($0.1) \($0.0.label.lowercased())" }.joined(separator: ", "))
+        .accessibilityElement(children: .ignore).accessibilityLabel(legend)
     }
+    private var legend: String { SessionState.tally(sessions.map { $0.state(now: now) }) }
 }
 
 /// What a floor's work would have cost at API list prices (D61): today, the last 7 days and the last 30. An estimate,

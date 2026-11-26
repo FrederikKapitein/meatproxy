@@ -9,6 +9,8 @@ import FactoryCollector
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var section: Section
+    /// VoiceOver starts on the sheet's title: what is behind it is hidden while it is open (UX review 26 Nov, point 10)
+    @AccessibilityFocusState private var titleFocus: Bool
     /// the page asked for (D10): its tab and page are the sheet's first state, so it opens on that page in one piece,
     /// with no list sliding out under a page that slides in while the sheet itself arrives
     private let page: String?
@@ -36,6 +38,7 @@ struct SettingsView: View {
             HStack(alignment: .center, spacing: 12) {
                 Socket(size: 44) { PixelIcon("gear", color: .inkText) }
                 Text("Settings").font(.s26).foregroundStyle(Color.inkText)
+                    .accessibilityAddTraits(.isHeader).accessibilityFocused($titleFocus)
                 if model.fixture { Tag("Demo data: nothing is saved") }
                 Spacer()
                 Text("Changes save as you go").font(.s13).foregroundStyle(Color.muted)
@@ -60,7 +63,7 @@ struct SettingsView: View {
         }
         .padding(16)
         .spelFrame()
-        .onAppear(perform: openAsked)
+        .onAppear { openAsked(); DispatchQueue.main.async { titleFocus = true } }
     }
 
     /// Settings opened on a page: from a window shot, a card's link, a notification or the walk
@@ -85,6 +88,16 @@ private struct GeneralSettings: View {
                 RowDivider()
                 SwitchRow("Meme mode", "Yes and No read LGTM and Not today.", isOn: $model.memeMode)
             }
+            RowCard(title: "This Mac") {
+                FieldRow(title: "Text size", text: "Larger moves every size one step up: easier to read, a little less fits.") {
+                    LiftedSegments(items: [.init(id: false, title: "Default"), .init(id: true, title: "Larger")], selected: model.textLarger) { model.textLarger = $0 }
+                        .accessibilityLabel("Text size")
+                }
+                RowDivider()
+                SwitchRow("Single-key shortcuts (N, 1, 2, ?)", "Off for voice control, or when they get in your way. Esc and the ⌘ keys stay.", isOn: $model.singleKeys)
+                RowDivider()
+                LoginRow()
+            }
             RowCard(title: "Heartbeat") {
                 SwitchRow("Pause all factories", "Nothing starts; running CEOs and the DevOps agent stop.",
                           isOn: Binding(get: { model.projectSettings.pauseAll }, set: { model.setPauseAll($0) }))
@@ -93,6 +106,34 @@ private struct GeneralSettings: View {
                           isOn: Binding(get: { model.projectSettings.heartbeatWhenClosed }, set: { model.setHeartbeatWhenClosed($0) }))
             }
             AlertsCard(alerts: model.alerts)
+        }
+    }
+}
+
+/// Open at login (UX review 26 Nov, round 3): the Mac's own Login Items, so System Settings shows it and the switch
+/// always says what is true there. Only Meatproxy.app can be one; a development build says so.
+private struct LoginRow: View {
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        let state = model.loginItem
+        FieldRow(title: "Open at login", text: Self.line(state), disabled: state == .unavailable) {
+            HStack(spacing: 8) {
+                if state == .needsApproval {
+                    Button { LoginItem.openSystemSettings() } label: { Text("Open System Settings") }
+                        .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
+                }
+                Toggle("Open at login", isOn: Binding(get: { state == .on || state == .needsApproval }, set: { model.setOpenAtLogin($0) }))
+                    .labelsHidden().toggleStyle(TactileToggleStyle()).disabled(state == .unavailable)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.readLoginItem() }
+    }
+    static func line(_ s: LoginItem.State) -> String {
+        switch s {
+        case .unavailable: "Only for Meatproxy.app (scripts/make-app.sh); this is a development build."
+        case .off: "Opens Meatproxy when you log in. It shows in System Settings › Login Items."
+        case .on: "In System Settings › Login Items; switch it off here or there."
+        case .needsApproval: "Waits for your OK in System Settings › General › Login Items."
         }
     }
 }
@@ -166,7 +207,7 @@ private struct SourcesSettings: View {
             TokenRow(key: .sentry, placeholder: "Paste a token with read access to issues", reads: "reads issues")
             RowDivider()
             wakeRows(list, what: "wakes on a new error", connected: model.connected(.sentry), source: "Sentry",
-                     empty: "No factory names a Sentry project yet: its CEO adds sentry: org/project to factory/contract.yml.") { $0.wakeOnSentry } set: { h, v in h.wakeOnSentry = v }
+                     empty: "No factory names a Sentry project yet: its CEO adds `sentry: org/project` to `factory/contract.yml`.") { $0.wakeOnSentry } set: { h, v in h.wakeOnSentry = v }
         }
         .spelCard(pad: 0)
     }
@@ -180,7 +221,7 @@ private struct SourcesSettings: View {
             RowDivider()
             TokenRow(key: .tracker, placeholder: "Paste a read token", reads: "reads stories")
             RowDivider()
-            wakeRows(list, what: "wakes on a story in Ready", connected: model.connected(.tracker), source: "Tracker", empty: "Then pick which factories wake on it: a factory's CEO names its project in factory/contract.yml (tracker: <slug>).") { $0.wakeOnTracker } set: { h, v in h.wakeOnTracker = v }
+            wakeRows(list, what: "wakes on a story in Ready", connected: model.connected(.tracker), source: "Tracker", empty: "Then pick which factories wake on it: a factory's CEO names its project in `factory/contract.yml` (`tracker: <slug>`).") { $0.wakeOnTracker } set: { h, v in h.wakeOnTracker = v }
         }
         .spelCard(pad: 0)
     }
@@ -221,7 +262,7 @@ private struct SourcesSettings: View {
     @ViewBuilder private func wakeRows(_ list: [(Project, Factory)], what: String, connected: Bool, source: String, empty: String,
                                        get: @escaping (Heartbeat) -> Bool, set: @escaping (inout Heartbeat, Bool) -> Void) -> some View {
         if list.isEmpty {
-            Text(empty).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true).padding(14)
+            Text(code(empty)).prose().padding(14)
         }
         ForEach(Array(list.enumerated()), id: \.element.0.id) { k, pf in
             let (p, _) = pf
@@ -248,7 +289,7 @@ private struct TrackerAddressRow: View {
                 .onChange(of: focused) { _, on in model.typing = on }
         } button: {
             Button { model.setTrackerURL(text) } label: { Text(saved && !text.isEmpty ? "In use" : "Use") }
-                .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, wide: true)).frame(width: 84).disabled(saved || !(text.isEmpty || valid))
+                .buttonStyle(SpelButtonStyle(kind: .secondary, wide: true)).frame(width: 100).disabled(saved || !(text.isEmpty || valid))
         }
         .onAppear { text = model.projectSettings.trackerURL }
     }
@@ -278,12 +319,12 @@ private struct TokenRow: View {
         } button: {
             if saved {
                 HStack(spacing: 6) {
-                    Button { test() } label: { Text(testing ? "Testing…" : "Test") }.buttonStyle(SpelButtonStyle(kind: .secondary, size: .s)).disabled(testing)
+                    Button { test() } label: { Text(testing ? "Testing…" : "Test") }.buttonStyle(SpelButtonStyle(kind: .secondary)).disabled(testing)
                         .help("Reads what your factories name, once, to see that the token works")
-                    Button { remove() } label: { Text("Remove") }.buttonStyle(SpelButtonStyle(kind: .ghost, size: .s))
+                    Button { remove() } label: { Text("Remove") }.buttonStyle(SpelButtonStyle(kind: .ghost))
                 }
             } else {
-                Button(action: save) { Text("Connect") }.buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, wide: true)).frame(width: 84).disabled(value.isEmpty)
+                Button(action: save) { Text("Connect") }.buttonStyle(SpelButtonStyle(kind: .secondary, wide: true)).frame(width: 100).disabled(value.isEmpty)
             }
         }
         .onAppear { saved = model.fixture ? model.demoTokens.contains(key) : Secrets.get(key) != nil }
@@ -342,7 +383,7 @@ private struct StatusSourcesRows: View {
                 .font(.mono).textFieldStyle(.plain).onSubmit(add)
                 .onChange(of: focused) { _, on in model.typing = on }
         } button: {
-            Button(action: add) { Text("Add") }.buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, wide: true)).frame(width: 84).disabled(StatusSource.custom(address) == nil)
+            Button(action: add) { Text("Add") }.buttonStyle(SpelButtonStyle(kind: .secondary, wide: true)).frame(width: 100).disabled(StatusSource.custom(address) == nil)
         }
     }
 
@@ -443,14 +484,9 @@ private struct DevOpsCard: View {
     var body: some View {
         let d = model.projectSettings.devops
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                PixelIcon("power", color: .inkText)
-                Text("DevOps agent").font(.s15b).foregroundStyle(Color.inkText)
-                Text("fixes what you allow, asks the rest").font(.s13).foregroundStyle(Color.muted)
-                Spacer(minLength: 0)
-                Toggle("DevOps agent", isOn: Binding(get: { d.enabled }, set: { v in model.updateDevOps { $0.enabled = v } })).labelsHidden().toggleStyle(TactileToggleStyle())
-            }
-            .padding(14)
+            // the same row as every switch in Settings (Henk)
+            SwitchRow("DevOps agent", "Fixes what you allow on your servers, and asks the rest.",
+                      isOn: Binding(get: { d.enabled }, set: { v in model.updateDevOps { $0.enabled = v } }))
             if d.enabled {
                 RowDivider()
                 FieldRow(title: "Runtime") {
@@ -485,7 +521,7 @@ private struct ServerListRow: View {
             HStack(spacing: 10) {
                 PixelIcon("server", color: .muted)
                 HStack(spacing: 4) {
-                    Text(config.name).font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundStyle(Color.inkText).lineLimit(1)
+                    Text(config.name).font(.spel(13, weight: .bold, design: .monospaced)).foregroundStyle(Color.inkText).lineLimit(1)
                     if !config.alertsOn { PixelIcon("close", color: .muted, size: 9).help("Alerts off") }
                 }
                 .frame(width: 110, alignment: .leading)
@@ -519,8 +555,7 @@ private struct ServerPage: View {
                     PixelIcon("key", color: .inkText)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Password-free SSH only").font(.s15b).foregroundStyle(Color.inkText)
-                        Text("The app runs ssh with your own keys and ~/.ssh/config, in batch mode: it never asks for a password or passphrase, and stores none. Host keys are checked as in Terminal. The built-in check only reads load, disk and memory.")
-                            .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                        Text(code("The app runs ssh with your own keys and `~/.ssh/config`, in batch mode: it never asks for a password or passphrase, and stores none. Host keys are checked as in Terminal. The built-in check only reads load, disk and memory.")).prose()
                     }
                 }
                 .spelCard()
@@ -571,14 +606,18 @@ private struct URLList: View {
                 }
                 RowDivider()
             }
-            InputRow(label: "Add", status: nil) {
-                TextField("https://example.com/health", text: $draft).focused($focused).textFieldStyle(.plain).font(.mono).onSubmit(add)
-                    .onChange(of: focused) { _, on in model.typing = on }
-            } button: {
-                Button("Add") { add() }.buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, wide: true)).frame(width: 84).disabled(normalized == nil)
+            // the server page's one form style: the label above its field, as in Connection (Henk)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Add an address").font(.s13m).foregroundStyle(Color.inkText)
+                HStack(spacing: 10) {
+                    TextField("https://example.com/health", text: $draft).focused($focused).textFieldStyle(.plain).font(.mono).onSubmit(add)
+                        .onChange(of: focused) { _, on in model.typing = on }
+                        .padding(.horizontal, 10).frame(height: 34).lifted(focused: focused)
+                    Button("Add") { add() }.buttonStyle(SpelButtonStyle(kind: .secondary, wide: true)).frame(width: 100).disabled(normalized == nil)
+                }
+                Text("An address that does not answer, or a certificate that expires within 14 days, is an alert.").prose()
             }
-            Text("An address that does not answer, or a certificate that expires within 14 days, is an alert.")
-                .font(.s13).foregroundStyle(Color.muted).padding(.horizontal, 14).padding(.bottom, 12)
+            .padding(14)
         }
     }
     private var normalized: String? {
@@ -622,7 +661,7 @@ private struct ServerForm: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Eyebrow("Connection")
-            field("Host", focused: .host, hint: "What you would type after ssh: user@host, or a Host alias from ~/.ssh/config.") {
+            field("Host", focused: .host, hint: "What you would type after `ssh`: `user@host`, or a Host alias from `~/.ssh/config`.") {
                 TextField("deploy@web-01.example.com", text: $host).focused($focus, equals: .host).font(.mono)
             }
             field("Name", focused: .name, hint: "On its rack in the Server room.") {
@@ -665,7 +704,7 @@ private struct ServerForm: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label).font(.s13m).foregroundStyle(Color.inkText)
             content().padding(.horizontal, 10).frame(height: 34).lifted(focused: focus == focused)
-            Text(hint).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            Text(code(hint)).prose()
         }
     }
 
@@ -732,7 +771,7 @@ private struct WhatWeCheckCard: View {
             }.buttonStyle(.plain)
             if open {
                 VStack(alignment: .leading, spacing: 5) {
-                    bullet("Every minute, over ssh in batch mode with your own keys and ~/.ssh/config. No passwords; nothing is installed.")
+                    bullet("Every minute, over ssh in batch mode with your own keys and `~/.ssh/config`. No passwords; nothing is installed.")
                     bullet("The built-in check only reads: a warning at a root disk \(ServerProbe.diskWarn)% full, a load of \(String(format: "%.1f", ServerProbe.loadWarn)) per core, or under \(Int(ServerProbe.memoryFreeWarn * 100))% memory free. No answer is down.")
                     bullet("An alert after two bad checks in a row, so a hiccup stays quiet; another when it is fine again.")
                     bullet("A check of your own: exit 0 is fine, 1 a warning, anything else down; its first line is the detail.")
@@ -744,7 +783,7 @@ private struct WhatWeCheckCard: View {
         .spelCard()
     }
     private func bullet(_ t: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) { Text("·"); Text(t).fixedSize(horizontal: false, vertical: true) }
+        HStack(alignment: .firstTextBaseline, spacing: 6) { Text("·"); Text(code(t)).fixedSize(horizontal: false, vertical: true).frame(maxWidth: 560, alignment: .leading) }
     }
 }
 
@@ -757,8 +796,7 @@ private struct SSHImportCard: View {
         let known = Set(model.serverConfigs.map(\.host))
         let fresh = model.sshAliases.filter { !known.contains($0) }
         VStack(alignment: .leading, spacing: 8) {
-            Text(fresh.isEmpty ? "Every host in ~/.ssh/config is on the Server room already." : "Hosts in ~/.ssh/config: switch on the ones to watch. Each is checked with your keys straight away.")
-                .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            Text(fresh.isEmpty ? "Every host in ~/.ssh/config is on the Server room already." : "Hosts in ~/.ssh/config: switch on the ones to watch. Each is checked with your keys straight away.").prose()
             ForEach(fresh, id: \.self) { h in
                 HStack {
                     Text(h).font(.mono).foregroundStyle(Color.inkText)
@@ -802,8 +840,7 @@ private struct ProjectsSettings: View {
         let all = model.projectCandidates
         return VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
-                Text("Every project folder with recent chats gets a floor. Keep one there, or switch it on as a factory on its floor.")
-                    .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                Text("Every project folder with recent chats gets a floor. Keep one there, or switch it on as a factory on its floor.").prose()
                 Spacer(minLength: 8)
                 Button { choose() } label: { SpelLabel("Add folder…", icon: "folder", iconColor: .inkText) }.buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
             }
@@ -813,8 +850,7 @@ private struct ProjectsSettings: View {
             group("Hidden", model.projectSettings.hidden.filter { r in !all.contains { $0.root == r } }
                 .map { (root: $0, name: WorldBuilder.pretty(($0 as NSString).lastPathComponent), pinned: false, factory: false) })
             VStack(alignment: .leading, spacing: 8) {
-                Text("Who a factory's CEO may call in, and how many of each at once. Every factory follows this team until you give its floor its own, on its Team tab.")
-                    .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                Text("Who a factory's CEO may call in, and how many of each at once. Every factory follows this team until you give its floor its own, on its Team tab.").prose()
                 TeamRoster(project: nil)
             }
             .id("team")
@@ -834,7 +870,7 @@ private struct ProjectsSettings: View {
                             }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(c.name).font(.s15).foregroundStyle(Color.inkText)
-                                Text(c.root.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.mono11).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle)
+                                Text(c.root.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.mono12).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle)
                             }
                             Spacer(minLength: 8)
                             if c.factory, let hb = model.projectSettings.entry(c.root)?.heartbeat { Text(hb.summary).font(.s13).foregroundStyle(Color.muted) }
@@ -842,6 +878,7 @@ private struct ProjectsSettings: View {
                         }
                         .padding(.horizontal, 14).padding(.vertical, 10).contentShape(Rectangle())
                     }.buttonStyle(CardPressStyle())
+                    .contextMenu { PathMenu(path: c.root) }
                 }
             }
         }
@@ -882,7 +919,9 @@ private struct ProjectPage: View {
                         .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
                 }
                 Text(root.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.mono).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle)
+                    .textSelection(.enabled)
                     .padding(.horizontal, 14).padding(.top, -6).padding(.bottom, 10)
+                    .contextMenu { PathMenu(path: root) }
                 RowDivider()
                 FieldRow(title: "Lives in", text: place ?? (hidden ? "Hidden from the campus" : "Not on the campus now: no recent chats")) {
                     Button { go(project, tab: nil) } label: { SpelLabel("Go there", icon: "chev", iconColor: .inkText) }
@@ -937,31 +976,30 @@ private struct ProjectPage: View {
 private struct PrivacySettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("What Meatproxy reads, what it contacts, and what your agents send. Nothing goes to Tuinstra or anyone else: there is no analytics and no account.")
-                .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+            Text("What Meatproxy reads, what it contacts, and what your agents send. Nothing goes to Tuinstra or anyone else: there is no analytics and no account.").prose()
             RowCard(title: "Read on this Mac") {
-                item("chat", "Sessions", "Read-only from the files Claude Code and Codex already keep: ~/.claude/projects and ~/.codex/sessions. The app never writes there.")
+                item("chat", "Sessions", "Read-only from the files Claude Code and Codex already keep: `~/.claude/projects` and `~/.codex/sessions`. The app never writes there.")
                 RowDivider()
-                item("floor", "Projects", "Your campus and factory settings, in ~/Library/Application Support/Meatproxy/projects.json. The app reads a factory's factory/ folder; it writes only your answers and ideas there, and the starter files you approve.")
+                item("floor", "Projects", "Your campus and factory settings, in `~/Library/Application Support/Meatproxy/projects.json`. The app reads a factory's `factory/` folder; it writes only your answers and ideas there, and the starter files you approve.")
                 RowDivider()
-                item("server", "Servers", "Host names and kinds only, in ~/Library/Application Support/Meatproxy/servers.json. No passwords, no keys: ssh uses yours.")
+                item("server", "Servers", "Host names and kinds only, in `~/Library/Application Support/Meatproxy/servers.json`. No passwords, no keys: ssh uses yours.")
             }
             RowCard(title: "Contacted over the network") {
                 item("layers", "Status pages", "Every few minutes: the status pages in Sources (Claude, OpenAI and GitHub by default). Only a read of their public status.")
                 RowDivider()
-                item("branch", "GitHub", "With your own gh login: the newest CI run on main and merged pull requests of each project's repo. Read only.")
+                item("branch", "GitHub", "With your own `gh` login: the newest CI run on main and merged pull requests of each project's repo. Read only.")
                 RowDivider()
                 item("pulse", "Sentry and Tracker", "Only when you add a token and a factory names a project: new issues and stories, read with that token.")
                 RowDivider()
-                item("terminal", "Your servers", "ssh in batch mode, with your keys and ~/.ssh/config. The built-in check reads load, disk and memory and changes nothing.")
+                item("terminal", "Your servers", "ssh in batch mode, with your keys and `~/.ssh/config`. The built-in check reads load, disk and memory and changes nothing.")
             }
             RowCard(title: "Sent to the model") {
-                item("person", "A factory's CEO", "Runs as claude -p or codex exec in the project's folder. What it reads there (code, files, your answers) goes to Anthropic or OpenAI, as with any Claude Code or Codex session. Logs stay in ~/Library/Application Support/Meatproxy/heartbeats.")
+                item("person", "A factory's CEO", "Runs as `claude -p` or `codex exec` in the project's folder. What it reads there (code, files, your answers) goes to Anthropic or OpenAI, as with any Claude Code or Codex session. Logs stay in `~/Library/Application Support/Meatproxy/heartbeats`.")
             }
             RowCard(title: "Tokens and screenshots") {
                 item("key", "In the Keychain", "Sentry and Tracker tokens are kept in your login Keychain, never in a file or a log.")
                 RowDivider()
-                item("eye", "Screenshots", "Start the app with --fixture to show made-up data, safe to share.")
+                item("eye", "Screenshots", "Start the app with `--fixture` to show made-up data, safe to share.")
             }
         }
     }
@@ -970,7 +1008,7 @@ private struct PrivacySettings: View {
             PixelIcon(icon, color: .muted).padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.s15).foregroundStyle(Color.inkText)
-                Text(text).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                Text(code(text)).prose()
             }
             Spacer(minLength: 0)
         }
@@ -979,6 +1017,39 @@ private struct PrivacySettings: View {
 }
 
 // MARK: parts
+
+extension View {
+    /// Settings prose: muted 13, wrapping, at most 560 wide so a line stays readable (Henk)
+    func prose() -> some View {
+        font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true).frame(maxWidth: 560, alignment: .leading)
+    }
+}
+
+/// Prose with its `paths` and commands in mono, each kept on one line: a path never breaks in the middle (Henk).
+func code(_ s: String) -> AttributedString {
+    var out = AttributedString()
+    for (k, part) in s.components(separatedBy: "`").enumerated() {
+        if k % 2 == 1 {
+            // no break inside: a no-break space for a space, a word joiner after every / . and -
+            var glued = ""
+            for ch in part {
+                glued.append(ch == " " ? "\u{00A0}" : ch)
+                if "/.-".contains(ch) { glued.append("\u{2060}") }
+            }
+            var a = AttributedString(glued); a.font = .mono; out += a
+        } else { out += AttributedString(part) }
+    }
+    return out
+}
+
+/// A path's own right-click menu: where it is, and the path itself.
+struct PathMenu: View {
+    let path: String
+    var body: some View {
+        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
+        Button("Copy Path") { AppModel.copy(path) }
+    }
+}
 
 /// Back to the list a page came from, and where you are: "‹ Projects / Pebble Puzzles".
 private struct PageCrumb: View {
