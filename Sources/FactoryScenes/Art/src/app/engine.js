@@ -199,9 +199,9 @@
       art.forEach((row, ri) => [...row].forEach((ch, ci) => { if (C[ch]) g += `<rect x="${(-w0 / 2 + ci * px).toFixed(2)}" y="${(oy - h0 + ri * px).toFixed(2)}" width="${px + .05}" height="${px + .05}" fill="${C[ch]}"/>`; }));
       top = oy - h0;
     }
-    if (back) { // a small blue "sent back" bubble above the plate: quiet, not a shout
+    if (back) { // a small neutral "sent back" bubble with a white ↩ above the plate: quiet, and never blue (blue is working)
       const bw = 12, bh = 9.5, bx = -bw / 2, by = ty - bh - 3.5;
-      g += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="2" fill="#3f6fd8" stroke="#1d3a8a" stroke-width=".8"/><path d="M-1,${by + bh} l1,2.6 l1,-2.6z" fill="#3f6fd8"/><path d="M3,${by + 3} v2.6 h-5.6 M-2.6,${by + 5.6} l1.7,-1.7 M-2.6,${by + 5.6} l1.7,1.7" stroke="#fff" stroke-width="1.1" fill="none"/>`;
+      g += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="2" fill="#333333" stroke="#5c5c5c" stroke-width=".8"/><path d="M-1,${by + bh} l1,2.6 l1,-2.6z" fill="#333333"/><path d="M3,${by + 3} v2.6 h-5.6 M-2.6,${by + 5.6} l1.7,-1.7 M-2.6,${by + 5.6} l1.7,1.7" stroke="#fff" stroke-width="1.1" fill="none"/>`;
       top = by;
     }
     return raster(g, "", [-tw / 2 - 5, top - 2, tw / 2 + 5, 1.5], R);
@@ -226,7 +226,7 @@
       g += `<text x="${x + 1}" y="${y + 2.5}" font-family="Menlo, monospace" font-weight="700" font-size="1.9" fill="#231a2e">${String(c.id).replace(/[<&>]/g, "")}</text>`;
       const t = String(c.title || "").replace(/[<&>]/g, ""), cut = t.length > 14 ? t.slice(0, 13) + "…" : t;
       g += `<text x="${x + 1}" y="${y + 4.8}" font-family="${SUB_FONT}" font-weight="600" font-size="1.55" fill="#3a3040">${cut}</text>`;
-      if (c.back) g += `<rect x="${x + w - 2.6}" y="${y + .6}" width="2" height="2" rx=".4" fill="#3f6fd8"/>`;
+      if (c.back) g += `<rect x="${x + w - 2.6}" y="${y + .6}" width="2" height="2" rx=".4" fill="#333333"/>`;
     }
     // laid on the wall's plane (the front face of the back wall: u along i, v down the wall): its top-left corner at (0, 0)
     return raster(`<g transform="matrix(1 .5 0 1.08 0 0)">${g}</g>`, "", [-1.5, -1.5, W + 1.5, H * 1.08 + W * .5 + 1.5], R);

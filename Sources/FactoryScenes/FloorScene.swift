@@ -326,7 +326,7 @@ public final class FloorScene: WorldScene {
             let note = SKShapeNode(rect: CGRect(x: (width - 8.5) * px, y: -(height - 1.5) * px, width: 7 * px, height: (height - 3) * px), cornerRadius: 1 * px)
             note.fillColor = .white; note.strokeColor = SKColor(red: 0.16, green: 0.13, blue: 0.24, alpha: 1); note.lineWidth = 0.6 * px
             let arrow = SKLabelNode(text: "↩"); arrow.fontName = "Menlo-Bold"; arrow.fontSize = 6 * px
-            arrow.fontColor = SKColor(red: 0.2, green: 0.35, blue: 0.85, alpha: 1)
+            arrow.fontColor = SKColor(red: 0.2, green: 0.2, blue: 0.2, alpha: 1)   // neutral: blue means working
             arrow.horizontalAlignmentMode = .center; arrow.verticalAlignmentMode = .center; arrow.position = CGPoint(x: (width - 5) * px, y: -height * px / 2)
             n.addChild(note); n.addChild(arrow)
         }
@@ -554,7 +554,7 @@ public final class FloorScene: WorldScene {
         case .sales: "#3fae6a"
         case .marketing: "#ff8a2a"
         case .pm: "#2fb0a8"
-        case .dev: "#4a74d8"
+        case .dev: "#7c8cf0"
         case .designer: "#ff6ad5"
         case .tester: "#e05a86"
         case .devops: "#7a5ce0"

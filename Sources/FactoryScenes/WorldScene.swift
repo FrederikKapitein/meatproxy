@@ -187,14 +187,24 @@ public class WorldScene: SKScene {
     // MARK: input
 
     #if os(macOS)
-    public override func mouseDown(with event: NSEvent) { dragged = false }
+    /// a ⌃-click is a right-click, as everywhere on the Mac (UX review 26 Nov, point 10): it opens the menu, never a click
+    private var controlClick = false
+    public override func mouseDown(with event: NSEvent) {
+        dragged = false
+        controlClick = event.modifierFlags.contains(.control)
+        if controlClick { rightMouseDown(with: event) }
+    }
     public override func mouseMoved(with event: NSEvent) { pointerMoved(to: view.map { $0.convert(event.locationInWindow, from: nil) }) }
     public override func mouseExited(with event: NSEvent) { pointerMoved(to: nil) }
     public override func mouseDragged(with event: NSEvent) {
+        guard !controlClick else { return }
         if abs(event.deltaX) + abs(event.deltaY) > 0.5 { if !dragged { pointerMoved(to: nil) }; dragged = true }
         pan(dx: event.deltaX, dy: event.deltaY)
     }
-    public override func mouseUp(with event: NSEvent) { if !dragged { click(at: event.location(in: self)) } }
+    public override func mouseUp(with event: NSEvent) {
+        if controlClick { controlClick = false; return }
+        if !dragged { click(at: event.location(in: self)) }
+    }
     public override func rightMouseDown(with event: NSEvent) {
         guard let v = view else { return }
         let q = v.convert(event.locationInWindow, from: nil)
