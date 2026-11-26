@@ -117,7 +117,7 @@ extension Fixture {
 
             ## Needs you
             1. Ship offline streak sync (W-002) to production?
-            2. Let the factory ship without asking (ship gate to notify)?
+            2. Stop asking before each ship? You'd still be told.
             3. To-do D-0010: allow the error tracker's read tools in this project's allowlist.
             4. To-do D-0011 for DevOps: the CI runner drops the last check.
 
@@ -158,11 +158,11 @@ extension Fixture {
                      - Screenshots: factory/workstreams/W-002-offline-streak-sync/
                      """,
                      onYes: "Merge to develop, release to main and deploy web; check health and version.", onNo: "Hold it and ask what to change."),
-            decision("D-0008", "promote-ship-gate", title: "Let the factory ship without asking (ship gate to notify)?", kind: "promote",
+            decision("D-0008", "promote-ship-gate", title: "Stop asking before each ship? You'd still be told.", kind: "promote",
                      gate: "always-ask", status: "open", ws: nil, asked: 1,
-                     why: "The last five ship questions were all a yes, with no revert or hotfix after them. On notify the CEO ships after green checks and an independent tester pass, and reports it in the briefing.",
+                     why: "The last five ship questions were all a yes, with no revert or hotfix after them. Without asking, the CEO ships after green checks and an independent tester pass, and tells you in the briefing.",
                      evidence: "- [Ship history](https://github.com/example/pebble-puzzles/releases)\n- https://status.example.com/pebble-puzzles",
-                     onYes: "Set the ship gate to notify and log it in the history.", onNo: "Keep asking before every ship."),
+                     onYes: "Shipping goes from Ask to Tell me; it's logged in the history.", onNo: "Keep asking before every ship."),
             // a release you held back (D81): W-006 waits for your Release now; and a to-do only you can do
             workstream("W-006", "sharper-hint-arrows", title: "Sharper hint arrows", type: "feature", phase: "ship", source: "product",
                        pr: "https://github.com/example/pebble-puzzles/pull/44", release: nil, opened: 5, decisions: "D-0009",
