@@ -11,8 +11,8 @@ var products: [Product] = [
 ]
 let dependencies: [Package.Dependency] = [
     // the terminal in the app (D57): a real VT100/xterm emulator with a local pseudo-terminal, MIT licensed.
-    // Only the Mac app uses it, but it is named on every platform: a build on Linux or Windows would otherwise
-    // empty Package.resolved, and with it the versions the Mac app is built from.
+    // Only the Mac app uses it, but it is named on every platform: a build on Linux would otherwise remove
+    // Package.resolved, and with it the versions the Mac app is built from.
     .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.99.2"),
 ]
 var targets: [Target] = [

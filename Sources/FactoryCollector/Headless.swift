@@ -36,7 +36,11 @@ public enum Headless {
                 let world = fixture ? Fixture.world() : collector.world(settings: ProjectSettingsStore().load())
                 let lines = dump(world)
                 // the clock in a chat's line ticks on its own: only what the campus shows counts as a change
-                if lines != last { out("── \(stamp.string(from: Date())) ──"); lines.forEach(out); last = lines }
+                if lines != last {
+                    out("── \(stamp.string(from: Date())) ──"); lines.forEach(out); last = lines
+                    // into a pipe (another program reads along) output waits in a buffer: send each change at once
+                    fflush(stdout)
+                }
                 Thread.sleep(forTimeInterval: seconds)
             }
         }

@@ -38,7 +38,8 @@ public struct TerminalCommand: Equatable, Sendable {
     /// Follows a log as it grows (a CEO's or the DevOps agent's run). nil when the file is not there.
     public static func follow(_ path: String, title: String) -> TerminalCommand? {
         guard FileManager.default.fileExists(atPath: path) else { return nil }
-        return TerminalCommand(title: title, executable: Tools.find("tail") ?? "/usr/bin/tail", args: ["-n", "400", "-f", path], cwd: nil)
+        let tail = "/usr/bin/tail"
+        return TerminalCommand(title: title, executable: Tools.isProgram(tail) ? tail : Tools.find("tail") ?? tail, args: ["-n", "400", "-f", path], cwd: nil)
     }
 
     /// The environment a tab runs in: yours, with the ssh-agent that holds your keys, the usual tool paths, a colour
