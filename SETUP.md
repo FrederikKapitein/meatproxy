@@ -19,7 +19,8 @@ running copy is closed first and opened again afterwards. Run it again after eve
 
 - `MEATPROXY_INSTALL=0 scripts/make-app.sh` only builds.
 - `swift run Meatproxy` runs it straight from the package, without the app bundle. Real notifications (with the icon
-  and their buttons) only work from the bundle.
+  and their buttons) and *Open at login* (Settings › General, through the Mac's own Login Items) only work from the
+  bundle.
 
 ## 2. First start
 
@@ -33,7 +34,9 @@ finds every few seconds. Nothing needs setting up.
   keep it.
 - **Getting around:** click to fly somewhere, scroll or pinch to zoom, drag to pan. `Esc` or **Up** goes one level
   up. `N` flies to the next thing that waits for you. ⌘K searches, ⌘J opens the terminal, ⌘L shows the status
-  layer, ⌘1 is the campus, ⌘2 is the Server room and ⌘, opens Settings.
+  layer, ⌘1 is the campus, ⌘2 is the Server room and ⌘, opens Settings. Right-click (or ⌃-click) anything for
+  what you can do with it. Settings › General has *Text size: Larger*, and a switch for the single-key shortcuts
+  (`N`, `1`, `2`, `?`) if they get in the way of voice control.
 
 Want to look around without your own data? `swift run Meatproxy --fixture` shows a made-up campus with a demo
 factory. Answering there touches nothing real.

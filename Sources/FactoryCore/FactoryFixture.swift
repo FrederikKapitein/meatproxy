@@ -117,7 +117,7 @@ extension Fixture {
 
             ## Needs you
             1. Ship offline streak sync (W-002) to production?
-            2. Let the factory ship without asking (ship gate to notify)?
+            2. Stop asking before each ship? You'd still be told.
             3. To-do D-0010: allow the error tracker's read tools in this project's allowlist.
             4. To-do D-0011 for DevOps: the CI runner drops the last check.
 
@@ -131,15 +131,15 @@ extension Fixture {
                              "\(day(4)) test: tester passed it.", "\(day(3)) ship: shipped to web (D-0004).", "\(day(2)) done: released in 3.2.1."]),
             workstream("W-002", "offline-streak-sync", title: "Offline streak sync", type: "feature", phase: "ship", source: "product",
                        pr: "https://github.com/example/pebble-puzzles/pull/41", release: nil, opened: 4, decisions: "D-0005, D-0007",
-                       log: ["\(day(4)) plan: proposed by product (D-0005).", "\(day(3)) build: developer started.",
+                       log: ["\(day(4)) plan: proposed by Product (D-0005).", "\(day(3)) build: developer started.",
                              "\(day(2)) test: tester started.", "\(day(2)) test → build: streak lost after airplane mode; back to build.",
                              "\(day(1)) test: fixed; tester passed it.", "\(today) ship: ship decision filed (D-0007)."]),
             workstream("W-003", "timer-resume", title: "Timer keeps time after resume", type: "bug", phase: "build", source: "ci",
                        pr: "https://github.com/example/pebble-puzzles/pull/43", release: nil, opened: 2, decisions: "",
-                       log: ["\(day(2)) plan: started under notify.", "\(day(1)) build: developer started.", "\(day(1)) test: tester started.",
+                       log: ["\(day(2)) plan: started without asking; you were told.", "\(day(1)) build: developer started.", "\(day(1)) test: tester started.",
                              "\(today) test → build: timer reset to zero on resume; back to build."]),
             workstream("W-004", "colour-blind-pebbles", title: "Colour-blind friendly pebbles", type: "feature", phase: "plan", source: "product",
-                       pr: nil, release: nil, opened: 0, decisions: "", log: ["\(today) plan: proposed by product; starts after W-003 (plan gate is notify)."]),
+                       pr: nil, release: nil, opened: 0, decisions: "", log: ["\(today) plan: proposed by Product; starts after W-003, and tells you rather than asks."]),
             workstream("W-005", "weekly-league", title: "A weekly league", type: "feature", phase: "dropped", source: "product",
                        pr: nil, release: nil, opened: 8, decisions: "D-0006", log: ["\(day(8)) plan: proposed (D-0006).", "\(day(7)) dropped: outside the product boundary."]),
             decision("D-0005", "plan-offline-streak-sync", title: "Build offline streak sync?", kind: "plan", gate: "plan", status: "yes",
@@ -158,15 +158,15 @@ extension Fixture {
                      - Screenshots: factory/workstreams/W-002-offline-streak-sync/
                      """,
                      onYes: "Merge to develop, release to main and deploy web; check health and version.", onNo: "Hold it and ask what to change."),
-            decision("D-0008", "promote-ship-gate", title: "Let the factory ship without asking (ship gate to notify)?", kind: "promote",
+            decision("D-0008", "promote-ship-gate", title: "Stop asking before each ship? You'd still be told.", kind: "promote",
                      gate: "always-ask", status: "open", ws: nil, asked: 1,
-                     why: "The last five ship questions were all a yes, with no revert or hotfix after them. On notify the CEO ships after green checks and an independent tester pass, and reports it in the briefing.",
+                     why: "The last five ship questions were all a yes, with no revert or hotfix after them. Without asking, the CEO ships after green checks and an independent tester pass, and tells you in the briefing.",
                      evidence: "- [Ship history](https://github.com/example/pebble-puzzles/releases)\n- https://status.example.com/pebble-puzzles",
-                     onYes: "Set the ship gate to notify and log it in the history.", onNo: "Keep asking before every ship."),
+                     onYes: "Shipping goes from Ask to Tell me; it's logged in the history.", onNo: "Keep asking before every ship."),
             // a release you held back (D81): W-006 waits for your Release now; and a to-do only you can do
             workstream("W-006", "sharper-hint-arrows", title: "Sharper hint arrows", type: "feature", phase: "ship", source: "product",
                        pr: "https://github.com/example/pebble-puzzles/pull/44", release: nil, opened: 5, decisions: "D-0009",
-                       log: ["\(day(5)) plan: proposed by product.", "\(day(4)) build: developer started.", "\(day(3)) test: tester passed it.",
+                       log: ["\(day(5)) plan: proposed by Product.", "\(day(4)) build: developer started.", "\(day(3)) test: tester passed it.",
                              "\(day(2)) ship: you said no on D-0009 (not before the weekend); it waits for your release."]),
             decision("D-0009", "ship-sharper-hint-arrows", title: "Ship sharper hint arrows (W-006) to production?", kind: "ship", gate: "ship",
                      status: "no", ws: "W-006", asked: 60, answered: 50, why: "Hint arrows are easier to see on small phones.",

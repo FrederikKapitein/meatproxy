@@ -61,11 +61,14 @@ struct InspectorPanel: View {
                      place: nil, close: up)
             ScrollFit { SessionDetail(project: p, session: session).padding(.bottom, 4) }
         } else if let id = s.decisionID, let pid = s.projectID, let (p, d) = model.world.decision(project: pid, id) {
-            InspectorHead(eyebrow: "Decision · asked \(d.asked?.ago ?? "")", title: d.title, marker: d.status == .open, titleLines: 5, close: up,
+            // what it asks in plain words; its id (D-0008) only on hover, for whoever reads the files
+            InspectorHead(eyebrow: (d.isTodo ? d.plainKind : "Question · " + d.plainKind) + (d.asked.map { " · " + $0.ago } ?? ""),
+                          title: d.title, marker: d.status == .open, sentence: true, close: up,
                           closeHelp: "Back to \(p.name) (Esc)") { EmptyView() }
+                .help(d.id)
             ScrollFit { DecisionCard(project: p, decision: d).padding(.bottom, 4) }
         } else if let id = s.workstreamID, let pid = s.projectID, let p = model.world.project(id: pid), let w = p.factory?.workstreams.first(where: { $0.id == id }) {
-            InspectorHead(eyebrow: "Workstream · \(w.type)", title: w.title, titleLines: 3, close: up, closeHelp: "Back to \(p.name) (Esc)") { EmptyView() }
+            InspectorHead(eyebrow: "Workstream · \(w.type)", title: w.title, sentence: true, close: up, closeHelp: "Back to \(p.name) (Esc)") { EmptyView() }
             ScrollFit { WorkstreamCard(project: p, workstream: w).padding(.bottom, 4) }
         } else if let id = s.projectID, let p = model.world.project(id: id) {
             InspectorHead(eyebrow: floorEyebrow(p), title: p.name, close: up) {
@@ -108,7 +111,7 @@ struct CharHead: View {
                 Text(name).font(.s26).foregroundStyle(Color.inkText).lineLimit(1)
                 RoleTag(role: role)
                 HStack(spacing: 5) {
-                    PixelIcon(tone == .stuck ? "sq" : "dot", color: c, size: 9)
+                    PixelIcon(tone == .stuck ? "sq" : tone == .quest ? "bang" : "dot", color: c).frame(width: 18, height: 18)
                     Text(mood).font(.s13m).foregroundStyle(c).lineLimit(1)
                     if let place { Text("· " + place).font(.s13).foregroundStyle(Color.muted).lineLimit(1) }
                 }
@@ -158,7 +161,7 @@ private struct BuildingFloors: View {
     }
     private func people(_ p: Project) -> String {
         let n = p.sessions.count
-        return n == 0 ? "Quiet" : "\(n) \(n == 1 ? "person" : "people")"
+        return n == 0 ? "Quiet" : "\(n) chat\(n == 1 ? "" : "s")"
     }
 }
 
@@ -182,16 +185,20 @@ private struct ServerRoomCard: View {
                 .spelCard()
             } else {
                 let s = model.world.serverSummary
-                SectionHead("Racks · \(model.world.racks.count)", icon: "server") {
-                    HStack(spacing: 6) {
-                        if s.down > 0 { Tag("\(s.down) down", tone: .stuck) }
-                        if s.warn > 0 { Tag("\(s.warn) warning", tone: .warn) }
-                    }
+                let tags = HStack(spacing: 6) {
+                    if s.down > 0 { Tag("\(s.down) down", tone: .stuck) }
+                    if s.warn > 0 { Tag("\(s.warn) warning", tone: .warn) }
+                }
+                // the tags beside the head while they fit (with Text size Larger they go under it, never past the panel)
+                ViewThatFits(in: .horizontal) {
+                    SectionHead("Racks · \(model.world.racks.count)", icon: "server") { tags }
+                    VStack(alignment: .leading, spacing: 6) { SectionHead("Racks · \(model.world.racks.count)", icon: "server"); tags }
                 }
                 VStack(spacing: 8) {
                     ForEach(problemsFirst) { server in
                         Button { model.controller.select(server: server.id) } label: { ServerRow(server: server, picked: server.id == picked).contentShape(Rectangle()) }
                             .buttonStyle(CardPressStyle())
+                            .contextMenu { ServerMenu(server: server, host: model.serverConfigs.first { $0.id == server.id }?.host) }
                     }
                 }
             }
@@ -210,23 +217,43 @@ private struct ServerRow: View {
     var picked = false
     var body: some View {
         let asks = model.world.ops.flatMap { AppModel.question(about: server.name, in: $0) } != nil
+        let light: StateLight.S = server.state == .down ? .down : server.state == .warn ? .warn : .ok
+        // one signal each: the state as shape, colour and word (also with a question), the flag in the state's colour,
+        // and a question as a small yellow chip of its own
         HStack(spacing: 10) {
-            StateLight(state: server.state == .down ? .down : server.state == .warn ? .warn : .ok)
+            StateLight(state: light)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(server.name).font(.mono).foregroundStyle(Color.inkText).lineLimit(1).fixedSize()
                     Tag(server.kind.label)
                 }
-                if let d = server.detail { Text(d).font(.s11n).foregroundStyle(server.state == .ok ? Color.muted : color).lineLimit(1) }
+                if let d = server.detail {
+                    Text(d).font(.s12).foregroundStyle(server.state == .ok ? Color.muted : color).lineLimit(1).layoutPriority(1)
+                }
             }
             Spacer(minLength: 6)
-            if asks { QuestMarker(glyph: "bang", size: 20) }
-            if server.state != .ok && !asks { Text(server.state.label).font(.s13m).foregroundStyle(color).lineLimit(1) }
+            // the word and the chip side by side while they fit; with Text size Larger the chip goes under the word
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { stateWord; questionChip }
+                VStack(alignment: .trailing, spacing: 4) { stateWord; questionChip }
+            }
+            .layoutPriority(1)
         }
-        .spelCard(flag: asks ? .signal : server.state == .down ? .stuck : server.state == .warn ? .warn : nil, selected: picked, pad: 10)
-        .accessibilityElement(children: .combine)
+        .spelCard(flag: server.state == .down ? .stuck : server.state == .warn ? .warn : nil, selected: picked, pad: 10)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([server.name, light.word, server.detail, asks ? "1 question" : nil].compactMap { $0 }.joined(separator: ", "))
     }
     private var color: Color { server.state == .down ? .stuck : server.state == .warn ? .warn : .done }
+    @ViewBuilder private var stateWord: some View {
+        if server.state != .ok { Text(server.state.label).font(.s13m).foregroundStyle(color).lineLimit(1).fixedSize() }
+    }
+    @ViewBuilder private var questionChip: some View {
+        if model.world.ops.flatMap({ AppModel.question(about: server.name, in: $0) }) != nil {
+            Text("1 question").font(.s11).foregroundStyle(Color.onSignal).lineLimit(1).fixedSize()
+                .padding(.horizontal, 6).frame(height: 20)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.signal))
+        }
+    }
 }
 
 // MARK: a session (C5)
@@ -238,6 +265,14 @@ struct SessionDetail: View {
     @EnvironmentObject private var model: AppModel
     let project: Project
     let session: Session
+
+    /// "A command failed 40 sec. ago (npm test). It usually tries again on its own; take over if it keeps failing."
+    static func stuckLine(_ a: Activity, now: Date) -> String {
+        let secs = max(0, now.timeIntervalSince(a.at))
+        let when = secs < 5 ? "just now" : secs < 60 ? "\(Int(secs)) sec. ago" : "\(Int(secs / 60)) min. ago"
+        let what = a.text.hasPrefix("ran ") ? String(a.text.dropFirst(4)) : a.text
+        return "A command failed \(when) (\(what)). It usually tries again on its own; take over if it keeps failing."
+    }
     var body: some View {
         let st = session.state(now: model.world.now)
         VStack(alignment: .leading, spacing: 12) {
@@ -245,6 +280,11 @@ struct SessionDetail: View {
                 PixelIcon("chat", color: .muted)
                 Text(session.title).font(.s15b).foregroundStyle(Color.inkText).lineLimit(2)
                 Text("· \(project.name)").font(.s13).foregroundStyle(Color.muted).lineLimit(1)
+            }
+            // stuck says whether it is yours to act on: usually not yet (UX review 26 Nov)
+            if st == .stuck, let failed = session.activities.last(where: \.failed) {
+                Text(Self.stuckLine(failed, now: model.world.now)).font(.s13).foregroundStyle(Color.inkText)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
             }
             if let said = session.lastSaid?.trimmingCharacters(in: .whitespacesAndNewlines), !said.isEmpty { Bubble(text: said, asks: st == .waiting) }
             if session.inClaudeApp {
@@ -286,7 +326,7 @@ struct SessionDetail: View {
                             if a.failed { PixelIcon("sq", color: .stuck, size: 9) }
                             Text(a.text.prefix(1).uppercased() + a.text.dropFirst()).font(.s13).foregroundStyle(a.failed ? Color.stuck : Color.inkText).lineLimit(1)
                             Spacer(minLength: 4)
-                            Text(a.at.ago).font(.s11n).foregroundStyle(Color.muted)
+                            Text(a.at.ago).font(.s12).foregroundStyle(Color.muted)
                         }
                     }
                 }
@@ -303,8 +343,8 @@ private struct Bubble: View {
         let t = text.count > 1200 ? "…" + text.suffix(1199) : text
         let (lead, question) = asks ? Self.split(String(t)) : (String(t), "")
         VStack(alignment: .leading, spacing: 6) {
-            if !lead.isEmpty { Text(lead).font(.s13).foregroundStyle(asks ? Color.muted : Color.inkText).fixedSize(horizontal: false, vertical: true) }
-            if !question.isEmpty { Text(question).font(.s15b).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true) }
+            if !lead.isEmpty { Text(lead).font(.s13).foregroundStyle(asks ? Color.muted : Color.inkText).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) }
+            if !question.isEmpty { Text(question).font(.s15b).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) }
         }
         .textSelection(.enabled)
         .lineLimit(14)
@@ -360,7 +400,7 @@ struct SessionCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(session.persona.name) · \(session.title)").font(.s15).foregroundStyle(Color.inkText).lineLimit(1)
                 HStack(spacing: 5) {
-                    PixelIcon(st == .stuck ? "sq" : "dot", color: Color.state(st), size: 9)
+                    PixelIcon(st == .stuck ? "sq" : st == .waiting ? "bang" : st == .done ? "check" : "dot", color: Color.state(st)).frame(width: 18, height: 18)
                     Text(Self.mood(session, st)).font(.s13).foregroundStyle(Color.state(st)).lineLimit(1)
                 }
             }
@@ -384,22 +424,27 @@ struct SessionCard: View {
     }
 }
 
-/// Sessions by state as one thin bar.
+/// Sessions by state as one thin bar, with its words under it ("2 working · 1 stuck · 1 waits · 4 done"): colour is
+/// never the only way it is said (blue and green read alike to many eyes).
 struct StateBar: View {
     let sessions: [Session]; let now: Date
     var body: some View {
         let counts = SessionState.allCases.map { st in (st, sessions.filter { $0.state(now: now) == st }.count) }.filter { $0.1 > 0 }
-        GeometryReader { g in
-            HStack(spacing: 2) {
-                ForEach(counts, id: \.0) { st, n in Rectangle().fill(Color.state(st)).frame(width: max(0, (g.size.width - CGFloat(counts.count - 1) * 2) * CGFloat(n) / CGFloat(max(sessions.count, 1)))) }
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { g in
+                HStack(spacing: 2) {
+                    ForEach(counts, id: \.0) { st, n in Rectangle().fill(Color.state(st)).frame(width: max(0, (g.size.width - CGFloat(counts.count - 1) * 2) * CGFloat(n) / CGFloat(max(sessions.count, 1)))) }
+                }
             }
+            .frame(height: 8).padding(2)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.well))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.divider, lineWidth: 2))
+            Text(legend).font(.s12).foregroundStyle(Color.muted).lineLimit(2)
         }
-        .frame(height: 8).padding(2)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.well))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.divider, lineWidth: 2))
-        .accessibilityElement().accessibilityLabel(counts.map { "\($0.1) \($0.0.label.lowercased())" }.joined(separator: ", "))
+        .accessibilityElement(children: .ignore).accessibilityLabel(legend)
     }
+    private var legend: String { SessionState.tally(sessions.map { $0.state(now: now) }) }
 }
 
 /// What a floor's work would have cost at API list prices (D61): today, the last 7 days and the last 30. An estimate,

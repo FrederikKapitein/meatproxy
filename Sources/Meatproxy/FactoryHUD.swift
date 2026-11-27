@@ -26,18 +26,21 @@ struct FactoryOverview: View {
     let project: Project
     let factory: Factory
     private var tab: Tab { model.factoryTabs[project.id] ?? .overview }
+    /// the release row's Release button opens the release card's confirmation below it
+    @State private var releasing = false
 
     enum Tab: String, Hashable { case overview, work, ceo, team }
 
     var body: some View {
         let hb = model.heartbeat(project)
         let items: [FolderTabs<Tab>.Item] = [
-            .init(id: .overview, title: "Overview", badge: factory.openDecisions.count, help: "What waits for you, the CEO's briefing and your ideas"),
+            .init(id: .overview, title: "Overview", badge: factory.waiting, help: "What waits for you, the CEO's briefing and your ideas"),
             .init(id: .work, title: "Work", badge: project.sessions.filter { $0.state(now: model.world.now) == .waiting }.count, help: "Workstreams and sessions; a badge for chats that wait for you"),
             .init(id: .ceo, title: "CEO", badge: hb?.blocked?.waitsForYou == true ? 1 : 0, help: "Heartbeat, what it may do, autonomy and limits"),
             .init(id: .team, title: "Team", help: "Who the CEO may call in, and how many at once"),
         ]
-        TabbedBox(items: items, selected: tab, pick: { model.factoryTabs[project.id] = $0 }) {
+        // tabs as wide as their words, as in Settings: the same tab sits in the same place on every floor (Henk)
+        TabbedBox(items: items, selected: tab, stretch: false, pick: { model.factoryTabs[project.id] = $0 }) {
             ScrollFit {
                 VStack(alignment: .leading, spacing: 12) {
                     switch tab {
@@ -56,11 +59,12 @@ struct FactoryOverview: View {
         }
     }
 
-    /// "1 decision waits for you", "2 to-dos wait for you", "3 things wait for you"
-    static func waiting(_ open: [FactoryDecision]) -> String {
-        let todos = open.filter(\.isTodo).count
-        let noun = todos == 0 ? "decision" : todos == open.count ? "to-do" : "thing"
-        return "\(open.count) \(noun)\(open.count == 1 ? " waits" : "s wait") for you"
+    /// "1 decision waits for you", "2 to-dos wait for you", "5 things wait for you": a release counts as one more
+    /// thing, the same count as everywhere else (Factory.waiting)
+    static func waiting(_ open: [FactoryDecision], release: Bool = false) -> String {
+        let n = open.count + (release ? 1 : 0), todos = open.filter(\.isTodo).count
+        let noun = release ? (open.isEmpty ? "release" : "thing") : todos == 0 ? "decision" : todos == open.count ? "to-do" : "thing"
+        return "\(n) \(noun)\(n == 1 ? " waits" : "s wait") for you"
     }
 
     @ViewBuilder private var overview: some View {
@@ -73,26 +77,39 @@ struct FactoryOverview: View {
             }
             .spelCard(flag: .stuck)
         }
-        let open = factory.openDecisions
-        if !open.isEmpty {
+        let open = factory.openDecisions, ready = factory.readyToRelease
+        if !open.isEmpty || !ready.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     QuestMarker(size: 20)
-                    Text(Self.waiting(open)).font(.s15b).foregroundStyle(Color.inkText)
+                    Text(Self.waiting(open, release: !ready.isEmpty)).font(.s15b).foregroundStyle(Color.inkText)
                 }
                 ForEach(open) { d in
                     HStack(spacing: 10) {
-                        Text(d.title).font(.s13).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        Text(d.title).font(.s13).foregroundStyle(Color.inkText).lineLimit(3).fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 6)
                         Button { model.controller.select(decision: d.id, in: project.id) } label: { Text(d.isTodo ? "Open" : "Answer") }
                             .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
                             .accessibilityLabel("\(d.isTodo ? "Open" : "Answer"): \(d.title)")
                     }
                 }
+                // the release last: the card's one yellow button (the others are plain), until its confirmation is open
+                if !ready.isEmpty {
+                    HStack(spacing: 10) {
+                        Text(NeedsYou.releaseTitle(ready)).font(.s13).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 6)
+                        Button { releasing = true } label: { Text("Release") }
+                            .buttonStyle(SpelButtonStyle(kind: releasing ? .secondary : .primary, size: .s))
+                            .disabled(releasing)
+                            .accessibilityLabel("Release: \(NeedsYou.releaseTitle(ready))")
+                    }
+                }
             }
             .spelCard(flag: .signal)
         }
-        if !factory.readyToRelease.isEmpty { ReleaseCard(project: project, workstreams: factory.readyToRelease) }
+        if !ready.isEmpty {
+            ReleaseCard(project: project, workstreams: ready, confirm: $releasing).onChange(of: project.id) { _, _ in releasing = false }
+        }
         if factory.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text("No briefing yet").font(.s15).foregroundStyle(Color.inkText)
@@ -119,7 +136,7 @@ private struct PlainFloor: View {
     let project: Project
     @State private var tab = 0
     var body: some View {
-        TabbedBox(items: [.init(id: 0, title: "Overview"), .init(id: 1, title: "Work")], selected: tab, pick: { tab = $0 }) {
+        TabbedBox(items: [.init(id: 0, title: "Overview"), .init(id: 1, title: "Work")], selected: tab, stretch: false, pick: { tab = $0 }) {
             ScrollFit {
                 VStack(alignment: .leading, spacing: 12) {
                     if tab == 0 { overview } else { work }
@@ -139,8 +156,7 @@ private struct PlainFloor: View {
                     HStack(spacing: 6) {
                         // the state as a shape too, never colour alone
                         let st = s.state(now: model.world.now)
-                        PixelIcon(st == .stuck ? "sq" : st == .waiting ? "bang" : st == .done ? "check" : "dot", color: Color.state(st), size: 9)
-                            .accessibilityLabel(st.label)
+                        StateGlyph(state: st)
                         Text(s.title).font(.s13).foregroundStyle(Color.inkText).lineLimit(1)
                         Text("· \(s.persona.name)").font(.s13).foregroundStyle(Color.muted).lineLimit(1).fixedSize()
                         Spacer(minLength: 0)
@@ -157,7 +173,8 @@ private struct PlainFloor: View {
         .spelCard()
         if let c = project.cost { CostLine(cost: c) }
         if !project.isChat {
-            Text(project.root.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.mono11).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle)
+            Text(project.root.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.mono12).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                .contextMenu { PathMenu(path: project.root) }
         }
     }
 
@@ -187,17 +204,19 @@ struct FactoryCard: View {
                 Spacer(minLength: 0)
                 Toggle("Factory", isOn: Binding(get: { on }, set: { model.setFactory(project.root, on: $0) })).labelsHidden().toggleStyle(TactileToggleStyle())
             }
-            Text(on ? "Off stops the CEO. The floor and its chats stay." : "A CEO runs this floor on a heartbeat and asks you yes or no. Nothing is written until you set it up; you pick its team later.")
+            Text(on ? "Off stops the CEO. The floor and its chats stay." : "A CEO runs this floor on a schedule and asks you yes or no. Nothing is written until you set it up; you pick its team later.")
                 .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
             if !on {
                 RowDivider().padding(.vertical, 2)
                 HStack(spacing: 10) {
                     PixelIcon("map", color: .muted)
-                    Text("Keep on campus").font(.s13m).foregroundStyle(Color.inkText)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Keep when quiet").font(.s13m).foregroundStyle(Color.inkText)
+                        Text("Its floor stays after 8 hours without chats.").font(.s12).foregroundStyle(Color.muted)
+                    }
                     Spacer(minLength: 0)
-                    Toggle("Keep on campus", isOn: Binding(get: { pinned }, set: { model.setPinned(project.root, on: $0) })).labelsHidden().toggleStyle(TactileToggleStyle())
+                    Toggle("Keep when quiet", isOn: Binding(get: { pinned }, set: { model.setPinned(project.root, on: $0) })).labelsHidden().toggleStyle(TactileToggleStyle())
                 }
-                .help("Keep this floor on the campus without recent sessions")
             }
         }
         .spelCard(flag: quest && !on ? .signal : nil)
@@ -214,14 +233,15 @@ private struct WorkTab: View {
         let streams = factory.activeWorkstreams
         SectionHead("Workstreams · \(streams.count)") {
             let dropped = factory.workstreams.count - streams.count
-            if dropped > 0 { Text("\(dropped) dropped").font(.s11n).foregroundStyle(Color.muted) }
+            if dropped > 0 { Text("\(dropped) dropped").font(.s12).foregroundStyle(Color.muted) }
         }
         if streams.isEmpty { Text("No workstream yet: the CEO opens one for each piece of work.").font(.s13).foregroundStyle(Color.muted) }
         let ready = factory.readyToRelease
         if !ready.isEmpty { ReleaseCard(project: project, workstreams: ready) }
         ForEach(streams) { w in
+            let asks = factory.openDecisions.filter { $0.workstreams.contains(w.id) || w.decisions.contains($0.id) }
             Button { model.controller.select(workstream: w.id, in: project.id) } label: {
-                WorkstreamRow(workstream: w, waits: factory.openDecisions.contains { $0.workstreams.contains(w.id) || w.decisions.contains($0.id) },
+                WorkstreamRow(workstream: w, waits: asks.isEmpty ? nil : asks.allSatisfy(\.isTodo) ? "A to-do waits for you" : "Waits for your answer",
                               ready: ready.contains { $0.id == w.id }).contentShape(Rectangle())
             }.buttonStyle(CardPressStyle())
         }
@@ -234,37 +254,61 @@ private struct WorkTab: View {
 }
 
 /// A workstream on the Work tab: its id and title once, its road (E9), and where it stands in the CEO's words (its
-/// latest log line), so a phase nobody works on says why (D81); a yellow edge when it waits for you.
-private struct WorkstreamRow: View {
+/// latest log line), so a phase nobody works on says why (D81). A yellow edge when it waits for your answer, and it says
+/// so; one ready to release is already in the Ready to release card above, so it says that without an edge of its own.
+struct WorkstreamRow: View {
     let workstream: Workstream
-    var waits = false
+    /// what it waits for: "Waits for your answer", "A to-do waits for you"
+    var waits: String? = nil
     var ready = false
     var body: some View {
         let w = workstream
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Tag(w.id)
-                Text(w.title).font(.s15b).foregroundStyle(Color.inkText).lineLimit(1)
+                Text(w.title).font(.s15b).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
-                if w.wentBack { Tag("↩ back").help(w.backSteps.last?.text ?? "") }
             }
+            // on a line of its own, so the title keeps its room
+            if w.wentBack { Tag(WorkstreamRow.sentBack(w)).help(w.backSteps.last?.text ?? "") }
             PhaseTrack(phases: WorkstreamCard.phases, current: WorkstreamCard.current(w))
+            if let waits {
+                HStack(spacing: 6) {
+                    PixelIcon("bang", color: .signal)
+                    Text(waits).font(.s13m).foregroundStyle(Color.inkText)
+                }
+            }
             if ready {
                 HStack(spacing: 6) {
-                    PixelIcon("ship", color: .inkText, size: 9)
+                    PixelIcon("ship", color: .inkText)
                     Text("Waits for your release").font(.s13m).foregroundStyle(Color.inkText)
                 }
-            } else if let last = w.log.last, w.phase != .done {
+            } else if waits == nil, let last = w.log.last, w.phase != .done {
                 Text(Self.gist(last)).font(.s13).foregroundStyle(Color.muted).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     .help(last.text)
             }
         }
-        .spelCard(flag: waits || ready ? .signal : nil)
+        .spelCard(flag: waits != nil ? .signal : nil)
         .accessibilityElement(children: .combine)
     }
 }
 
 extension WorkstreamRow {
+    /// "↩ Sent back to build": where the tester sent it, in words
+    static func sentBack(_ w: Workstream) -> String {
+        "↩ Sent back" + (w.backSteps.last?.phase.map { " to \($0.rawValue)" } ?? "")
+    }
+    /// Where its work came from, in words: "Found by CI", "Proposed by Product", "From Sentry"
+    static func origin(_ source: String) -> String {
+        switch source.lowercased() {
+        case "ci": "Found by CI"
+        case "sentry": "Found by Sentry"
+        case "product": "Proposed by Product"
+        case "you", "idea": "Your idea"
+        default: "From " + source.prefix(1).uppercased() + source.dropFirst()
+        }
+    }
+
     /// "24 Nov · No change: DevOps #222 … still open." The log line in plain words, with its day.
     static func gist(_ e: WorkLogEntry) -> String {
         let text = BriefingCard.plain(e.text).split(whereSeparator: \.isWhitespace).joined(separator: " ")
@@ -281,7 +325,12 @@ struct ReleaseCard: View {
     @EnvironmentObject private var model: AppModel
     let project: Project
     let workstreams: [Workstream]
-    @State private var confirming = false
+    /// on Overview the release is a row of the waiting card, whose Release button opens this card's confirmation; the
+    /// card then says why it waits and has no Release now of its own (one yellow button per view)
+    var confirm: Binding<Bool>? = nil
+    @State private var own = false
+    private var confirming: Bool { confirm?.wrappedValue ?? own }
+    private func setConfirming(_ on: Bool) { if let confirm { confirm.wrappedValue = on } else { own = on } }
     @State private var sending = false
     @State private var failure: String?
 
@@ -305,12 +354,12 @@ struct ReleaseCard: View {
                     Button { send() } label: { SpelLabel(sending ? "Sending…" : "Send release", key: "⌘↩", onYellow: true) }
                         .buttonStyle(SpelButtonStyle(kind: .primary, wide: true)).disabled(sending)
                         .keyboardShortcut(.return, modifiers: .command)
-                    Button { confirming = false } label: { Text("Cancel") }.buttonStyle(SpelButtonStyle(kind: .secondary)).disabled(sending)
+                    Button { setConfirming(false) } label: { Text("Cancel") }.buttonStyle(SpelButtonStyle(kind: .secondary)).disabled(sending)
                 }
                 Text("Writes your release into factory/decisions/. The CEO releases it \(model.pickUp(project)), the way this factory ships.")
                     .font(.s13m).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
-            } else {
-                Button { confirming = true; failure = nil } label: { SpelLabel("Release now", icon: "ship", onYellow: true) }
+            } else if confirm == nil {
+                Button { setConfirming(true); failure = nil } label: { SpelLabel("Release now", icon: "ship", onYellow: true) }
                     .buttonStyle(SpelButtonStyle(kind: .primary))
             }
             if let failure { Text(failure).font(.s13m).foregroundStyle(Color.stuck).fixedSize(horizontal: false, vertical: true) }
@@ -322,17 +371,23 @@ struct ReleaseCard: View {
         let shipping = project.factory?.takesMandate == true ? model.mandate(project.root).items[.ship] : nil
         if shipping == .off { return "Done and tested. Shipping is off in your mandate, so the CEO will not ask: it waits for you." }
         if let no = project.factory?.decisions.last(where: { $0.kind.lowercased() == "ship" && $0.status == .no && !Set($0.workstreams).isDisjoint(with: workstreams.map(\.id)) }) {
-            return "Done and tested. You said no on \(no.id)\(no.answer.isEmpty ? "" : " (“\(BriefingCard.plain(no.answer))”)"); it waits until you release it."
+            // your own words and the day you said them, not the question's id
+            let day = no.answered.map { " on " + Self.day.string(from: $0) } ?? ""
+            let said = no.answer.isEmpty ? "no" : "“\(BriefingCard.plain(no.answer))”"
+            return "You said \(said)\(day); it waits until you release it."
         }
         return "Done and tested, and no release question is open for it."
     }
+
+    /// "Tue 24 Nov"
+    private static let day: DateFormatter = { let f = DateFormatter(); f.locale = Locale(identifier: "en_GB"); f.dateFormat = "EEE d MMM"; return f }()
 
     private func send() {
         sending = true
         Task {
             let error = await model.release(workstreams, in: project)
             sending = false
-            if let error { failure = error } else { confirming = false }
+            if let error { failure = error } else { setConfirming(false) }
         }
     }
 }
@@ -367,7 +422,7 @@ private struct CEOTab: View {
                 LimitsEditor(root: root, hb: hb, update: update("limits"), saved: { flash("limits") })
             }
             Group_(id: "models", icon: "box", title: "Models", summary: modelsSummary(hb), saved: $saved) { ModelsEditor(hb: hb, update: update("models")) }
-            Group_(id: "contract", icon: "file", title: "Contract", summary: "v\(factory.contractVersion)", saved: $saved) { contract }
+            Group_(id: "contract", icon: "file", title: "Factory files", summary: "version \(factory.contractVersion)\(factory.newerContract ? "" : " ✓")", saved: $saved) { contract }
         }
         FactoryCard(project: project)
     }
@@ -376,7 +431,7 @@ private struct CEOTab: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("meatproxy-factory v\(factory.contractVersion)\(factory.contract == nil ? " (no contract.yml)" : "")").font(.s13).foregroundStyle(Color.inkText)
             if factory.newerContract { Tag("Newer than this Meatproxy (v\(FactoryContract.current))", tone: .warn) }
-            Text(project.root.replacingOccurrences(of: NSHomeDirectory(), with: "~") + "/factory").font(.mono11).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle)
+            Text(project.root.replacingOccurrences(of: NSHomeDirectory(), with: "~") + "/factory").font(.mono12).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
             Text("The CEO declares it in factory/contract.yml (docs/contracts/factory.md).").font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -390,12 +445,14 @@ private struct CEOTab: View {
     }
 
     private func wakesSummary(_ hb: Heartbeat) -> String {
-        var s: [String] = []
-        if hb.wakeOnSentry && factory.sources.hasSentry { s.append("Sentry") }
-        if hb.wakeOnTracker && factory.sources.tracker != nil { s.append("Tracker") }
+        // only what can wake it now: a source that is not connected yet is counted, not named (UX review 26 Nov)
+        var s: [String] = [], missing = 0
+        if factory.sources.hasSentry { if model.connected(.sentry) { if hb.wakeOnSentry { s.append("Sentry") } } else { missing += 1 } }
+        if factory.sources.tracker != nil { if model.connected(.tracker) { if hb.wakeOnTracker { s.append("Tracker") } } else { missing += 1 } }
         if hb.wakeOnCI { s.append("CI") }
         if hb.wakeOnAnswer { s.append("answers") }
-        return s.isEmpty ? "Heartbeat only" : s.joined(separator: ", ")
+        let head = s.isEmpty ? "Heartbeat only" : s.joined(separator: ", ")
+        return missing > 0 ? head + " · +\(missing) not connected" : head
     }
     private func limitsSummary(_ hb: Heartbeat) -> String {
         (hb.maxCostPerDay.map { "$\(Int($0)) a day · " } ?? "") + "\(hb.runsPerDay) runs"
@@ -426,7 +483,7 @@ private struct Group_<Content: View>: View {
                     if saved == id {
                         HStack(spacing: 4) { PixelIcon("check", color: .done, size: 9); Text("Saved").font(.s13m) }.foregroundStyle(Color.done)
                     } else {
-                        Text(summary).font(.s13).foregroundStyle(Color.muted).lineLimit(1)
+                        Text(summary).font(.s13).foregroundStyle(Color.muted).lineLimit(2).multilineTextAlignment(.trailing)
                     }
                     PixelIcon(open ? "chevd" : "chev", color: .muted, size: 9)
                 }
@@ -451,7 +508,7 @@ struct HeartbeatCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 PixelIcon("pulse", color: .inkText)
-                Text("Heartbeat").font(.s15b).foregroundStyle(Color.inkText)
+                Text("Runs").font(.s15b).foregroundStyle(Color.inkText)
                 Spacer(minLength: 0)
                 status
             }
@@ -478,7 +535,8 @@ struct HeartbeatCard: View {
 
     @ViewBuilder private var status: some View {
         if state.running { Tag("Running", tone: .work, icon: "dot") }
-        else if let b = state.blocked { Tag(b.waitsForYou ? "Held" : "Waiting", tone: b.waitsForYou ? .warn : .neutral) }
+        // "Waiting" is the word for what waits for you: a CEO that may not run now rests
+        else if let b = state.blocked { Tag(b.waitsForYou ? "Held" : "Resting", tone: b.waitsForYou ? .warn : .neutral) }
         else if let last = state.last, last.outcome == .failed || last.outcome == .timedOut {
             Tag(last.detail?.contains("was closed") == true || Self.caughtUp(last) ? "Run skipped" : "Run failed", tone: .warn)
         }
@@ -486,19 +544,27 @@ struct HeartbeatCard: View {
         else { Tag("On schedule", tone: .done, icon: "check") }
     }
 
+    /// "1 of 6 runs today · next: tomorrow 07:10" (the rhythm itself is in its group below)
     private var rhythmLine: String {
-        let c = state.config
-        var s = c.summary + " · \(state.runsToday) of \(c.runsPerDay) today"
+        var s = "\(state.runsToday) of \(state.config.runsPerDay) runs today"
         if state.running, let last = state.last { s += " · running since \(Self.clock(last.started))" }
         else if let p = state.pending { s += " · \(p.reason.label.lowercased()) soon" }
-        else if let n = state.next { s += " · next run \(Self.when(n))" }
+        else if let n = state.next { s += " · next: \(Self.when(n))" }
         return s
+    }
+
+    /// A cooldown is only news when it holds the next run back; then in the Server room's words.
+    private var shownBlock: Block? {
+        guard let b = state.blocked else { return nil }
+        if case .coolingDown(let until) = b, let n = state.next, until <= n { return nil }
+        return b
     }
 
     /// the one problem of the last run, with its one fix; or that nothing needs doing
     @ViewBuilder private var problem: some View {
-        if let b = state.blocked {
-            fix(b.text, button: b.waitsForYou ? "Resume" : nil, warn: b.waitsForYou) { model.resume(project) }
+        if let b = shownBlock {
+            let text = b.text.hasPrefix("Cooling down") ? "Automatic runs: \(b.text.prefix(1).lowercased() + b.text.dropFirst()). Run now starts one anyway." : b.text
+            fix(text, button: b.waitsForYou ? "Resume" : nil, warn: b.waitsForYou) { model.resume(project) }
         } else if let last = state.last, last.outcome != .running {
             if last.outcome == .failed, last.detail?.contains("was closed") == true, !model.projectSettings.heartbeatWhenClosed {
                 fix("Meatproxy was closed during the run of \(Self.when(last.started)), so it was skipped.", button: "Keep running when closed", warn: true) {
@@ -548,13 +614,11 @@ private struct RhythmEditor: View {
             LiftedSegments(items: [.init(id: Heartbeat.Days.weekdays, title: "Weekdays"), .init(id: .everyDay, title: "Every day")],
                            selected: hb.days, fill: true) { d in update { $0.days = d } }
             editRow("Every") {
-                LiftedSegments(items: Self.rhythms.map { .init(id: $0.0, title: $0.1) }, selected: hb.everyMinutes ?? 0, fontSize: 11,
-                               padding: EdgeInsets(top: 3, leading: 7, bottom: 3, trailing: 7)) { m in update { $0.everyMinutes = m == 0 ? nil : m } }
+                LiftedSegments(items: Self.rhythms.map { .init(id: $0.0, title: $0.1) }, selected: hb.everyMinutes ?? 0, size: .s) { m in update { $0.everyMinutes = m == 0 ? nil : m } }
             }
             if hb.everyMinutes == nil { editRow("Runs at") { TimesField(times: hb.times) { t in update { $0.times = t } } } }
             editRow("Runtime") {
-                LiftedSegments(items: Heartbeat.Runtime.allCases.map { .init(id: $0, title: $0.label) }, selected: hb.runtime, fontSize: 11,
-                               padding: EdgeInsets(top: 3, leading: 7, bottom: 3, trailing: 7)) { r in update { $0.runtime = r } }
+                LiftedSegments(items: Heartbeat.Runtime.allCases.map { .init(id: $0, title: $0.label) }, selected: hb.runtime, size: .s) { r in update { $0.runtime = r } }
             }
             editRow("When Meatproxy is closed", help: "Every factory: a launch agent keeps the heartbeat going while the app is closed") {
                 Toggle("When Meatproxy is closed", isOn: Binding(get: { model.projectSettings.heartbeatWhenClosed }, set: { model.setHeartbeatWhenClosed($0) }))
@@ -569,10 +633,18 @@ private struct RhythmEditor: View {
 
 /// A label on the left and a control on the right, in a group.
 private func editRow<C: View>(_ label: String, help: String? = nil, @ViewBuilder _ control: () -> C) -> some View {
-    HStack(spacing: 10) {
-        Text(label).font(.s13).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-        Spacer(minLength: 6)
-        control()
+    let c = control()
+    // beside its label when both fit; a wide control goes under it, never off the card
+    return ViewThatFits(in: .horizontal) {
+        HStack(spacing: 10) {
+            Text(label).font(.s13).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 6)
+            c
+        }
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.s13).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
+            c
+        }
     }
     .help(help ?? "")
 }
@@ -589,16 +661,16 @@ private struct WakesEditor: View {
         VStack(alignment: .leading, spacing: 10) {
             editRow("Your answers and ideas") { toggle(hb.wakeOnAnswer) { v in update { $0.wakeOnAnswer = v } } }
             editRow("A failed CI run on main") { toggle(hb.wakeOnCI) { v in update { $0.wakeOnCI = v } } }
-            editRow(src.hasSentry ? "Sentry · a new error" : "Sentry") {
-                toggle(hb.wakeOnSentry) { v in update { $0.wakeOnSentry = v } }.disabled(!v4 || !src.hasSentry)
+            let sentry = model.connected(.sentry), tracker = model.connected(.tracker)
+            editRow(src.hasSentry ? (sentry ? "Sentry · a new error" : "Sentry · connect it first") : "Sentry") {
+                toggle(sentry && hb.wakeOnSentry) { v in update { $0.wakeOnSentry = v } }.disabled(!v4 || !src.hasSentry || !sentry)
             }
-            if v4, src.hasSentry, hb.wakeOnSentry { health(model.sourceHealth[factory.root]?.sentry, missing: Secrets.get(.sentry) == nil && !model.fixture ? "No Sentry token yet." : nil) }
-            editRow(src.tracker != nil ? "Tracker · a story in Ready" : "Tracker") {
-                toggle(hb.wakeOnTracker) { v in update { $0.wakeOnTracker = v } }.disabled(!v4 || src.tracker == nil)
+            if v4, src.hasSentry, sentry, hb.wakeOnSentry { health(model.sourceHealth[factory.root]?.sentry, missing: nil) }
+            editRow(src.tracker != nil ? (tracker ? "Tracker · a story in Ready" : "Tracker · connect it first") : "Tracker") {
+                toggle(tracker && hb.wakeOnTracker) { v in update { $0.wakeOnTracker = v } }.disabled(!v4 || src.tracker == nil || !tracker)
             }
-            if v4, src.tracker != nil, hb.wakeOnTracker {
-                health(model.sourceHealth[factory.root]?.tracker,
-                       missing: WakeSources.trackerURL(model.projectSettings.trackerURL) == nil ? "No Tracker address yet." : Secrets.get(.tracker) == nil && !model.fixture ? "No Tracker token yet." : nil)
+            if v4, src.tracker != nil, tracker, hb.wakeOnTracker {
+                health(model.sourceHealth[factory.root]?.tracker, missing: nil)
             }
             if !v4 || (!src.hasSentry && src.tracker == nil) {
                 Text(!v4 ? "Sentry and Tracker need factory contract v4: the CEO names its projects in factory/contract.yml."
@@ -665,7 +737,7 @@ private struct MayDoCard: View {
                         .font(.s13).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
                 }
                 if showing {
-                    ScrollView { Text(model.standardAllowlist(project.root)).font(.mono11).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                    ScrollView { Text(model.standardAllowlist(project.root)).font(.mono12).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
                         .frame(maxHeight: 160).spelWell(pad: 8)
                 }
                 HStack(spacing: 8) {
@@ -718,14 +790,17 @@ private struct AutonomyEditor: View {
             Text(Self.levelText[m.level] ?? "").font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
             ForEach(FactoryMandate.Item.allCases, id: \.self) { i in
                 HStack(spacing: 8) {
-                    Text(AutonomyEditor.short(i)).font(.s13).foregroundStyle(Color.inkText).lineLimit(1)
-                    if let g = autonomy?.gates.first(where: { $0.name.lowercased() == i.rawValue }), m.mode(i) == .ask {
-                        StreakDots(count: min(g.streak, Autonomy.promoteAfter), of: Autonomy.promoteAfter)
+                    // the yeses in a row under the name, so the name keeps its room beside the 13 pt segments
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(AutonomyEditor.short(i)).font(.s13).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        if let g = autonomy?.gates.first(where: { $0.name.lowercased() == i.rawValue }), m.mode(i) == .ask {
+                            StreakDots(count: min(g.streak, Autonomy.promoteAfter), of: Autonomy.promoteAfter)
+                        }
                     }
                     Spacer(minLength: 4)
                     // changing an item makes the mandate Custom
                     LiftedSegments(items: [.init(id: FactoryMandate.Mode.ask, title: "Ask"), .init(id: .notify, title: "Tell me"), .init(id: .off, title: "Off")],
-                                   selected: m.mode(i), fontSize: 11, padding: EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)) { v in
+                                   selected: m.mode(i), size: .s) { v in
                         set { $0.level = .custom; $0.items[i] = v }
                     }
                 }
@@ -733,31 +808,28 @@ private struct AutonomyEditor: View {
             }
             if autonomy?.gates.isEmpty == false {
                 Text("Dots: your yeses in a row. At \(Autonomy.promoteAfter) the CEO may propose to stop asking; your setting decides.")
-                    .font(.s11n).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                    .font(.s12).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
             }
             RowDivider()
             editRow("The CEO") {
                 LiftedSegments(items: [.init(id: FactoryMandate.Role.orchestrator, title: "Orchestrates"), .init(id: .handsOn, title: "Works along")],
-                               selected: m.role, fontSize: 11, padding: EdgeInsets(top: 3, leading: 7, bottom: 3, trailing: 7)) { r in set { $0.role = r } }
+                               selected: m.role, size: .s) { r in set { $0.role = r } }
             }
             editRow("Briefing in") {
-                LiftedSegments(items: [.init(id: "en", title: "English"), .init(id: "nl", title: "Dutch")], selected: m.briefingLanguage, fontSize: 11,
-                               padding: EdgeInsets(top: 3, leading: 7, bottom: 3, trailing: 7)) { v in set { $0.briefingLanguage = v } }
+                LiftedSegments(items: [.init(id: "en", title: "English"), .init(id: "nl", title: "Dutch")], selected: m.briefingLanguage, size: .s) { v in set { $0.briefingLanguage = v } }
             }
             editRow("Proposals a run") {
-                LiftedSegments(items: [1, 2, 3].map { .init(id: $0, title: "\($0)") }, selected: m.proposalsPerRun, fontSize: 11,
-                               padding: EdgeInsets(top: 3, leading: 9, bottom: 3, trailing: 9)) { v in set { $0.proposalsPerRun = v } }
+                LiftedSegments(items: [1, 2, 3].map { .init(id: $0, title: "\($0)") }, selected: m.proposalsPerRun, size: .s) { v in set { $0.proposalsPerRun = v } }
             }
             editRow("PR size") {
-                LiftedSegments(items: ["small", "medium", "large"].map { .init(id: $0, title: $0.capitalized) }, selected: m.prSize, fontSize: 11,
-                               padding: EdgeInsets(top: 3, leading: 7, bottom: 3, trailing: 7)) { v in set { $0.prSize = v } }
+                LiftedSegments(items: ["small", "medium", "large"].map { .init(id: $0, title: $0.capitalized) }, selected: m.prSize, size: .s) { v in set { $0.prSize = v } }
             }
             editRow("Batch small fixes") {
                 Toggle("Batch small fixes", isOn: Binding(get: { m.batchSmallFixes }, set: { v in set { $0.batchSmallFixes = v } })).labelsHidden().toggleStyle(TactileToggleStyle())
             }
             editRow("Quiet hours") {
                 TextField("22:00-07:00", text: $quiet).focused($focus, equals: .quiet).font(.mono).textFieldStyle(.plain)
-                    .padding(.horizontal, 10).frame(width: 120, height: 30).lifted(focused: focus == .quiet).onSubmit { save() }
+                    .padding(.horizontal, 10).frame(width: 120, height: 28).lifted(focused: focus == .quiet).onSubmit { save() }
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("Anything else, in your words").font(.s13).foregroundStyle(Color.inkText)
@@ -788,7 +860,7 @@ private struct AutonomyEditor: View {
         case .ship: "Shipping"
         case .store: "Store releases"
         case .spend: "Spending"
-        case .promote: "Its own gates"
+        case .promote: "Asking less"
         }
     }
 }
@@ -838,16 +910,15 @@ private struct LimitsEditor: View {
     let saved: () -> Void
     private static let caps: [LiftedSegments<Int>.Item] = [.init(id: 0, title: "None"), .init(id: 5, title: "$5"), .init(id: 10, title: "$10"), .init(id: 20, title: "$20"), .init(id: 50, title: "$50")]
     var body: some View {
-        let pad = EdgeInsets(top: 3, leading: 7, bottom: 3, trailing: 7)
         VStack(alignment: .leading, spacing: 10) {
             editRow("Runs a day") {
-                LiftedSegments(items: [3, 6, 12].map { .init(id: $0, title: "\($0)") }, selected: hb.runsPerDay, fontSize: 11, padding: pad) { n in update { $0.runsPerDay = n } }
+                LiftedSegments(items: [3, 6, 12].map { .init(id: $0, title: "\($0)") }, selected: hb.runsPerDay, size: .s) { n in update { $0.runsPerDay = n } }
             }
             editRow("Between runs") {
-                LiftedSegments(items: [10, 20, 60].map { .init(id: $0, title: $0 == 60 ? "1 h" : "\($0) min") }, selected: hb.cooldownMinutes, fontSize: 11, padding: pad) { m in update { $0.cooldownMinutes = m } }
+                LiftedSegments(items: [10, 20, 60].map { .init(id: $0, title: $0 == 60 ? "1 h" : "\($0) min") }, selected: hb.cooldownMinutes, size: .s) { m in update { $0.cooldownMinutes = m } }
             }
             editRow("API price a day") {
-                LiftedSegments(items: Self.caps, selected: Int(hb.maxCostPerDay ?? 0), fontSize: 11, padding: pad) { v in update { $0.maxCostPerDay = v == 0 ? nil : Double(v) } }
+                LiftedSegments(items: Self.caps, selected: Int(hb.maxCostPerDay ?? 0), size: .s) { v in update { $0.maxCostPerDay = v == 0 ? nil : Double(v) } }
             }
             editRow("Allow Dark", help: "Off: its CEO runs Assistant or Hybrid at most, whatever the mandate says") {
                 Toggle("Allow Dark", isOn: Binding(get: { model.projectSettings.darkAllowed(root) }, set: { model.setDarkAllowed(root, on: $0); saved() }))
@@ -872,16 +943,15 @@ private struct ModelsEditor: View {
         [LiftedSegments<String>.Item(id: "", title: "Default")] + ids.map { LiftedSegments<String>.Item(id: $0, title: Self.titles[$0] ?? $0) }
     }
     var body: some View {
-        let pad = EdgeInsets(top: 2, leading: 5, bottom: 2, trailing: 5)
         VStack(alignment: .leading, spacing: 12) {
             ForEach(ModelPolicy.Kind.allCases, id: \.self) { k in
                 let c = hb.models[k]
                 VStack(alignment: .leading, spacing: 6) {
                     Text(k.label).font(.s13m).foregroundStyle(Color.inkText)
-                    LiftedSegments(items: items(ModelPolicy.models[hb.runtime] ?? []), selected: c.model ?? "", fontSize: 11, padding: pad) { m in
+                    LiftedSegments(items: items(ModelPolicy.models[hb.runtime] ?? []), selected: c.model ?? "", size: .s) { m in
                         update { $0.models[k].model = m.isEmpty ? nil : m }
                     }
-                    LiftedSegments(items: items(ModelPolicy.efforts[hb.runtime] ?? []), selected: c.effort ?? "", fontSize: 11, padding: pad) { e in
+                    LiftedSegments(items: items(ModelPolicy.efforts[hb.runtime] ?? []), selected: c.effort ?? "", size: .s) { e in
                         update { $0.models[k].effort = e.isEmpty ? nil : e }
                     }
                 }
@@ -901,7 +971,7 @@ struct TimesField: View {
     @FocusState private var focused: Bool
     var body: some View {
         TextField("07:10, 13:00", text: $text).focused($focused).font(.mono)
-            .textFieldStyle(.plain).padding(.horizontal, 10).frame(width: 130, height: 30)
+            .textFieldStyle(.plain).padding(.horizontal, 10).frame(width: 130, height: 28)
             .lifted(focused: focused)
             .onSubmit(save).onChange(of: focused) { _, f in model.typing = f; if !f { save() } }
             .onAppear { text = times.joined(separator: ", ") }
@@ -935,7 +1005,7 @@ private struct BriefingCard: View {
                 Portrait(image: model.controller.portrait(key), role: .ceo, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Briefing from \(ceo)").font(.s15b).foregroundStyle(Color.inkText)
-                    Text("CEO · \(Self.day(briefing.name))").font(.s11n).foregroundStyle(Color.muted)
+                    Text("CEO · \(Self.day(briefing.name))").font(.s12).foregroundStyle(Color.muted)
                 }
             }
             .task { await model.controller.ensurePortraits([key]) }
@@ -998,7 +1068,7 @@ struct IdeaBox: View {
                     Tag(idea.id)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(idea.title).font(.s13m).foregroundStyle(Color.inkText).lineLimit(2)
-                        Text(statusLine(idea)).font(.s11n).foregroundStyle(Color.muted).lineLimit(2)
+                        Text(statusLine(idea)).font(.s12).foregroundStyle(Color.muted).lineLimit(2)
                     }
                     Spacer(minLength: 0)
                 }
@@ -1049,14 +1119,15 @@ struct WorkstreamCard: View {
             }
             PhaseTrack(phases: Self.phases, current: Self.current(w))
             ForEach(questions.filter { $0.status == .open }) { d in
+                // a to-do is something to do, not a yes to give: its own words and Open, as on Overview
                 HStack(spacing: 10) {
-                    QuestMarker(size: 22)
+                    QuestMarker(glyph: d.isTodo ? "check" : "bang", size: 22)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Waits for your yes").font(.s15b).foregroundStyle(Color.inkText)
-                        Text("\(d.id) · \(d.title)").font(.s13).foregroundStyle(Color.muted).lineLimit(2)
+                        Text(d.isTodo ? (d.forDevOps ? "DevOps to-do" : "To-do for you") : "Waits for your yes").font(.s15b).foregroundStyle(Color.inkText)
+                        Text(d.title).font(.s13).foregroundStyle(Color.muted).lineLimit(2).help(d.id)
                     }
                     Spacer(minLength: 4)
-                    Button { model.controller.select(decision: d.id, in: project.id) } label: { Text("Answer") }
+                    Button { model.controller.select(decision: d.id, in: project.id) } label: { Text(d.isTodo ? "Open" : "Answer") }
                         .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
                 }
                 .spelCard(flag: .signal)
@@ -1069,9 +1140,9 @@ struct WorkstreamCard: View {
                         Button { model.controller.select(decision: d.id, in: project.id) } label: {
                             HStack(spacing: 8) {
                                 Tag(d.status.rawValue, tone: d.status == .yes ? .done : .neutral)
-                                Text("\(d.id) · \(d.title)").font(.s13).foregroundStyle(Color.inkText).lineLimit(1)
+                                Text(d.title).font(.s13).foregroundStyle(Color.inkText).lineLimit(1)
                                 Spacer(minLength: 0)
-                            }.contentShape(Rectangle())
+                            }.contentShape(Rectangle()).help(d.id)
                         }.buttonStyle(CardPressStyle())
                     }
                 }
@@ -1093,31 +1164,33 @@ struct WorkstreamCard: View {
     }
 
     @ViewBuilder private func links(_ w: Workstream) -> some View {
-        let tags: [String] = [w.source.map { "from \($0)" }, w.release.map { "release \($0)" }].compactMap { $0 }
+        let tags: [String] = [w.source.map { WorkstreamRow.origin($0) }, w.release.map { "release \($0)" }].compactMap { $0 }
         if w.pr != nil || w.branch != nil || !tags.isEmpty {
+            // one 18 pt icon column, 6 to the text, for every row (Henk)
             VStack(alignment: .leading, spacing: 6) {
                 if let pr = w.pr, let url = URL(string: pr) {
                     Button { NSWorkspace.shared.open(url) } label: {
-                        HStack(spacing: 6) { PixelIcon("branch", color: .muted); Text(FactoryText.links(pr).first?.title ?? pr).font(.s13m).lineLimit(1); PixelIcon("chev", color: .muted, size: 9) }
-                            .foregroundStyle(Color.inkText)
+                        IconLine(icon: "send") { HStack(spacing: 4) { Text(FactoryText.links(pr).first?.title ?? pr).font(.s13m).lineLimit(1); PixelIcon("chev", color: .muted, size: 9) } }
+                            .foregroundStyle(Color.inkText).contentShape(Rectangle())
                     }.buttonStyle(.plain).help(pr)
                 }
-                if let b = w.branch { Text(b).font(.mono11).foregroundStyle(Color.muted).lineLimit(1) }
-                if !tags.isEmpty { HStack(spacing: 6) { ForEach(tags, id: \.self) { Tag($0) } } }
+                if let b = w.branch { IconLine(icon: "branch") { Text(b).font(.mono12).foregroundStyle(Color.muted).lineLimit(1).textSelection(.enabled) } }
+                if !tags.isEmpty { IconLine(icon: nil) { HStack(spacing: 6) { ForEach(tags, id: \.self) { Tag($0) } } } }
             }
         }
     }
 
     private func logRow(_ e: WorkLogEntry) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Socket(size: 32) { PixelIcon(Self.icon(e.phase), color: e.isBack ? .working : .inkText) }
+            // sent back is said with ↩ and words, never in blue: blue means working (Tina)
+            Socket(size: 32) { PixelIcon(e.isBack ? "back" : Self.icon(e.phase), color: .inkText) }
             VStack(alignment: .leading, spacing: 2) {
                 Text(Self.sentence(BriefingCard.plain(e.text))).font(.s13m).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                Text(e.isBack ? "Back from \(e.from?.rawValue ?? "") to \(e.phase?.rawValue ?? "")" : (e.phase?.rawValue.capitalized ?? "Note"))
-                    .font(.s11n).foregroundStyle(e.isBack ? Color.working : Color.muted)
+                Text(e.isBack ? "↩ Back from \(e.from?.rawValue ?? "") to \(e.phase?.rawValue ?? "")" : (e.phase?.rawValue.capitalized ?? "Note"))
+                    .font(.s12).foregroundStyle(Color.muted)
             }
             Spacer(minLength: 4)
-            Text(BriefingCard.day(e.date)).font(.s11n).foregroundStyle(Color.muted).lineLimit(1).fixedSize()
+            Text(BriefingCard.day(e.date)).font(.s12).foregroundStyle(Color.muted).lineLimit(1).fixedSize()
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
     }
@@ -1149,9 +1222,9 @@ struct DecisionCard: View {
     var body: some View {
         let d = decision
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 6) {
-                Tag(d.id)
-                Tag(d.isTodo ? (d.forDevOps ? "to-do · DevOps" : "to-do") : d.kind)
+            // its id and kind are in the head (the kind in words, the id on hover): here only who started it and what
+            // it is about
+            if d.fromYou || d.workstream != nil { HStack(spacing: 6) {
                 if d.fromYou { Tag("from you") }
                 if let w = d.workstream, let ws = project.factory?.workstreams.first(where: { $0.id == w }) {
                     Button { model.controller.select(workstream: w, in: project.id) } label: {
@@ -1162,6 +1235,17 @@ struct DecisionCard: View {
                     .buttonStyle(.plain).help("Open the workstream")
                 } else if let w = d.workstream { Tag(w) }
                 Spacer(minLength: 0)
+            } }
+            // a promote in the Autonomy tab's own words: what changes, from what to what
+            if d.status == .open, let g = model.promotedGate(d, in: project) {
+                HStack(spacing: 8) {
+                    Text(Self.gateWord(g.name)).font(.s13m).foregroundStyle(Color.inkText)
+                    Tag(g.notify ? "Tell me" : "Ask")
+                    PixelIcon("chev", color: .muted, size: 9)
+                    Tag(g.notify ? "Off" : "Tell me", tone: .sel)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(Self.gateWord(g.name)): from \(g.notify ? "Tell me" : "Ask") to \(g.notify ? "Off" : "Tell me")")
             }
             if d.status == .open, let t = model.trigger(for: d, in: project) {
                 HStack(alignment: .top, spacing: 6) {
@@ -1187,6 +1271,13 @@ struct DecisionCard: View {
                 else { AnswerForm(project: project, decision: d) }
             } else { answered(d) }
         }
+    }
+
+    /// A gate as the Autonomy tab names it: "Shipping", "Store releases", "Planning"
+    static func gateWord(_ gate: String) -> String {
+        if let i = FactoryMandate.Item(rawValue: gate.lowercased()) { return AutonomyEditor.short(i) }
+        if gate.lowercased() == "plan" { return "Planning" }
+        return gate.prefix(1).uppercased() + gate.dropFirst()
     }
 
     /// Yes, No, … ; a to-do says Done and Not now.
@@ -1230,6 +1321,9 @@ private struct SendToDevOps: View {
             if let failure { Text(failure).font(.s13m).foregroundStyle(Color.stuck).fixedSize(horizontal: false, vertical: true) }
         }
     }
+    /// "Tue 24 Nov"
+    private static let day: DateFormatter = { let f = DateFormatter(); f.locale = Locale(identifier: "en_GB"); f.dateFormat = "EEE d MMM"; return f }()
+
     private func send() {
         sending = true
         Task {
@@ -1249,6 +1343,8 @@ struct AnswerForm: View {
     var noTitle: String? = nil
     var withNote = true
     var yesPrimary = true
+    /// after the answer is written: yes or no
+    var onSent: ((Bool) -> Void)? = nil
     @State private var note = ""
     @State private var pending: Bool?
     @State private var sending = false
@@ -1269,7 +1365,7 @@ struct AnswerForm: View {
                 }
                 Text(model.consequence(of: decision, yes: pending, in: project)).font(.s13m).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
                 Text(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Writes \(pending ? "yes" : "no") into \(fileName)." : "Writes \(pending ? "yes" : "no") and your note into \(fileName).")
-                    .font(.s11n).foregroundStyle(Color.muted).lineLimit(2)
+                    .font(.s12).foregroundStyle(Color.muted).lineLimit(2)
             } else {
                 HStack(spacing: 8) {
                     Button { pending = true; failure = nil } label: { SpelLabel(yesTitle ?? (model.memeMode ? "LGTM" : "Yes"), key: "1", onYellow: yesPrimary) }
@@ -1303,7 +1399,7 @@ struct AnswerForm: View {
         Task {
             let error = await model.answer(decision, in: project, yes: yes, note: note)
             sending = false
-            if let error { failure = error; pending = nil } else { pending = nil; note = ""; noteFocused = false }
+            if let error { failure = error; pending = nil } else { pending = nil; note = ""; noteFocused = false; onSent?(yes) }
         }
     }
 }
@@ -1322,7 +1418,20 @@ private struct Part<Content: View>: View {
 private struct Prose: View {
     let text: String
     var body: some View {
-        Text(BriefingCard.plain(text)).font(.s13).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
+        Text(BriefingCard.plain(text)).font(.s13).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+    }
+}
+
+/// A line in the inspector's one icon column: an 18 pt pixel icon (or its empty place), 6 pt, then what it says.
+struct IconLine<Content: View>: View {
+    let icon: String?
+    var color: Color = .muted
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Group { if let icon { PixelIcon(icon, color: color) } else { Color.clear } }.frame(width: 18, height: 18)
+            content().padding(.top, 1)
+        }
     }
 }
 
@@ -1336,16 +1445,16 @@ private struct Evidence: View {
                 if !links.isEmpty {
                     ForEach(links, id: \.url) { l in
                         Button { if let u = URL(string: l.url) { NSWorkspace.shared.open(u) } } label: {
-                            HStack(spacing: 4) { Text(l.title).font(.s13m).lineLimit(1); PixelIcon("chev", color: .muted, size: 9) }.foregroundStyle(Color.inkText)
+                            IconLine(icon: "send") { HStack(spacing: 4) { Text(l.title).font(.s13m).lineLimit(1); PixelIcon("chev", color: .muted, size: 9) } }
+                                .foregroundStyle(Color.inkText).contentShape(Rectangle())
                         }.buttonStyle(.plain).help(l.url)
                     }
                 } else if let path = Self.path(in: line) {
                     Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: root + "/" + path)]) } label: {
-                        HStack(spacing: 6) { PixelIcon("folder", color: .muted, size: 9); Text(BriefingCard.plain(line)).font(.s13).lineLimit(2) }.foregroundStyle(Color.inkText)
+                        IconLine(icon: "folder") { Text(BriefingCard.plain(line)).font(.s13).lineLimit(2) }.foregroundStyle(Color.inkText).contentShape(Rectangle())
                     }.buttonStyle(.plain).help(root + "/" + path)
                 } else {
-                    HStack(alignment: .top, spacing: 6) {
-                        PixelIcon("check", color: .done, size: 9).padding(.top, 4)
+                    IconLine(icon: "check", color: .done) {
                         Text(BriefingCard.plain(line)).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -1457,7 +1566,7 @@ private struct OpsJournalCard: View {
                 PixelIcon("log", color: .inkText)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Journal").font(.s15b).foregroundStyle(Color.inkText)
-                    Text("DevOps agent · \(BriefingCard.day(briefing.name))").font(.s11n).foregroundStyle(Color.muted)
+                    Text("DevOps agent · \(BriefingCard.day(briefing.name))").font(.s12).foregroundStyle(Color.muted)
                 }
             }
             ForEach(Array(briefing.briefing.enumerated()), id: \.offset) { _, line in
@@ -1530,8 +1639,7 @@ private struct SetUpFactoryCard: View {
                 HStack(spacing: 10) {
                     Text("Runs at \(hb.times.first ?? "07:10")").font(.s13m).foregroundStyle(Color.inkText)
                     Spacer(minLength: 0)
-                    LiftedSegments(items: [.init(id: Heartbeat.Days.weekdays, title: "Weekdays"), .init(id: .everyDay, title: "Daily")], selected: hb.days,
-                                   padding: EdgeInsets(top: 3, leading: 9, bottom: 3, trailing: 9)) { d in model.updateHeartbeat(project.root) { $0.days = d } }
+                    LiftedSegments(items: [.init(id: Heartbeat.Days.weekdays, title: "Weekdays"), .init(id: .everyDay, title: "Daily")], selected: hb.days, size: .s) { d in model.updateHeartbeat(project.root) { $0.days = d } }
                 }
             }
             Button { withAnimation(.easeOut(duration: 0.15)) { showFiles.toggle() } } label: {
@@ -1596,29 +1704,36 @@ private struct SetUpFactoryCard: View {
     @ViewBuilder private func row(_ f: StarterFile) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 8) {
-                if f.exists {
-                    PixelIcon("check", color: .muted, size: 9).frame(width: 18, height: 18)
-                } else {
-                    let on = ticked.contains(f.path)
-                    Button { if on { ticked.remove(f.path) } else { ticked.insert(f.path) } } label: {
-                        RoundedRectangle(cornerRadius: 4).fill(on ? Color.lit : Color.clear)
-                            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(on ? Color.white : Color.muted, lineWidth: 2))
-                            .overlay(PixelIcon("check", color: .onSignal, size: 9).opacity(on ? 1 : 0))
-                            .frame(width: 18, height: 18)
+                // the box, the path and its line are one button: the whole row ticks it, not an 18 pt square (a11y)
+                Button { if !f.exists { if ticked.contains(f.path) { ticked.remove(f.path) } else { ticked.insert(f.path) } } } label: {
+                    HStack(alignment: .top, spacing: 8) {
+                        if f.exists {
+                            PixelIcon("check", color: .muted, size: 9).frame(width: 18, height: 18)
+                        } else {
+                            let on = ticked.contains(f.path)
+                            RoundedRectangle(cornerRadius: 4).fill(on ? Color.lit : Color.clear)
+                                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(on ? Color.white : Color.muted, lineWidth: 2))
+                                .overlay(PixelIcon("check", color: .onSignal, size: 9).opacity(on ? 1 : 0))
+                                .frame(width: 18, height: 18)
+                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(f.path).font(.mono12).foregroundStyle(Color.inkText)
+                            Text(f.exists ? "Already there: left as it is" : f.why).font(.s12).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(f.path).accessibilityValue(on ? "will be created" : "not created").accessibilityAddTraits(.isToggle)
+                    .frame(minHeight: 24).contentShape(Rectangle())
                 }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(f.path).font(.mono11).foregroundStyle(Color.inkText)
-                    Text(f.exists ? "Already there: left as it is" : f.why).font(.s11n).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
+                .buttonStyle(.plain).disabled(f.exists)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(f.path)
+                .accessibilityValue(f.exists ? "already there" : ticked.contains(f.path) ? "will be created" : "not created")
+                .accessibilityAddTraits(f.exists ? [] : .isToggle)
                 Button(open == f.path ? "Hide" : "View") { open = open == f.path ? nil : f.path }
                     .buttonStyle(SpelButtonStyle(kind: .ghost, size: .s))
             }
             if open == f.path {
-                ScrollView { Text(f.text).font(.mono11).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                ScrollView { Text(f.text).font(.mono12).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
                     .frame(maxHeight: 170).spelWell(pad: 8)
             }
         }

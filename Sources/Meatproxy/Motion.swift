@@ -13,6 +13,13 @@ enum Motion {
     static let slide = Animation.spring(response: 0.32, dampingFraction: 0.82)
 }
 
+extension AnyTransition {
+    /// Slides in from an edge and fades; with reduced motion it only fades (nothing travels across the screen).
+    static func slide(from edge: Edge, reduce: Bool) -> AnyTransition {
+        reduce ? .opacity : .move(edge: edge).combined(with: .opacity)
+    }
+}
+
 // MARK: the mark, assembling and stamping
 
 /// The ✓ building itself pixel by pixel in a diagonal sweep, then pressing itself down onto its ledge like a stamp,

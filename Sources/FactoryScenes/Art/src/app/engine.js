@@ -164,36 +164,44 @@
   /* a name plate (Spel+, B2 B3 B6 B7), centred on its anchor (x 0 at the head, y 0 the plate's bottom tip):
      o: {text, sub, state: work|wait|stuck|done|back, role (colour), helper, badge (colour of a shared diamond)} */
   const PLATE_FONT = "'Arial Black', 'Avenir Next', Helvetica, sans-serif", SUB_FONT = "'Avenir Next', 'Helvetica Neue', Helvetica, sans-serif";
+  // fontFix paints every line of a plate in the heavy sign face, so both are measured in that face: a plate is as wide
+  // as what it really shows, never narrower (UX review 26 Nov)
+  const DRAWN_FONT = "Arial Black, Avenir Next, Helvetica, sans-serif";
   let measureCtx = null;
   const textW = (t, font) => { measureCtx = measureCtx || document.createElement("canvas").getContext("2d"); measureCtx.font = font; return measureCtx.measureText(t).width; };
   function tag(o) {
-    const R = o.R || 5, name = String(o.text || "").toUpperCase().replace(/[<&>]/g, ""), sub = String(o.sub || "").replace(/[<&>]/g, "");
     const st = o.state || "work", wait = st === "wait", stuck = st === "stuck", back = st === "back", done = st === "done";
+    // stuck says so by shape too, never by its red alone
+    const R = o.R || 5, name = String(o.text || "").toUpperCase().replace(/[<&>]/g, ""), sub0 = String(o.sub || "").replace(/[<&>]/g, "");
+    const sub = stuck && sub0 && !sub0.startsWith("■") ? "■ " + sub0 : sub0;
     // (ss: FloorScene.plateLineUnits; the app scales the plate so this line is 11 pt on screen)
     const s = 5.8, ss = 4.4, role = o.role || "#6a6478", badge = o.badge;
-    const tw = Math.max(textW(name, `900 ${s * 10}px ${PLATE_FONT}`) / 10, sub ? textW(sub, `600 ${ss * 10}px ${SUB_FONT}`) / 10 : 0) + 9;
+    // 7 units of room on either side of the longer line
+    const tw = Math.max(textW(name, `900 ${s * 10}px ${DRAWN_FONT}`) / 10, sub ? textW(sub, `600 ${ss * 10}px ${DRAWN_FONT}`) / 10 : 0) + 14;
     const th = sub ? s + ss + 6.4 : s + 5.6, ty = -3 - th;
-    const bg = wait ? "#FFD83D" : stuck ? "#ff4a4a" : "#20182c", ink = wait ? "#1d1626" : stuck ? "#fff8ec" : done ? "#c9c4dc" : "#f3ebdd";
-    const sub2 = wait ? "#3a2e10" : stuck ? "#ffe0d8" : done ? "#8a84a0" : "#b9b2cc";
-    const edge = wait ? "#b08a00" : stuck ? "#a02020" : done ? "#4a4460" : role;
+    // stuck: a deeper red that holds white letters at about 5:1; done and free: quiet by their paint, fully opaque
+    const bg = wait ? "#FFD83D" : stuck ? "#C9302C" : done ? "#17121F" : "#20182c", ink = wait ? "#1d1626" : stuck ? "#FFF8EC" : done ? "#B8B2CC" : "#f3ebdd";
+    const sub2 = wait ? "#3a2e10" : stuck ? "#FFE6E0" : done ? "#8A84A0" : "#b9b2cc";
+    const edge = wait ? "#b08a00" : stuck ? "#7A1414" : done ? "#3A3450" : role;
     let g = `<rect x="${-tw / 2}" y="${ty + 1.4}" width="${tw}" height="${th}" rx="2" fill="#0e0a18" opacity=".45"/>`;
     g += `<rect x="${-tw / 2}" y="${ty}" width="${tw}" height="${th}" rx="2" fill="${bg}" stroke="${edge}" stroke-width="1.2"/>`;
-    if (!wait && !stuck) g += `<rect x="${-tw / 2 + .6}" y="${ty + .6}" width="2.2" height="${th - 1.2}" fill="${done ? "#4a4460" : role}"/>`;
+    if (!wait && !stuck) g += `<rect x="${-tw / 2 + .6}" y="${ty + .6}" width="2.2" height="${th - 1.2}" fill="${done ? "#3A3450" : role}"/>`;
     g += `<text x="0" y="${ty + s + 1.6}" text-anchor="middle" font-family="${PLATE_FONT}" font-weight="900" font-size="${s}" fill="${ink}">${name}</text>`;
     if (sub) g += `<text x="0" y="${ty + s + ss + 3.8}" text-anchor="middle" font-family="${SUB_FONT}" font-weight="600" font-size="${ss}" fill="${sub2}">${sub}</text>`;
     g += `<path d="M-2.4,${ty + th} L0,-.2 L2.4,${ty + th}" fill="${bg}" stroke="${edge}" stroke-width="1.2" stroke-linejoin="round"/><rect x="-2.2" y="${ty + th - 1.2}" width="4.4" height="1.6" fill="${bg}"/>`;
     if (badge) { const bx = tw / 2 - 1, by = ty + 1; g += `<path d="M${bx},${by - 3.2} l3.2,3.2 l-3.2,3.2 l-3.2,-3.2z" fill="${badge}" stroke="#f3ebdd" stroke-width=".7"/>`; }
     let top = ty;
     if (wait || stuck) { // crisp pixel art straight above the plate: a quest "!" or a storm cloud with its bolt
-      const px = wait ? 1.6 : 2.0, art = wait ? ["..yyyy..", ".yykkyy.", "yyykkyyy", "yyykkyyy", "yyykkyyy", "yyyyyyyy", ".yykkyy.", "..yyyy.."] : ["....gggg.....", "..ggGGGGgg...", ".gGGGGGGGGgg.", "gGGGGGGGGGGGg", "gGGGGGGGGGGGg", ".ggggggggggg.", ".....yy......", "....yy.......", "...yyyy......", ".....yy......", ".....y......."];
-      const C = {y: "#FFD83D", k: "#2a1a2e", g: "#3a3a4e", G: "#9a9ab4"};
+      const px = wait ? 1.6 : 2.0, art = wait ? ["..yyyy..", ".yykkyy.", "yyykkyyy", "yyykkyyy", "yyykkyyy", "yyyyyyyy", ".yykkyy.", "..yyyy.."] : ["....gggg.....", "..ggGGGGgg...", ".gGGGGGGGGgg.", "gGGGGGGGGGGGg", "gGGGGGGGGGGGg", ".ggggggggggg.", "....kbbk.....", "...kbbk......", "..kbbbbk.....", "...kkbbk.....", "....kbk......", ".....k......."];
+      // the bolt is pale with a dark rim: yellow only ever means "waits for you"
+      const C = {y: "#FFD83D", k: "#2a1a2e", g: "#3a3a4e", G: "#9a9ab4", b: "#FFF1D6"};
       const w0 = art[0].length * px, h0 = art.length * px, oy = ty - 2;
       art.forEach((row, ri) => [...row].forEach((ch, ci) => { if (C[ch]) g += `<rect x="${(-w0 / 2 + ci * px).toFixed(2)}" y="${(oy - h0 + ri * px).toFixed(2)}" width="${px + .05}" height="${px + .05}" fill="${C[ch]}"/>`; }));
       top = oy - h0;
     }
-    if (back) { // a small blue "sent back" bubble above the plate: quiet, not a shout
+    if (back) { // a small neutral "sent back" bubble with a white ↩ above the plate: quiet, and never blue (blue is working)
       const bw = 12, bh = 9.5, bx = -bw / 2, by = ty - bh - 3.5;
-      g += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="2" fill="#3f6fd8" stroke="#1d3a8a" stroke-width=".8"/><path d="M-1,${by + bh} l1,2.6 l1,-2.6z" fill="#3f6fd8"/><path d="M3,${by + 3} v2.6 h-5.6 M-2.6,${by + 5.6} l1.7,-1.7 M-2.6,${by + 5.6} l1.7,1.7" stroke="#fff" stroke-width="1.1" fill="none"/>`;
+      g += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="2" fill="#333333" stroke="#5c5c5c" stroke-width=".8"/><path d="M-1,${by + bh} l1,2.6 l1,-2.6z" fill="#333333"/><path d="M3,${by + 3} v2.6 h-5.6 M-2.6,${by + 5.6} l1.7,-1.7 M-2.6,${by + 5.6} l1.7,1.7" stroke="#fff" stroke-width="1.1" fill="none"/>`;
       top = by;
     }
     return raster(g, "", [-tw / 2 - 5, top - 2, tw / 2 + 5, 1.5], R);
@@ -218,7 +226,7 @@
       g += `<text x="${x + 1}" y="${y + 2.5}" font-family="Menlo, monospace" font-weight="700" font-size="1.9" fill="#231a2e">${String(c.id).replace(/[<&>]/g, "")}</text>`;
       const t = String(c.title || "").replace(/[<&>]/g, ""), cut = t.length > 14 ? t.slice(0, 13) + "…" : t;
       g += `<text x="${x + 1}" y="${y + 4.8}" font-family="${SUB_FONT}" font-weight="600" font-size="1.55" fill="#3a3040">${cut}</text>`;
-      if (c.back) g += `<rect x="${x + w - 2.6}" y="${y + .6}" width="2" height="2" rx=".4" fill="#3f6fd8"/>`;
+      if (c.back) g += `<rect x="${x + w - 2.6}" y="${y + .6}" width="2" height="2" rx=".4" fill="#333333"/>`;
     }
     // laid on the wall's plane (the front face of the back wall: u along i, v down the wall): its top-left corner at (0, 0)
     return raster(`<g transform="matrix(1 .5 0 1.08 0 0)">${g}</g>`, "", [-1.5, -1.5, W + 1.5, H * 1.08 + W * .5 + 1.5], R);

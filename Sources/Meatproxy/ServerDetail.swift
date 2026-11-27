@@ -9,6 +9,8 @@ import FactoryCollector
 struct ServerDetail: View {
     @EnvironmentObject private var model: AppModel
     let server: Server
+    /// your yes was written while the DevOps agent is off: it says when it runs
+    @State private var savedWhileOff = false
 
     var body: some View {
         let config = model.serverConfigs.first { $0.id == server.id }
@@ -16,9 +18,10 @@ struct ServerDetail: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 stateTag
-                if let h = config?.host { Text(h).font(.mono11).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle) }
+                if let h = config?.host { Text(h).font(.mono12).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled) }
                 Spacer(minLength: 0)
             }
+            .contextMenu { ServerMenu(server: server, host: config?.host) }
             problem(question)
             if let m = server.metrics { gauges(m) }
             let history = model.serverHistory[server.id] ?? []
@@ -48,10 +51,22 @@ struct ServerDetail: View {
                     Meter(label: "Disk", value: [ServerMetrics.size(m.diskUsedBytes, of: m.diskTotalBytes), "\(d)%"].compactMap { $0 }.joined(separator: " · "),
                           fraction: Double(d) / 100, warnAt: Double(ServerProbe.diskWarn) / 100)
                         .padding(12)
+                } else if server.state == .down {
+                    // since when, why, and the last time it was fine: what you need to decide what to do
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .top, spacing: 8) {
+                            PixelIcon("sq", color: color, size: 9).padding(.top, 4)
+                            Text(downLine).font(.s13m).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                        }
+                        if let good = model.lastGood[server.id] {
+                            Text("Last good check: \(Self.clock(good)).").font(.s13).foregroundStyle(Color.muted).padding(.leading, 17)
+                        }
+                    }
+                    .padding(12)
                 } else if let d = server.detail {
                     HStack(alignment: .top, spacing: 8) {
-                        PixelIcon(server.state == .down ? "sq" : "warn", color: color, size: 9).padding(.top, 4)
-                        Text(d).font(.s13m).foregroundStyle(color).fixedSize(horizontal: false, vertical: true)
+                        PixelIcon("warn", color: color, size: 9).padding(.top, 4)
+                        Text(d).font(.s13m).foregroundStyle(color).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                     }
                     .padding(12)
                 }
@@ -60,13 +75,21 @@ struct ServerDetail: View {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .top, spacing: 10) {
                             QuestMarker(size: 22)
-                            Text(d.title).font(.s15b).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
+                            Text(d.title).font(.s15b).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                         }
-                        Text(Self.gist(d) + "Asked by the DevOps agent, \(d.asked?.ago ?? "just now").")
-                            .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
-                        AnswerForm(project: ops, decision: d, yesTitle: Self.yesTitle(d), noTitle: "No", withNote: false)
+                        Text(Self.gist(d) + "Asked on the DevOps agent's last round, \(d.asked?.ago ?? "just now").")
+                            .font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                        AnswerForm(project: ops, decision: d, yesTitle: Self.yesTitle(d), noTitle: "No", withNote: false,
+                                   onSent: { yes in savedWhileOff = yes && !model.projectSettings.devops.enabled })
                         Button { model.controller.select(decision: d.id, in: ops.id) } label: { Text("Why and evidence") }
                             .buttonStyle(SpelButtonStyle(kind: .ghost, size: .s))
+                    }
+                    .padding(12)
+                } else if savedWhileOff {
+                    RowDivider()
+                    HStack(spacing: 8) {
+                        PixelIcon("check", color: .done, size: 9)
+                        Text("Saved. It runs when the DevOps agent is on.").font(.s13m).foregroundStyle(Color.inkText).fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(12)
                 }
@@ -77,6 +100,19 @@ struct ServerDetail: View {
             .overlay { HStack(spacing: 0) { Rectangle().fill(q != nil ? Color.signal : color).frame(width: 6); Spacer(minLength: 0) }.clipShape(RoundedRectangle(cornerRadius: 10)).allowsHitTesting(false) }
             .background(RoundedRectangle(cornerRadius: 10).fill(Color.plinth).offset(y: 2))
         }
+    }
+
+    /// "Can't reach nightly since 14:02 (timed out)." from the check's own words; without a time, what there is
+    private var downLine: String {
+        let why = server.detail.map { $0.hasPrefix("no connection: ") ? String($0.dropFirst(15)) : $0 }
+        // "since" only when the app saw it go: down from its first check, it would only be when the app started
+        let since = model.lastGood[server.id] == nil ? "" : model.downSince[server.id].map { " since " + Self.clock($0) } ?? ""
+        return "Can't reach \(server.name)\(since)" + (why.map { " (\($0))" } ?? "") + "."
+    }
+    /// "14:02" today, "Tue 14:02" before
+    static func clock(_ d: Date) -> String {
+        Calendar.current.isDateInToday(d) ? d.formatted(date: .omitted, time: .shortened)
+            : d.formatted(.dateTime.weekday(.abbreviated).hour().minute())
     }
 
     /// "Yes, prune" from "Prune Docker images…?"
@@ -116,8 +152,8 @@ struct ServerDetail: View {
                 HStack(spacing: 8) {
                     StateLight(state: r.map { $0.state == .down ? .down : $0.state == .warn ? .warn : .ok } ?? .unknown)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(URL(string: u)?.host ?? u).font(.mono).foregroundStyle(Color.inkText).lineLimit(1)
-                        Text(r?.detail ?? "not checked yet").font(.s11n).foregroundStyle(r?.state == .ok || r == nil ? Color.muted : r?.state == .down ? Color.stuck : Color.warn).lineLimit(1)
+                        Text(URL(string: u)?.host ?? u).font(.mono).foregroundStyle(Color.inkText).lineLimit(1).textSelection(.enabled)
+                        Text(r?.detail ?? "not checked yet").font(.s12).foregroundStyle(r?.state == .ok || r == nil ? Color.muted : r?.state == .down ? Color.stuck : Color.warn).lineLimit(1)
                     }
                     Spacer(minLength: 0)
                 }
@@ -127,11 +163,19 @@ struct ServerDetail: View {
     }
 
     @ViewBuilder private func devops(_ c: ServerConfig) -> some View {
-        if !model.projectSettings.devops.enabled {
+        if server.state == .down {
+            // it works over the same connection that is gone: offering it here would promise what it cannot do
+            HStack(spacing: 10) {
+                PixelIcon("hand", color: .muted)
+                Text("The DevOps agent can't fix a server it can't reach.").font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .spelCard()
+        } else if !model.projectSettings.devops.enabled {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("DevOps agent is off").font(.s15b).foregroundStyle(Color.inkText)
-                    Text("On, it handles fixes like this one.").font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                    Text("Switch it on and it handles fixes like this one itself.").font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 6)
                 Button { model.updateDevOps { $0.enabled = true } } label: { SpelLabel("Switch on", icon: "power", iconColor: .inkText) }
@@ -153,7 +197,7 @@ struct ServerDetail: View {
                     HStack(spacing: 6) { PixelIcon("warn", color: .warn, size: 9); Text("\(a.id) \(a.title)").font(.s13m).foregroundStyle(Color.warn).lineLimit(1) }
                 }
                 ForEach(Array(done.enumerated()), id: \.offset) { _, line in
-                    Text(line).font(.mono11).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle)
+                    Text(line).font(.mono12).foregroundStyle(Color.muted).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                 }
             }
             .spelCard()
@@ -161,17 +205,26 @@ struct ServerDetail: View {
     }
 
     private func actions(_ config: ServerConfig?) -> some View {
-        HStack(spacing: 8) {
-            Button { model.checkServers() } label: { SpelLabel(model.checkingServers ? "Checking" : "Check", icon: "refresh", iconColor: .inkText) }
-                .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, wide: true))
-                .disabled(model.checkingServers || model.fixture)
-                .help(model.fixture ? "Demo data: nothing is checked" : "Check every server now")
+        // down: checking again is what you do first (the one primary action here), then a terminal of your own
+        let down = server.state == .down
+        return HStack(spacing: 8) {
+            Button { model.checkServers() } label: {
+                SpelLabel(model.checkingServers ? "Checking" : down ? "Check again" : "Check", icon: "refresh", onYellow: down, iconColor: down ? .onSignal : .inkText)
+            }
+                .buttonStyle(SpelButtonStyle(kind: down ? .primary : .secondary, size: .s, wide: !down))
+                .disabled(model.checkingServers)
+                .help(model.fixture ? "Demo data: the check only pretends" : "Check every server now")
             if let c = config {
-                Button { model.openSSH(c) } label: { SpelLabel("Terminal", icon: "terminal", iconColor: .inkText) }
-                    .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, wide: true))
+                Button { model.openSSH(c) } label: { SpelLabel(down ? "Open a terminal" : "Terminal", icon: "terminal", iconColor: .inkText) }
+                    .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, wide: !down))
                     .help("ssh \(c.host) in the terminal (⌘J)")
-                Button { model.settingsPage = "server:\(c.id)"; model.settingsOpen = true } label: { SpelLabel("Settings", icon: "gear", iconColor: .inkText) }
-                    .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, wide: true)).help("How this server is reached, and what it may fix itself")
+                // down, the two longer labels need the room: Settings keeps its icon
+                if down { Spacer(minLength: 0) }
+                Button { model.settingsPage = "server:\(c.id)"; model.settingsOpen = true } label: {
+                    if down { PixelIcon("gear", color: .inkText) } else { SpelLabel("Settings", icon: "gear", iconColor: .inkText) }
+                }
+                    .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, square: down, wide: !down))
+                    .help("How this server is reached, and what it may fix itself").accessibilityLabel("Server settings")
             }
         }
     }
@@ -182,7 +235,7 @@ private struct HistoryCard: View {
     let samples: [AppModel.ServerSample]
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionHead("Last 2 hours") { Text("\(samples.count) checks").font(.s11n).foregroundStyle(Color.muted) }
+            SectionHead("Last 2 hours") { Text("\(samples.count) checks").font(.s12).foregroundStyle(Color.muted) }
             line("Disk", samples.map { $0.metrics.disk.map { Double($0) / 100 } })
             line("Memory", samples.map { $0.metrics.memory.map { Double($0) / 100 } })
             line("Load", samples.map { $0.metrics.loadShare.map { min($0 / 2, 1) } })
@@ -191,7 +244,7 @@ private struct HistoryCard: View {
     }
     private func line(_ label: String, _ values: [Double?]) -> some View {
         HStack(spacing: 10) {
-            Text(label).font(.s11n).foregroundStyle(Color.muted).frame(width: 52, alignment: .leading)
+            Text(label).font(.s12).foregroundStyle(Color.muted).frame(width: 52, alignment: .leading)
             Sparkline(values: values).frame(height: 22)
         }
     }
@@ -215,5 +268,16 @@ private struct Sparkline: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// A server's right-click menu, in the inspector and in the racks list: its host, and its settings.
+struct ServerMenu: View {
+    @EnvironmentObject private var model: AppModel
+    let server: Server
+    let host: String?
+    var body: some View {
+        if let host { Button("Copy Host") { AppModel.copy(host) } }
+        Button("Server Settings") { model.settingsPage = "server:" + server.id; model.settingsOpen = true }
     }
 }

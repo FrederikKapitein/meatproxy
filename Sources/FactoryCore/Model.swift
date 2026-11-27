@@ -324,6 +324,13 @@ public struct World: Sendable, Hashable {
         }.map(\.element)
     }
 
+    /// How many things wait for you on one floor: its factory's questions, to-dos and release (`Factory.waiting`) and
+    /// its chats that wait. The same number as that floor's items in `needsYou`.
+    public func waiting(project id: String) -> Int {
+        let sessions = project(id: id)?.sessions.filter { $0.state(now: now) == .waiting }.count ?? 0
+        return (project(id: id)?.factory?.waiting ?? 0) + sessions
+    }
+
     /// A factory question by its project and id.
     public func decision(project id: String, _ decision: String) -> (project: Project, decision: FactoryDecision)? {
         guard let p = project(id: id), let d = p.factory?.decision(id: decision) else { return nil }
@@ -352,8 +359,12 @@ public enum NeedsYou: Sendable, Identifiable {
         switch self {
         case .session(_, let s): s.title
         case .decision(_, let d): d.title
-        case .release(_, let ws): "Release " + NeedsYou.list(ws.map(\.id))
+        case .release(_, let ws): NeedsYou.releaseTitle(ws)
         }
+    }
+    /// "Release Sharper hint arrows", or for several "Release 2 finished pieces": what it is, never its W-id.
+    public static func releaseTitle(_ ws: [Workstream]) -> String {
+        ws.count == 1 ? "Release " + (ws[0].title.isEmpty ? ws[0].id : ws[0].title) : "Release \(ws.count) finished pieces"
     }
     /// "W-002", "W-002 and W-003", "W-002, W-003 and W-004"
     public static func list(_ ids: [String]) -> String {

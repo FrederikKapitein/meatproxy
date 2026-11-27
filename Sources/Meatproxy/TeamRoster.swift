@@ -102,7 +102,7 @@ struct TeamRoster: View {
     private func choice(_ project: Project, team: AgentTeam, own: Bool) -> some View {
         let campus = model.projectSettings.defaultTeam
         return LiftedSegments(items: [.init(id: false, title: "Campus default · \(campus.size)"), .init(id: true, title: own ? "Own team · \(team.size)" : "Own team")],
-                              selected: own, padding: EdgeInsets(top: 3, leading: 9, bottom: 3, trailing: 9)) { o in
+                              selected: own) { o in
             model.followCampusTeam(project.root, !o)
         }
         .accessibilityLabel("Which team this floor uses")
@@ -133,7 +133,7 @@ struct TeamRoster: View {
                 if now > 0 {
                     HStack(spacing: 4) {
                         if now > n { PixelIcon("warn", color: .warn, size: 9) }
-                        Text(now > n ? "\(now) working now, \(n) allowed" : "\(now) working now").font(.s11n).foregroundStyle(now > n ? Color.warn : Color.muted)
+                        Text(now > n ? "\(now) working now, \(n) allowed" : "\(now) working now").font(.s12).foregroundStyle(now > n ? Color.warn : Color.muted)
                     }
                     .help(now > n ? "More ran at once than the team allows. Claude Code has no limit per type of its own: the number is an agreement the CEO follows." : "")
                 }
@@ -189,14 +189,14 @@ private struct TeamFilesCard: View {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(alignment: .top, spacing: 8) {
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(f.path).font(.mono11).foregroundStyle(Color.inkText)
-                                    Text(f.why).font(.s11n).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                                    Text(f.path).font(.mono12).foregroundStyle(Color.inkText)
+                                    Text(f.why).font(.s12).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
                                 }
                                 Spacer(minLength: 0)
                                 Button(open == f.path ? "Hide" : "View") { open = open == f.path ? nil : f.path }.buttonStyle(SpelButtonStyle(kind: .ghost, size: .s))
                             }
                             if open == f.path {
-                                ScrollView { Text(f.text).font(.mono11).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                                ScrollView { Text(f.text).font(.mono12).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
                                     .frame(maxHeight: 170).spelWell(pad: 8)
                             }
                         }
@@ -262,7 +262,7 @@ private struct NewProfileForm: View {
                     .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s))
             }
             Text("It becomes .claude/agents/\(name.isEmpty ? "<name>" : name).md on a floor that puts it on its team, shown to you first.")
-                .font(.s11n).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                .font(.s12).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
         }
         .spelCard(selected: true)
     }

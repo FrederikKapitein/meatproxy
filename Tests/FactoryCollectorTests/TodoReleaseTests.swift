@@ -128,7 +128,7 @@ struct TodoReleaseTests {
         ])
         let w = World(now: Date(), buildings: [ProviderBuilding(provider: .claude, projects: [p])])
         #expect(w.needsYou.count == 1)
-        #expect(w.needsYou.first?.title == "Release W-002 and W-003")
+        #expect(w.needsYou.first?.title == "Release 2 finished pieces")
         #expect(w.needsYou.first?.group == .factories)
         #expect(w.needsYou.first?.since != .distantPast, "it says how long it waits, from its log")
     }

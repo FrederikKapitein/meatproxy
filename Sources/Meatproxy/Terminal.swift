@@ -26,9 +26,31 @@ final class TerminalCenter: NSObject, ObservableObject, LocalProcessTerminalView
     var onShown: ((Bool) -> Void)?
     @Published var height: CGFloat = 320
 
+    /// ⌘W with a terminal focused closes its tab, as in every terminal, and not the window (closing the last tab hides
+    /// the drawer); anywhere else ⌘W is the window's.
+    private var keyMonitor: Any?
+    override init() {
+        super.init()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            let cmdW = e.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command && e.charactersIgnoringModifiers == "w"
+            guard cmdW else { return e }
+            let closed = MainActor.assumeIsolated { self?.closeFocusedTab() == true }
+            return closed ? nil : e
+        }
+    }
+    private func closeFocusedTab() -> Bool {
+        guard shown, let id = selected, let t = tabs.first(where: { $0.id == id }),
+              let responder = t.view.window?.firstResponder as? NSView, responder === t.view || responder.isDescendant(of: t.view) else { return false }
+        close(id)
+        if let next = tabs.first(where: { $0.id == selected }) { DispatchQueue.main.async { next.view.window?.makeFirstResponder(next.view) } }
+        return true
+    }
+
     /// Opens a tab with a command and shows the panel. `onClose` runs when you close the tab (hand a factory back).
     func open(_ c: TerminalCommand, icon: String = "terminal", onClose: (() -> Void)? = nil) {
-        let v = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let v = FocusingTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        // the keyboard goes to the new tab once its view is in the window (the drawer may still be arriving)
+        v.focusInWindow = true
         Self.style(v)
         v.processDelegate = self
         tabs.append(Tab(title: c.title, icon: icon, view: v, onClose: onClose))
@@ -36,7 +58,7 @@ final class TerminalCenter: NSObject, ObservableObject, LocalProcessTerminalView
         shown = true
         v.startProcess(executable: c.executable, args: c.args, environment: TerminalCommand.environment(),
                        execName: (c.executable as NSString).lastPathComponent, currentDirectory: c.cwd)
-        DispatchQueue.main.async { v.window?.makeFirstResponder(v) }
+        if let w = v.window { v.focusInWindow = false; w.makeFirstResponder(v) }
     }
 
     func close(_ id: UUID) {
@@ -73,6 +95,18 @@ final class TerminalCenter: NSObject, ObservableObject, LocalProcessTerminalView
     }
     nonisolated func processFailedToStart(source: TerminalView, error: LocalProcessError) {
         Task { @MainActor in if let k = self.index(of: source) { self.tabs[k].exited = .some(-1) } }
+    }
+}
+
+/// A terminal that takes the keyboard when it lands in the window, if asked: a new tab's view is not in the window yet
+/// when the tab opens, so making it first responder then did nothing (UX review 26 Nov).
+final class FocusingTerminalView: LocalProcessTerminalView {
+    var focusInWindow = false
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard focusInWindow, let w = window else { return }
+        focusInWindow = false
+        DispatchQueue.main.async { [weak self] in if let self { w.makeFirstResponder(self) } }
     }
 }
 
@@ -133,11 +167,12 @@ private struct TabChip: View {
     var body: some View {
         let on = tab.id == center.selected
         HStack(spacing: 6) {
-            PixelIcon(tab.exited == nil ? "dot" : "ring", color: tab.exited == nil ? .done : .muted, size: 9)
-            Text(tab.title).font(.system(size: 13, weight: on ? .bold : .semibold)).foregroundStyle(on ? Color.inkText : Color.muted)
+            PixelIcon(tab.exited == nil ? "dot" : "ring", color: tab.exited == nil ? .done : .muted).frame(width: 18, height: 18)
+                .accessibilityElement(children: .ignore).accessibilityLabel(tab.exited == nil ? "Running" : "Ended")
+            Text(tab.title).font(.spel(13, weight: on ? .bold : .semibold)).foregroundStyle(on ? Color.inkText : Color.muted)
                 .lineLimit(1).frame(maxWidth: 240, alignment: .leading)
-            if let code = tab.exited { Text(code.map { "exit \($0)" } ?? "ended").font(.mono11).foregroundStyle(Color.muted) }
-            Button { center.close(tab.id) } label: { PixelIcon("close", color: .muted, size: 9).frame(width: 18, height: 18).contentShape(Rectangle()) }
+            if let code = tab.exited { Text(code.map { "exit \($0)" } ?? "ended").font(.mono12).foregroundStyle(Color.muted) }
+            Button { center.close(tab.id) } label: { PixelIcon("close", color: .muted, size: 9).frame(width: 24, height: 24).contentShape(Rectangle()) }
                 .buttonStyle(.plain).help(tab.exited == nil ? "Close and stop it" : "Close").accessibilityLabel("Close \(tab.title)")
         }
         .padding(.horizontal, 12)

@@ -18,11 +18,14 @@ struct WorldView: NSViewRepresentable {
 }
 
 final class WorldSKView: SKView {
+    /// the one world view (one window): the right-click menu opens over it
+    static weak var current: WorldSKView?
     override var acceptsFirstResponder: Bool { true }
     private var occlusion: NSObjectProtocol?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window != nil { WorldSKView.current = self }
         window?.makeFirstResponder(self)
         if let o = occlusion { NotificationCenter.default.removeObserver(o); occlusion = nil }
         guard let window else { return }

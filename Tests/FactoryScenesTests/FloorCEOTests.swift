@@ -78,7 +78,8 @@ struct FloorCEOTests {
         #expect(mine.state == .waiting)
         let parts = mine.plate.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         #expect(parts.count >= 3 && parts[0] == p.sessions.first { $0.id == ceo }?.persona.name)
-        #expect(parts[1] == "CEO · \(q) questions, 2 to-dos" && parts[2] == "wait")
+        // the release waiting for you counts on the plate too, as everywhere (one count, UX review 26 Nov)
+        #expect(parts[1] == "CEO · \(q) questions, 2 to-dos, 1 release" && parts[2] == "wait")
         // nobody else is plated as the CEO, and nobody else waits on this floor
         for (id, v) in plates where id != ceo {
             #expect(!v.plate.contains("|CEO"), "\(id) is plated as a CEO: \(v.plate)")
@@ -92,6 +93,8 @@ struct FloorCEOTests {
         var p = try #require(world.projects.first { $0.root == Fixture.factoryRoot })
         p.sessions = []
         p.factory?.decisions = []
+        // and no finished work waits for your release
+        p.factory?.workstreams = []
         p = p.withStandingCEO
         let ceo = try #require(p.sessions.first { $0.id.hasPrefix(Project.standingCEOPrefix) })
         #expect(FloorScene.resting(ceo, in: p, now: world.now))

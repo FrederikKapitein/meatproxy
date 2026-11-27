@@ -84,6 +84,9 @@ public struct Factory: Sendable, Hashable {
             return !(latest?.status == .open || latest?.status == .yes)
         }
     }
+    /// How many things wait for you on this factory: every open question and to-do, and its finished work as one
+    /// release. The one count that the Needs you segment, the Overview tab, its card, the CEO's plate and ⌘K all show.
+    public var waiting: Int { openDecisions.count + (readyToRelease.isEmpty ? 0 : 1) }
     /// The workstreams on the floor: dropped ones are gone for good.
     public var activeWorkstreams: [Workstream] { workstreams.filter { $0.phase != .dropped } }
     public var paused: Bool { autonomy?.paused ?? false }
@@ -234,6 +237,24 @@ public struct FactoryDecision: Identifiable, Sendable, Hashable {
     func with(_ change: (inout FactoryDecision) -> Void) -> FactoryDecision { var d = self; change(&d); return d }
     /// A to-do for the Server room's DevOps agent (v6, D86): Meatproxy can send it there.
     public var forDevOps: Bool { forWhom?.lowercased() == "devops" }
+
+    /// The kind in plain words, as the question it asks you: what Needs you, ⌘K and the inspector show. The kind
+    /// itself stays factory language (`ship`, `promote`) and only lives in the files.
+    public var plainKind: String {
+        if isTodo { return forDevOps ? "DevOps to-do" : "to-do" }
+        switch kind.lowercased() {
+        case "ship": return "ship it?"
+        case "promote": return "ask less?"
+        case "fix": return "fix?"
+        case "plan": return "build it?"
+        case "store": return "store release?"
+        case "stop": return "stop?"
+        case "spend": return "spend?"
+        case "access": return "give access?"
+        case "request": return "request"
+        default: return "question"
+        }
+    }
 
     /// The links under Evidence, in order.
     public var links: [FactoryLink] { FactoryText.links(evidence) }

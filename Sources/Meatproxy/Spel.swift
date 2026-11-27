@@ -1,12 +1,13 @@
 import SwiftUI
+import AppKit
 import FactoryCore
 
 // Spel+ (D80): Y · Spel's shapes and type scale on X · Rust's cool neutrals, with X's restraint. One frame with a bevel
 // and a plinth, chunky buttons with an under-edge, folder tabs, one card, pixel-crisp icons. The tokens are the kit's
 // (assets/ux-spelplus/kit/skit.py).
 //
-// Type: 11 · 13 · 15 · 19 · 26 (eyebrow, tag, key, meta · body, tab · card title, button · panel title · inspector,
-// sheet and Settings title). Radii: 10 for panels, cards, buttons and wells; 6 for tags, keys, chips and small
+// Type: 11 · 12 · 13 · 15 · 19 · 26 (eyebrow, tag, key · meta · body, tab · card title, button · panel title, a
+// question · a name: inspector, sheet and Settings title). Radii: 10 for panels, cards, buttons and wells; 6 for tags, keys, chips and small
 // controls. Two text levels. Yellow only for the one primary action of a view and for what waits for you; on is green
 // with its word, a chosen option white, the selection cyan; warn is amber with a triangle, stuck red with a square.
 
@@ -28,14 +29,16 @@ extension Color {
     /// recessed: inputs, meters, sockets
     static let well = Color(hex: 0x0E0E0E)
     /// the 2 pt frame and card edge
-    static let divider = Color(hex: 0x2C2C2C)
+    static let divider = Color.contrast(0x2C2C2C, increased: 0x6E6E6E)
     /// a control's edge
-    static let border = Color(hex: 0x3A3A3A)
+    static let border = Color.contrast(0x3A3A3A, increased: 0x767676)
+    /// the edge of what you type in and of a live ghost button: clear of the dark around it (about 3:1)
+    static let inputEdge = Color.contrast(0x5C5C5C, increased: 0x8A8A8A)
     /// the hard shadow under a frame or a button
     static let plinth = Color(hex: 0x050505)
     // two text levels only (X): main and secondary, both at least 4.5:1 on every surface
     static let inkText = Color(hex: 0xF2F2F2)
-    static let muted = Color(hex: 0xA3A3A3)
+    static let muted = Color.contrast(0xA3A3A3, increased: 0xC8C8C8)
     // yellow: the one primary action and what waits for you; its gradient top, its edge, its ledge, ink on it
     static let signal = Color(hex: 0xFFD83D)
     static let signalTop = Color(hex: 0xFFE268)
@@ -59,6 +62,18 @@ extension Color {
     static let lit = Color(hex: 0xF2F2F2)
     static let lit2 = Color(hex: 0xD6D6D6)
     static let litLedge = Color(hex: 0x6E6E6E)
+    /// A colour that follows the Mac's Increase contrast (its high-contrast appearance): edges and secondary text step
+    /// up there, everything else stays.
+    static func contrast(_ normal: UInt32, increased: UInt32) -> Color {
+        func ns(_ h: UInt32) -> NSColor {
+            NSColor(srgbRed: CGFloat((h >> 16) & 255) / 255, green: CGFloat((h >> 8) & 255) / 255, blue: CGFloat(h & 255) / 255, alpha: 1)
+        }
+        let lo = ns(normal), hi = ns(increased)
+        return Color(nsColor: NSColor(name: nil) { a in
+            let high = a.bestMatch(from: [.accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua, .darkAqua, .aqua])
+            return high == .accessibilityHighContrastDarkAqua || high == .accessibilityHighContrastAqua ? hi : lo
+        })
+    }
     /// a provider's colour lives in the world and its emblem only (E5), never on HUD text
     static func provider(_ p: Provider) -> Color { p == .claude ? Color(hex: 0xE8916B) : Color(hex: 0x6FD3B8) }
     static func state(_ s: SessionState) -> Color {
@@ -70,7 +85,7 @@ extension Color {
         case .ceo: Color(hex: 0xE9E2D0)
         case .lead: Color(hex: 0x8FA9D6)
         case .pm: Color(hex: 0x2FB0A8)
-        case .dev: Color(hex: 0x5B84E8)
+        case .dev: Color(hex: 0x7C8CF0)   // its own tint, away from working blue (Tina)
         case .tester: Color(hex: 0xE86A92)
         case .designer: Color(hex: 0xFF6AD5)
         case .devops: Color(hex: 0x8F74EA)
@@ -82,24 +97,36 @@ extension Color {
 
 // MARK: type
 
+/// Text size (UX review 26 Nov, round 3): Default, or Larger from Settings › General (FactoryCore's TextSize says how
+/// much). Every `Font.sNN` reads it; the HUD is drawn again when it changes (HUDView).
+enum TypeScale {
+    nonisolated(unsafe) static var larger = false
+    static func pt(_ size: CGFloat) -> CGFloat { CGFloat(TextSize.points(Double(size), larger: larger)) }
+}
+
 extension Font {
-    /// 26: the title of an inspector, a sheet or Settings
-    static let s26 = Font.system(size: 26, weight: .heavy)
-    /// 19: a panel or section title
-    static let s19 = Font.system(size: 19, weight: .bold)
+    /// a size on the scale, as Text size wants it
+    static func spel(_ size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+        .system(size: TypeScale.pt(size), weight: weight, design: design)
+    }
+    /// 26: a name: of a person, a project, a building, a sheet or Settings
+    static var s26: Font { spel(26, weight: .heavy) }
+    /// 19: a panel or section title, and a question's or a workstream's title
+    static var s19: Font { spel(19, weight: .bold) }
     /// 15: a card title, a quest, a button
-    static let s15 = Font.system(size: 15, weight: .semibold)
-    static let s15b = Font.system(size: 15, weight: .bold)
+    static var s15: Font { spel(15, weight: .semibold) }
+    static var s15b: Font { spel(15, weight: .bold) }
     /// 13: body text, a tab, a small button
-    static let s13 = Font.system(size: 13)
-    static let s13m = Font.system(size: 13, weight: .semibold)
-    static let s13b = Font.system(size: 13, weight: .bold)
-    /// 11: an eyebrow, a tag or a key (bold caps), or a meta line
-    static let s11 = Font.system(size: 11, weight: .bold)
-    static let s11n = Font.system(size: 11, weight: .medium)
+    static var s13: Font { spel(13) }
+    static var s13m: Font { spel(13, weight: .semibold) }
+    static var s13b: Font { spel(13, weight: .bold) }
+    /// 11: an eyebrow, a tag or a key (bold caps)
+    static var s11: Font { spel(11, weight: .bold) }
+    /// 12: a meta line (where and when, quietly); never under 12 (UX review 26 Nov)
+    static var s12: Font { spel(12, weight: .medium) }
     /// mono only for paths and code
-    static let mono = Font.system(size: 13, design: .monospaced)
-    static let mono11 = Font.system(size: 11, weight: .medium, design: .monospaced)
+    static var mono: Font { spel(13, design: .monospaced) }
+    static var mono12: Font { spel(12, weight: .medium, design: .monospaced) }
 }
 
 /// 11 pt bold caps: what something is, above its name.
@@ -238,18 +265,19 @@ struct SpelFrame: ViewModifier {
     }
 }
 
-/// One card for everything in a panel: a 2 pt edge, radius 10, 12 inside, a 2 pt plinth. A coloured left edge means
-/// something: yellow waits for you, amber needs a look, red is stuck; a cyan rim is the selection.
+/// One card for everything in a panel: a 2 pt edge, radius 10, 12 inside (flagged or not, so rows line up), a 2 pt
+/// plinth. A coloured left edge means something: yellow waits for you, amber needs a look, red is stuck; a cyan rim is
+/// the selection.
 struct SpelCard: ViewModifier {
     var flag: Color? = nil
     var selected = false
     var pad: CGFloat = 12
     var fill: Color = .surface
+    @Environment(\.colorSchemeContrast) private var contrast
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 10)
         content
             .padding(pad)
-            .padding(.leading, flag == nil ? 0 : 4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(shape.fill(fill))
             .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1).padding(.horizontal, 10).padding(.top, 2) }
@@ -261,7 +289,7 @@ struct SpelCard: ViewModifier {
             }
             .background(shape.fill(Color.plinth).offset(y: 2))
             // the selection's halo: a faint ring just outside the edge (a shadow would blur everything inside)
-            .overlay { if selected { RoundedRectangle(cornerRadius: 12).strokeBorder(Color.selection.opacity(0.3), lineWidth: 2).padding(-3).allowsHitTesting(false) } }
+            .overlay { if selected { RoundedRectangle(cornerRadius: 12).strokeBorder(Color.selection.opacity(contrast == .increased ? 0.7 : 0.3), lineWidth: 2).padding(-3).allowsHitTesting(false) } }
     }
 }
 
@@ -307,7 +335,8 @@ struct Socket<Inner: View>: View {
 
 /// The chunky button (Y's shape, X's neutrals): a 2 pt edge and a hard ledge below; pressed, it lands on the ledge.
 /// Primary is the one yellow action of a view; secondary everything else; ghost a quiet link-like control; danger a
-/// confirmed removal. Disabled is flat with a dashed edge and keeps a readable label (E9). m is 34 high, s 28, l 40.
+/// confirmed removal. Disabled is flat and grey on a solid edge, with no ledge, so it never looks pressable (a dashed edge
+/// means "not yet" or an empty slot, nothing else); its label stays readable (E9). m is 34 high, s 28, l 40.
 struct SpelButtonStyle: ButtonStyle {
     enum Kind { case primary, secondary, ghost, danger }
     enum Size { case s, m, l }
@@ -373,7 +402,7 @@ private struct SpelButtonBody: View {
     }
     @ViewBuilder private func face(_ r: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: r)
-        if !enabled { shape.fill(Color.clear) }
+        if !enabled { shape.fill(Color.surface) }
         else {
             switch kind {
             case .primary: shape.fill(LinearGradient(colors: [hover ? Color(hex: 0xFFE987) : .signalTop, .signal], startPoint: .top, endPoint: .bottom))
@@ -386,12 +415,12 @@ private struct SpelButtonBody: View {
     }
     @ViewBuilder private func edge(_ r: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: r)
-        if !enabled { shape.strokeBorder(Color.border, style: StrokeStyle(lineWidth: 2, dash: [4, 3])) }
+        if !enabled { shape.strokeBorder(Color.divider, lineWidth: 2) }
         else {
             switch kind {
             case .primary: shape.strokeBorder(Color.signalEdge, lineWidth: 2)
             case .danger: shape.strokeBorder(Color(hex: 0xB23A3A), lineWidth: 2)
-            case .ghost: shape.strokeBorder(Color.divider, lineWidth: 2)
+            case .ghost: shape.strokeBorder(Color.inputEdge, lineWidth: 2)
             case .secondary: shape.strokeBorder(Color.border, lineWidth: 2)
             }
         }
@@ -414,6 +443,7 @@ struct SpelLabel: View {
             if let title { Text(title) }
             if let key { KeyCap(key, onYellow: onYellow) }
         }
+        .accessibilityHint(key.map(KeyCap.spoken) ?? "")
     }
 }
 
@@ -466,7 +496,7 @@ struct QuestBadge: View {
     var small = false
     var body: some View {
         let h: CGFloat = small ? 18 : 20
-        Text("\(count)").font(.system(size: 11, weight: .heavy).monospacedDigit())
+        Text("\(count)").font(.spel(11, weight: .heavy).monospacedDigit())
             .foregroundStyle(Color.onSignal)
             .padding(.horizontal, small ? 5 : 6).frame(minWidth: h, minHeight: h, maxHeight: h)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.signal))
@@ -559,7 +589,7 @@ struct PhaseTrack: View {
             ForEach(Array(phases.enumerated()), id: \.offset) { k, p in
                 VStack(spacing: 4) {
                     node(k)
-                    Text(p.uppercased()).font(.system(size: 11, weight: k == current ? .heavy : .semibold)).tracking(0.6)
+                    Text(p.uppercased()).font(.spel(11, weight: k == current ? .heavy : .semibold)).tracking(0.6)
                         .foregroundStyle(k == current ? Color.inkText : Color.muted).lineLimit(1).fixedSize()
                 }
                 .frame(width: 44)
@@ -622,7 +652,7 @@ private struct FolderTab<ID: Hashable>: View {
     var body: some View {
         Button(action: pick) {
             HStack(spacing: 5) {
-                Text(item.title).font(.system(size: 13, weight: on ? .bold : .semibold)).lineLimit(1).fixedSize()
+                Text(item.title).font(.spel(13, weight: on ? .bold : .semibold)).lineLimit(1).fixedSize()
                 if item.badge > 0 { QuestBadge(count: item.badge, small: true) }
             }
             .foregroundStyle(on || hover ? Color.inkText : Color.muted)
@@ -691,12 +721,14 @@ struct TabbedBox<ID: Hashable, Content: View>: View {
 
 // MARK: the inspector's head
 
-/// An inspector's head: a crest in a socket, the eyebrow, the name at 26, and the close button.
+/// An inspector's head: a crest in a socket, the eyebrow, the name at 26, and the close button. A question or a
+/// workstream is a sentence, not a name: 19, up to four lines, never shrunk (UX review 26 Nov, Henk).
 struct InspectorHead<Crest: View>: View {
     let eyebrow: String
     let title: String
     var marker = false
-    var titleLines = 2
+    /// a sentence (a question, a workstream) at 19 rather than a name at 26
+    var sentence = false
     let close: () -> Void
     var closeHelp = "Close (Esc)"
     @ViewBuilder var crest: () -> Crest
@@ -708,8 +740,9 @@ struct InspectorHead<Crest: View>: View {
                     if marker { QuestMarker(size: 18) }
                     Eyebrow(eyebrow)
                 }
-                Text(title).font(.s26).foregroundStyle(Color.inkText).lineLimit(titleLines).minimumScaleFactor(0.8)
+                Text(title).font(sentence ? .s19 : .s26).foregroundStyle(Color.inkText).lineLimit(sentence ? 4 : 2)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
             }
             Spacer(minLength: 0)
             CloseButton(action: close, help: closeHelp)
@@ -755,11 +788,14 @@ struct FieldRow<Control: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.s15).foregroundStyle(Color.inkText)
-                if let text, !text.isEmpty { Text(text).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true) }
+                // a row that cannot be used yet is dimmed, its line saying why
+                Text(title).font(.s15).foregroundStyle(disabled ? Color.muted : Color.inkText)
+                if let text, !text.isEmpty {
+                    Text(text).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true).frame(maxWidth: 560, alignment: .leading)
+                }
             }
             Spacer(minLength: 8)
-            control()
+            control().opacity(disabled ? 0.45 : 1)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
     }

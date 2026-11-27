@@ -36,7 +36,11 @@ step is one of:
 - **Mouse and keys:** `hover:x,y`, `click:x,y` and `uiclick:x,y` (the last through the window, so HUD buttons get it).
 - **The campus:** `hour:<h>`, `apart:<tower>`, `mark:<k>`, `life:demo`, `leave:<project id>` (a floor leaves its
   tower), `devops:<server>` (the DevOps agent at work at that server's rack; `devops:off` ends it).
+- **Settings that change every screen:** `text:larger` (Text size Larger), `keys:off` (single-key shortcuts off).
 - **Waiting:** `wait:<seconds>`.
+
+The right-click menu is the Mac's own menu, in a window of its own: `context:x,y` opens it, but a window shot does not
+capture it.
 
 Two variables change what a shot captures:
 

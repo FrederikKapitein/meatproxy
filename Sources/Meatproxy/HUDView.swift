@@ -16,51 +16,58 @@ struct HUDView: View {
     @State private var hudShown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// a sheet is open (Settings, ⌘K, Help, the factory picker): what is behind it is asleep, also for VoiceOver and Tab
+    private var sheetOpen: Bool { model.settingsOpen || model.overlayOpen }
+
     var body: some View {
         ZStack {
             WorldView(controller: model.controller).ignoresSafeArea().allowsHitTesting(!model.settingsOpen)
+                // the world says where you are and how to get on (UX review 26 Nov, point 10); its people and floors are
+                // reached by ⌘K and Needs you
+                .accessibilityElement().accessibilityLabel(model.worldLabel).accessibilityAddTraits(.isImage)
+                .accessibilityHidden(sheetOpen)
             RadialGradient(colors: [.clear, Color.ink.opacity(0.55)], center: .center, startRadius: 380, endRadius: 980)
-                .ignoresSafeArea().allowsHitTesting(false)
+                .ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
             // while the campus is first built, the window is the loading screen alone: no HUD over it
-            if !loading { hud.allowsHitTesting(!model.settingsOpen) }   // under Settings it stays, dimmed and asleep, as under every sheet
-            // D72: a right-click menu at the pointer, ⌘K search, Help and the factory picker; a click outside closes them
+            // under Settings it stays, dimmed and asleep, as under every sheet: faint, so its cards never look clickable.
+            // Text size Larger draws it again (.id), so every text takes the new size
+            if !loading {
+                hud.allowsHitTesting(!model.settingsOpen).opacity(model.settingsOpen ? 0.35 : 1)
+                    .disabled(sheetOpen).accessibilityHidden(sheetOpen)
+                    .id(model.textLarger)
+            }
+            // D72: ⌘K search, Help and the factory picker; a click outside closes them (the right-click menu is the
+            // Mac's own, AppModel.popUp)
             if !model.settingsOpen && !loading {
-                if let m = model.contextMenuState {
-                    Color.black.opacity(0.001).ignoresSafeArea().onTapGesture { model.contextMenuState = nil }
-                    // its top left corner at the pointer, kept inside the window (an estimate of its height: rows of 30 pt)
-                    GeometryReader { geo in
-                        let h = CGFloat(m.items.count) * 30 + 44
-                        ContextMenuView(menu: m)
-                            .offset(x: min(m.at.x + 4, geo.size.width - 296), y: min(m.at.y + 4, geo.size.height - h - 8))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    }
-                    .ignoresSafeArea()
-                    .onExitCommand { model.contextMenuState = nil }
-                }
                 if model.paletteOpen || model.commandsOpen || model.factoryPickerOpen {
-                    Color.ink.opacity(0.5).ignoresSafeArea().contentShape(Rectangle())
+                    Color.ink.opacity(0.62).ignoresSafeArea().contentShape(Rectangle())
                         .onTapGesture { model.paletteOpen = false; model.commandsOpen = false; model.factoryPickerOpen = false }.transition(.opacity)
                     // each its own view with a steady identity, so what you typed survives the world's refreshes
                     VStack {
-                        if model.paletteOpen { CommandPalette(seed: model.paletteSeed).id("palette") }
-                        else if model.factoryPickerOpen { FactoryPicker().id("picker") }
-                        else { CommandSheet().id("commands") }
+                        Group {
+                            if model.paletteOpen { CommandPalette(seed: model.paletteSeed).id("palette\(model.textLarger)") }
+                            else if model.factoryPickerOpen { FactoryPicker().id("picker\(model.textLarger)") }
+                            else { CommandSheet().id("commands\(model.textLarger)") }
+                        }
+                        .accessibilityAddTraits(.isModal)
                         Spacer(minLength: 0)
                     }
                     .padding(.top, Shell.top).padding(.horizontal, Shell.gutter).ignoresSafeArea()   // on the same top line as Settings
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.slide(from: .top, reduce: reduceMotion))
                 }
             }
             // what the pointer is on in the world, beside the pointer (one tooltip style for everything, D54)
-            if !model.settingsOpen && !loading && model.contextMenuState == nil, let t = model.hoverTitle {
+            if !model.settingsOpen && !loading, let t = model.hoverTitle {
                 GeometryReader { geo in HoverTip(title: t, bounds: geo.size) }.ignoresSafeArea().allowsHitTesting(false)
             }
             // Settings (E8): the same floating frame as every sheet, over the dimmed world; a click beside it closes it
             if model.settingsOpen {
-                Color.ink.opacity(0.55).ignoresSafeArea().contentShape(Rectangle())
+                Color.ink.opacity(0.72).ignoresSafeArea().contentShape(Rectangle())
                     .onTapGesture { model.settingsOpen = false }.transition(.opacity)
                 GeometryReader { geo in
                     SettingsView(page: model.settingsPage, atProjects: model.settingsAtProjects, atForm: model.settingsAtForm)
+                        .id(model.textLarger)
+                        .accessibilityAddTraits(.isModal)
                         .frame(width: min(Shell.wideSheet, geo.size.width - 2 * Shell.gutter))
                         .frame(maxHeight: geo.size.height - Shell.top - Shell.gutter, alignment: .top)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -121,13 +128,12 @@ struct HUDView: View {
             .frame(height: Shell.bar)
             .padding(.horizontal, Shell.gutter).padding(.top, Shell.gutter)
             .zIndex(2)
-            .overlay(alignment: .bottom) { FieldNoteBanner().offset(y: Shell.gutter + 64).zIndex(3) }
             HStack(alignment: .top, spacing: 0) {
                 QuestLog().frame(width: Shell.side).arrive(hudShown, from: .leading, order: 1)
                 Spacer(minLength: Shell.gutter)
                 if model.selection.level != .all {
                     InspectorPanel().frame(width: Shell.side)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .transition(.slide(from: .trailing, reduce: reduceMotion))
                         .arrive(hudShown, from: .trailing, order: 2)
                 }
             }
@@ -137,12 +143,21 @@ struct HUDView: View {
                 // the drawer is a panel like the others, on the shell's gutters; the side panels end 16 above it
                 TerminalPanel(center: model.terminals)
                     .padding(.horizontal, Shell.gutter).padding(.bottom, Shell.gutter)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(.slide(from: .bottom, reduce: reduceMotion))
             } else {
                 if model.walkStep != nil {
-                    WalkCard().padding(.bottom, Shell.gap).transition(.move(edge: .bottom).combined(with: .opacity))
+                    // 12 clear between its plinth (4 under its frame) and Up and zoom
+                    WalkCard().padding(.bottom, Shell.gap + 4).transition(.slide(from: .bottom, reduce: reduceMotion))
                 }
                 BottomBar().padding(.bottom, Shell.gutter).arrive(hudShown, from: .bottom, order: 3)
+                    // a field note docks where the walk's offer sits, 12 over Up and zoom: never on a tower's roof, and
+                    // the walk's card always goes first. It floats, so the side panels keep their height.
+                    .overlay(alignment: .bottom) {
+                        if model.walkStep == nil && model.fieldNote != nil {
+                            FieldNoteBanner().fixedSize().padding(.bottom, Shell.gutter + Shell.bar + Shell.gap + 4)
+                                .transition(.slide(from: .bottom, reduce: reduceMotion))
+                        }
+                    }
             }
         }
         .ignoresSafeArea(edges: .top)
@@ -182,6 +197,9 @@ struct HUDView: View {
             else if step == "life:demo" { model.controller.campus.demoLife() }
             else if step.hasPrefix("hour:"), let h = Double(step.dropFirst(5)) { model.controller.campus.setHour(h) }
             else if step == "layer:status" { model.setStatusLayer(true) }
+            // "text:larger": Settings › General's Text size on Larger; "keys:off": single-key shortcuts off
+            else if step == "text:larger" { model.textLarger = true }
+            else if step == "keys:off" { model.singleKeys = false }
             else if step == "commands" { model.commandsOpen = true }
             // "help:guide": Help on its Field guide tab
             else if step == "help:guide" { model.helpTab = .guide; model.commandsOpen = true }
@@ -233,7 +251,7 @@ struct HUDView: View {
             // "terminal:demo": a tab with made-up output (screenshots), nothing real runs in it
             else if step == "terminal:demo" {
                 let text = "\\033[1;32m✓\\033[0m Pebble Puzzles · CEO run (taken over)\\n\\033[2m> Resuming the conversation where the CEO left it…\\033[0m\\n\\nW-003 timer keeps time after resume: the tester reports the timer resets on resume.\\nNext step: delegate the fix to the developer, then ask the tester again.\\n\\n\\033[1m>\\033[0m "
-                model.terminals.open(TerminalCommand(title: "Pebble factory: CEO run", executable: "/bin/sh", args: ["-c", "printf '\(text)'; sleep 60"], cwd: nil),
+                model.terminals.open(TerminalCommand(title: "Pebble Puzzles · CEO run", executable: "/bin/sh", args: ["-c", "printf '\(text)'; sleep 60"], cwd: nil),
                                      icon: "person.fill.checkmark")
             }
             else if step.hasPrefix("runnow:") { model.runNow(root: String(step.dropFirst(7))) }
@@ -284,28 +302,23 @@ enum Shell {
 
 // MARK: keys
 
-/// The HUD's plain keys in one place, so they work whatever panel is open: N (next that waits), Esc (up), ⌘K (search),
-/// ? (Help), ⌘1 (Campus), ⌘2 (Server room), 1 and 2 (answer the open question). A text field, the terminal or an open
-/// sheet keeps them.
+/// The HUD's own keys: the ones a menu cannot hold. Esc (up), and 1 and 2 (answer the open question); a text field, the
+/// terminal or an open sheet keeps them, and 1 and 2 only while single-key shortcuts are on. ? is read by what it types,
+/// on any keyboard layout (AppModel.watchQuestionMark). ⌘K, ⌘L, ⌘J, ⌘1, ⌘2, zoom and N are in the menu bar (App.swift).
 private struct KeyCatcher: View {
     @EnvironmentObject private var model: AppModel
     var body: some View {
-        let free = !(model.typing || model.terminalShown || model.overlayOpen)
+        let free = model.plainKeysFree, single = free && model.singleKeys
         ZStack {
-            Button("") { model.nextPulse += 1; model.nextPressed += 1; model.controller.nextWaiting() }
-                .keyboardShortcut(free && !model.world.needsYou.isEmpty ? KeyboardShortcut("n", modifiers: []) : nil)
             Button("") { model.upPulse += 1; model.controller.up() }
                 .keyboardShortcut(free ? KeyboardShortcut(.escape, modifiers: []) : nil)
-            Button("") { model.commandsOpen = false; model.factoryPickerOpen = false; model.paletteOpen.toggle() }.keyboardShortcut("k", modifiers: .command)
-            Button("") { model.paletteOpen = false; model.commandsOpen.toggle() }
-                .keyboardShortcut(model.typing || model.terminalShown || model.paletteOpen ? nil : KeyboardShortcut("/", modifiers: .shift))
-            Button("") { model.controller.showOrbit(false); model.controller.focusBuilding(nil) }.keyboardShortcut("1", modifiers: .command)
-            Button("") { model.controller.showOrbit(false); model.controller.focusBuilding("engine") }.keyboardShortcut("2", modifiers: .command)
+            // ⌘= zooms in too: on most keyboards + is shift-=, and the menu's ⌘+ wants the shift
+            Button("") { model.controller.zoom(0.8) }.keyboardShortcut("=", modifiers: .command)
             // the open question's answers (C4): 1 is yes, 2 is no; both still ask once more before anything is written
             Button("") { guard model.answerable else { return }; model.answerKey = AppModel.AnswerKey(count: model.answerKey.count + 1, yes: true) }
-                .keyboardShortcut(free ? KeyboardShortcut("1", modifiers: []) : nil)
+                .keyboardShortcut(single ? KeyboardShortcut("1", modifiers: []) : nil)
             Button("") { guard model.answerable else { return }; model.answerKey = AppModel.AnswerKey(count: model.answerKey.count + 1, yes: false) }
-                .keyboardShortcut(free ? KeyboardShortcut("2", modifiers: []) : nil)
+                .keyboardShortcut(single ? KeyboardShortcut("2", modifiers: []) : nil)
         }
         .opacity(0).accessibilityHidden(true)
     }
@@ -351,7 +364,7 @@ private struct LocationPlate: View {
         if s.engineRoom {
             c.append(Crumb(icon: "server", name: "Server room"))
             if let id = s.serverID, let sv = world.servers.first(where: { $0.id == id }) { c.append(Crumb(icon: "server", name: sv.name)) }
-            if let d = s.decisionID { c.append(Crumb(icon: "bang", name: d)) }
+            if let d = s.decisionID { c.append(Crumb(icon: "bang", name: decisionCrumb(world.decision(project: World.opsID, d)?.decision))) }
             return c
         }
         if let p = s.provider { c.append(Crumb(icon: "tower", name: p.displayName)) }
@@ -359,9 +372,11 @@ private struct LocationPlate: View {
         if let (_, session) = model.session(s.sessionID) { c.append(Crumb(icon: "person", name: session.persona.name)) }
         if let a = s.subAgentID, let sub = world.projects.flatMap(\.sessions).flatMap(\.subAgents).first(where: { $0.id == a }) { c.append(Crumb(icon: "person", name: sub.type)) }
         if let w = s.workstreamID { c.append(Crumb(icon: "branch", name: w)) }
-        if let d = s.decisionID { c.append(Crumb(icon: "bang", name: d)) }
+        if let d = s.decisionID { c.append(Crumb(icon: "bang", name: decisionCrumb(s.projectID.flatMap { world.decision(project: $0, d)?.decision }))) }
         return c
     }
+    /// a question in the crumbs by what it is, not its id: "Question", "To-do"
+    static func decisionCrumb(_ d: FactoryDecision?) -> String { d?.isTodo == true ? "To-do" : "Question" }
 }
 
 private struct CrumbButton: View {
@@ -381,22 +396,19 @@ private struct CrumbButton: View {
 
 // MARK: the toolbar
 
-/// Top right (C8): one toolbar, five buttons of one shape: icon, label and key. Open terminal tabs are a badge on the
-/// terminal's button; the Status layer, when on, is lit white.
+/// Top right (C8): one toolbar, five buttons of one shape: icon, label and key, 34 high on the button scale, 8 apart.
+/// Open terminal tabs are a quiet count inside the terminal's button; the Status layer, when on, is lit white.
 private struct Toolbar: View {
     @EnvironmentObject private var model: AppModel
     var body: some View {
-        HStack(spacing: 6) {
-            ToolButton(icon: "search", title: "Search", key: "⌘K", help: "Search projects, people, questions and servers (⌘K)") {
-                model.commandsOpen = false; model.paletteOpen.toggle()
-            }
+        HStack(spacing: 8) {
+            ToolButton(icon: "search", title: "Search", key: "⌘K", help: "Search projects, people, questions and servers (⌘K)") { model.toggleSearch() }
             ToolButton(icon: "layers", title: "Status", key: "⌘L", on: model.statusLayer,
                        help: model.statusLayer ? "Hide the Status layer (⌘L)" : "Show the Status layer: status pages and CI on the campus (⌘L)") {
                 model.setStatusLayer(!model.statusLayer)
             }
-            .keyboardShortcut("l", modifiers: .command)
             TerminalButton(center: model.terminals)
-            ToolButton(icon: "help", title: "Help", key: "?", help: "Every key, and the field guide (?)") {
+            ToolButton(icon: "help", title: "Help", key: model.singleKeys ? "?" : nil, help: model.singleKeys ? "Every key, and the field guide (?)" : "Every key, and the field guide") {
                 model.paletteOpen = false; model.commandsOpen.toggle()
             }
             ToolButton(icon: "gear", title: "Settings", key: "⌘,", help: "Settings (⌘,)") { model.settingsOpen = true }
@@ -407,7 +419,7 @@ private struct Toolbar: View {
                 }
             }
         }
-        .padding(.horizontal, 7)
+        .padding(.horizontal, 8)
         .frame(height: Shell.bar)
         .spelFrame()
         .accessibilityElement(children: .contain).accessibilityLabel("Tools")
@@ -415,7 +427,7 @@ private struct Toolbar: View {
 }
 
 private struct ToolButton: View {
-    let icon: String, title: String, key: String
+    let icon: String, title: String, key: String?
     var on = false
     var badge: Int = 0
     let help: String
@@ -425,27 +437,27 @@ private struct ToolButton: View {
             HStack(spacing: 7) {
                 PixelIcon(icon, color: on ? .onSignal : .muted)
                 Text(title).font(.s13b)
-                KeyCap(key)
+                // a count of what is open there: neutral, inside the button (Tina: blue means working, nothing else)
+                if badge > 0 {
+                    Text("\(badge)").font(.spel(11, weight: .heavy).monospacedDigit())
+                        .foregroundStyle(on ? Color.onSignal : Color.inkText)
+                        .padding(.horizontal, 4).frame(minWidth: 18, minHeight: 18)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? Color.onSignal.opacity(0.12) : Color.well))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(on ? Color.onSignal.opacity(0.45) : Color.inputEdge, lineWidth: 1.5))
+                }
+                if let key { KeyCap(key, onYellow: on) }
             }
-            .padding(.leading, 9).padding(.trailing, 8).frame(height: 32)
+            .padding(.leading, 9).padding(.trailing, 8).frame(height: 34)
         }
         .buttonStyle(ToolButtonStyle(on: on))
-        .overlay(alignment: .topTrailing) {
-            if badge > 0 {
-                Text("\(badge)").font(.system(size: 11, weight: .heavy).monospacedDigit()).foregroundStyle(Color(hex: 0x0E1830))
-                    .padding(.horizontal, 4).frame(minWidth: 18, minHeight: 18)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.working))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.panel, lineWidth: 2))
-                    .offset(x: 7, y: -7).allowsHitTesting(false)
-            }
-        }
         .help(help)
         .accessibilityLabel(badge > 0 ? "\(title), \(badge) open" : title)
         .accessibilityValue(on ? "On" : "")
+        .accessibilityHint(key.map(KeyCap.spoken) ?? "")
     }
 }
 
-/// A toolbar button: 32 high, radius 10; lit white when its thing is on.
+/// A toolbar button: 34 high, radius 10; lit white when its thing is on.
 private struct ToolButtonStyle: ButtonStyle {
     var on = false
     func makeBody(configuration: Configuration) -> some View { ToolButtonBody(configuration: configuration, on: on) }
@@ -480,7 +492,6 @@ private struct TerminalButton: View {
                    help: center.shown ? "Hide the terminal (⌘J)" : "Terminal (⌘J)") {
             withAnimation(.easeOut(duration: 0.2)) { center.toggle() }
         }
-        .keyboardShortcut("j", modifiers: .command)
     }
 }
 
@@ -494,10 +505,10 @@ private struct QuestLog: View {
     @State private var all = false
 
     /// the place the log can narrow to: this floor, or the Server room
-    private var here: (label: String, match: (NeedsYou) -> Bool)? {
+    private var here: (label: String, inWords: String, match: (NeedsYou) -> Bool)? {
         let s = model.selection
-        if s.engineRoom { return ("Server room", { $0.group == .serverRoom }) }
-        if let id = s.projectID, id != World.opsID { return ("This floor", { $0.project.id == id }) }
+        if s.engineRoom { return ("Server room", "In the Server room", { $0.group == .serverRoom }) }
+        if let id = s.projectID, id != World.opsID { return ("This floor", "On this floor", { $0.project.id == id }) }
         return nil
     }
 
@@ -514,16 +525,20 @@ private struct QuestLog: View {
                 Socket(size: 36) { PixelIcon("scroll", color: items.isEmpty ? .muted : .signal) }
                 Text("Needs you").font(.s19).foregroundStyle(Color.inkText)
                 Spacer(minLength: 0)
-                Button { model.nextPressed += 1; model.controller.nextWaiting() } label: { SpelLabel("Next", key: "N") }
+                Button { model.nextPressed += 1; model.controller.nextWaiting() } label: { SpelLabel("Next", key: model.singleKeys ? "N" : nil) }
                     .buttonStyle(SpelButtonStyle(kind: .secondary, size: .s, pulse: model.nextPulse))
                     .disabled(items.isEmpty)
-                    .help("Go to the next one that waits for you (N)")
+                    .help(model.singleKeys ? "Go to the next one that waits for you (N)" : "Go to the next one that waits for you")
             }
+            // D25's middle way (UX review 26 Nov): what is broken is no question for you, so it is one quiet line here,
+            // outside every count and out of N's way; it shows where on the Status layer
+            let broken = model.world.broken
+            if !broken.isEmpty { brokenLine(broken).padding(.top, 12) }
             // while the walk runs, the log says so in a line of its own, never over a card
             if walking { Tag("Waits until the walk is done", icon: "pause").padding(.top, 12).zIndex(1) }
             if let here, !items.isEmpty {
                 LiftedSegments(items: [.init(id: false, title: "\(here.label) · \(mine.count)"), .init(id: true, title: "All · \(items.count)")],
-                               selected: all, fontSize: 13, padding: EdgeInsets(top: 3, leading: 9, bottom: 3, trailing: 9)) { all = $0 }
+                               selected: all) { all = $0 }
                     .padding(.top, 12)
             }
             if items.isEmpty {
@@ -531,19 +546,20 @@ private struct QuestLog: View {
             } else {
                 ScrollFit {
                     VStack(alignment: .leading, spacing: 8) {
-                        if narrowed, let here { Eyebrow("On \(here.label.lowercased())") }
+                        if narrowed, let here { Eyebrow(here.inWords) }
                         ForEach(Array(shown.prefix(16).enumerated()), id: \.element.id) { k, item in
                             if !narrowed && (k == 0 || shown[k - 1].group != item.group) {
                                 Eyebrow(item.group.label).padding(.top, k == 0 ? 0 : 6)
                             }
                             Button { model.controller.open(item) } label: { QuestItem(item: item, selected: isOpen(item)) }
                                 .buttonStyle(CardPressStyle())
+                                .contextMenu { QuestMenu(item: item) }
                                 // a new one slides in from the edge; an answered one folds away
                                 .transition(reduceMotion ? .identity : .asymmetric(insertion: .move(edge: .leading).combined(with: .opacity),
                                                                                   removal: .scale(scale: 0.94, anchor: .top).combined(with: .opacity)))
                         }
                         if narrowed, let here {
-                            if mine.isEmpty { Text("Nothing waits on \(here.label.lowercased()).").font(.s13).foregroundStyle(Color.muted) }
+                            if mine.isEmpty { Text("Nothing waits \(here.inWords.prefix(1).lowercased() + here.inWords.dropFirst()).").font(.s13).foregroundStyle(Color.muted) }
                             if items.count > mine.count { moreRow(items.count - mine.count) }
                         }
                     }
@@ -559,7 +575,7 @@ private struct QuestLog: View {
             if walking {
                 UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 10, bottomTrailingRadius: 10, topTrailingRadius: 0)
                     .fill(Color.ink.opacity(0.62))
-                    .padding(.top, 96)
+                    .padding(.top, model.world.broken.isEmpty ? 96 : 132)   // under the broken line too
                     .allowsHitTesting(false)
             }
         }
@@ -569,15 +585,35 @@ private struct QuestLog: View {
         .accessibilityElement(children: .contain).accessibilityLabel("Needs you")
     }
 
+    /// "2 things are broken · Status ⌘L": a red square and its words; a click shows the Status layer
+    private func brokenLine(_ broken: [String]) -> some View {
+        Button { model.setStatusLayer(true) } label: {
+            HStack(spacing: 6) {
+                PixelIcon("sq", color: .stuck, size: 9)
+                Text("\(broken.count) thing\(broken.count == 1 ? " is" : "s are") broken").foregroundStyle(Color.inkText)
+                Text("· Status").foregroundStyle(Color.muted)
+                KeyCap("⌘L")
+                Spacer(minLength: 0)
+            }
+            .font(.s13m).frame(height: 24).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(broken.joined(separator: "\n") + "\nShows them on the Status layer (⌘L)")
+        .accessibilityLabel("\(broken.count) broken: " + broken.joined(separator: ", "))
+        .accessibilityHint("Shows the Status layer. Shortcut: Command L")
+    }
+
+    /// a quiet row on a solid edge with a chevron: it opens All (a dashed edge means "not yet", never "more")
     private func moreRow(_ n: Int) -> some View {
         Button { all = true } label: {
             HStack(spacing: 6) {
-                PixelIcon("chevd", color: .muted, size: 9)
-                Text("\(n) more \(model.selection.engineRoom ? "elsewhere" : "on other floors")").font(.s13m)
+                Text("\(n) more elsewhere").font(.s13m)
+                Spacer(minLength: 0)
+                PixelIcon("chev", color: .muted, size: 9)
             }
             .foregroundStyle(Color.muted).frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10).frame(height: 30)
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.border, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])))
+            .padding(.horizontal, 10).frame(height: 28)
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.divider, lineWidth: 2))
             .contentShape(Rectangle())
         }.buttonStyle(.plain)
     }
@@ -592,13 +628,26 @@ private struct QuestLog: View {
     }
 }
 
+/// A quest's right-click (and ⌃-click) menu: the Mac's own.
+private struct QuestMenu: View {
+    @EnvironmentObject private var model: AppModel
+    let item: NeedsYou
+    var body: some View {
+        Button("Open") { model.controller.open(item) }
+        if item.project.id != World.opsID { Button("Open Its Floor") { model.controller.enterFloor(item.project.id) } }
+        else { Button("Open the Server Room") { model.goServerRoom() } }
+        Divider()
+        Button(item.copyTitle) { AppModel.copy(item.copyText) }
+    }
+}
+
 /// One quest: the marker, what it asks, and where and when, quietly.
 private struct QuestItem: View {
     let item: NeedsYou
     let selected: Bool
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            QuestMarker(glyph: glyph)
+            QuestMarker(glyph: item.glyph)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title).font(.s15).foregroundStyle(Color.inkText).lineLimit(2).multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -606,12 +655,14 @@ private struct QuestItem: View {
                     Text(gist).font(.s13).foregroundStyle(Color.muted).lineLimit(2).multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                HStack(spacing: 5) {
-                    PixelIcon(metaIcon, color: .muted, size: 9)
-                    Text(item.project.name).lineLimit(1).truncationMode(.tail)
-                    Text("· \(detail) · \(item.since.ago)").lineLimit(1).fixedSize().layoutPriority(1)
+                // the project's name first: the detail gives way before it does, the time never
+                HStack(spacing: 3) {
+                    PixelIcon(metaIcon, color: .muted, size: 9).padding(.trailing, 2)
+                    Text(item.project.name).lineLimit(1).truncationMode(.tail).layoutPriority(1)
+                    Text("· " + item.detail).lineLimit(1).truncationMode(.tail)
+                    Text("· " + item.since.ago).lineLimit(1).fixedSize()
                 }
-                .font(.s11n).foregroundStyle(Color.muted).padding(.top, 2)
+                .font(.s12).foregroundStyle(Color.muted).padding(.top, 2)
             }
             Spacer(minLength: 0)
         }
@@ -624,21 +675,39 @@ private struct QuestItem: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
     }
-    private var glyph: String {
-        switch item {
+    private var metaIcon: String {
+        switch item { case .session: "chat"; case .decision(let p, _): p.id == World.opsID ? "server" : "floor"; case .release: "floor" }
+    }
+}
+
+/// One glyph and one word per thing that waits, shared by Needs you and ⌘K so they never tell it two ways.
+extension NeedsYou {
+    var glyph: String {
+        switch self {
         case .session: "help"
         case .decision(let p, let d): p.id == World.opsID ? "server" : d.isTodo ? "check" : "bang"
         case .release: "ship"
         }
     }
-    private var metaIcon: String {
-        switch item { case .session: "chat"; case .decision(let p, _): p.id == World.opsID ? "server" : "floor"; case .release: "floor" }
+    /// what Copy says it copies
+    var copyTitle: String {
+        switch self {
+        case .session: "Copy Question"
+        case .decision(_, let d): d.isTodo ? "Copy To-do" : "Copy Question"
+        case .release: "Copy Title"
+        }
     }
-    private var detail: String {
-        switch item {
+    /// what Copy puts on the pasteboard: what it asks (a chat: its last words), or the title
+    var copyText: String {
+        if case .session(_, let s) = self, let said = s.lastSaid?.trimmingCharacters(in: .whitespacesAndNewlines), !said.isEmpty { return said }
+        return title
+    }
+    /// who asks, or what kind of question in plain words ("ship it?", "DevOps to-do"), or "done and tested"
+    var detail: String {
+        switch self {
         case .session(_, let s): s.persona.name
-        case .decision(_, let d): d.isTodo ? (d.forDevOps ? "to-do for DevOps" : "to-do") : d.kind
-        case .release(_, let ws): ws.count == 1 ? "ready to release" : "\(ws.count) ready to release"
+        case .decision(_, let d): d.plainKind
+        case .release: "done and tested"
         }
     }
 }
@@ -652,8 +721,8 @@ struct ScrollFit<Content: View>: View {
             // the "more" line has a row of its own under the list, so it never prints over the last row's text
             VStack(spacing: 4) {
                 ScrollView { content() }.scrollIndicators(.automatic)
-                    .mask(VStack(spacing: 0) { Color.black; LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 16) })
-                HStack(spacing: 5) { PixelIcon("chevd", color: .muted, size: 9); Text("More · scroll").font(.s11n) }
+                    .mask(VStack(spacing: 0) { Color.black; LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 32) })
+                HStack(spacing: 5) { PixelIcon("chevd", color: .muted, size: 9); Text("More · scroll").font(.s12) }
                     .foregroundStyle(Color.muted).frame(maxWidth: .infinity).frame(height: 16)
                     .accessibilityHidden(true)
             }
@@ -708,7 +777,7 @@ private struct HoverTip: View {
         let y: CGFloat = min(max(title.at.y + (title.left ? 0 : 30), 24), bounds.height - 24)
         VStack(alignment: .leading, spacing: 2) {
             Text(title.title).font(.s13b).foregroundStyle(Color.inkText).lineLimit(1)
-            if !title.line.isEmpty { Text(title.line).font(.s11n).foregroundStyle(Color.muted).lineLimit(2) }
+            if !title.line.isEmpty { Text(title.line).font(.s12).foregroundStyle(Color.muted).lineLimit(2) }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
         .spelFrame()
@@ -728,11 +797,11 @@ struct ServicesCard: View {
             VStack(spacing: 0) {
                 ForEach(Array(model.world.services.enumerated()), id: \.element.id) { k, s in
                     if k > 0 { RowDivider() }
-                    ServiceRow(name: s.name, state: s.shown(now: now), detail: Self.detail(s, now: now), checked: s.checkedAt.map { "Checked " + $0.ago }, page: s.page)
+                    ServiceRow(name: s.name, state: s.shown(now: now), detail: Self.detail(s, now: now), checked: s.checkedAt.map(\.ago), page: s.page)
                 }
                 ForEach(red, id: \.id) { p in
                     RowDivider()
-                    ServiceRow(name: p.name, state: .down, detail: "CI on main is red: " + (p.github?.failing.joined(separator: ", ") ?? ""), checked: p.github.map { "Checked " + $0.checkedAt.ago }, page: nil)
+                    ServiceRow(name: p.name, state: .down, detail: "CI on main is red: " + (p.github?.failing.joined(separator: ", ") ?? ""), checked: p.github.map(\.checkedAt.ago), page: nil)
                 }
                 if model.world.services.isEmpty && red.isEmpty {
                     Text("No status pages watched. Add them in Settings › Sources.").font(.s13).foregroundStyle(Color.muted).padding(12)
@@ -752,38 +821,66 @@ private struct ServiceRow: View {
     let name: String, state: ServiceStatus.State, detail: String, checked: String?, page: String?
     var body: some View {
         HStack(spacing: 10) {
-            StateLight(state: state == .ok ? .ok : state == .degraded ? .warn : state == .down ? .down : .unknown)
+            let light: StateLight.S = state == .ok ? .ok : state == .degraded ? .warn : state == .down ? .down : .unknown
+            StateLight(state: light).accessibilityHidden(true)   // its word is in the row's label
             VStack(alignment: .leading, spacing: 1) {
                 Text(name).font(.s13m).foregroundStyle(Color.inkText).lineLimit(1)
-                Text([detail, checked].compactMap { $0 }.joined(separator: " · ")).font(.s11n).foregroundStyle(Color.muted).lineLimit(1)
+                Text([detail, checked].compactMap { $0 }.joined(separator: " · ")).font(.s12).foregroundStyle(Color.muted).lineLimit(1)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel([name, light.word, detail, checked.map { "checked " + $0 }].compactMap { $0 }.joined(separator: ", "))
             Spacer(minLength: 0)
             if let page, let u = URL(string: page) {
-                Link(destination: u) { PixelIcon("chev", color: .muted, size: 9).frame(width: 20, height: 20) }.help("Open the status page").accessibilityLabel("Open the status page of \(name)")
+                Link(destination: u) { PixelIcon("chev", color: .muted, size: 9).frame(width: 24, height: 24).contentShape(Rectangle()) }.help("Open the status page").accessibilityLabel("Open the status page of \(name)")
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
     }
 }
 
-/// A state as shape and colour, never colour alone: a green dot, an amber triangle, a red square, a grey ring.
+/// A state as shape and colour, never colour alone: a green dot, an amber triangle, a red square, a grey ring, a blue
+/// pulse for busy. 18 pt
+/// (2 pt cells), so the shape reads, in an 18 pt column of its own. It is its own accessibility element with the word,
+/// since a PixelIcon hides itself; a row that combines its children reads the word with it.
 struct StateLight: View {
-    enum S { case ok, warn, down, unknown, busy }
+    enum S {
+        case ok, warn, down, unknown, busy
+        var word: String {
+            switch self { case .ok: "OK"; case .warn: "Warning"; case .down: "Down"; case .busy: "Busy"; case .unknown: "Unknown" }
+        }
+    }
     let state: S
     var body: some View {
-        switch state {
-        case .ok: PixelIcon("dot", color: .done, size: 9).accessibilityLabel("OK")
-        case .warn: PixelIcon("warn", color: .warn, size: 9).accessibilityLabel("Warning")
-        case .down: PixelIcon("sq", color: .stuck, size: 9).accessibilityLabel("Down")
-        case .busy: PixelIcon("dot", color: .working, size: 9).accessibilityLabel("Busy")
-        case .unknown: PixelIcon("ring", color: .muted, size: 9).accessibilityLabel("Unknown")
+        Group {
+            switch state {
+            case .ok: PixelIcon("dot", color: .done)
+            case .warn: PixelIcon("warn", color: .warn)
+            case .down: PixelIcon("sq", color: .stuck)
+            // busy has a shape of its own, so it never reads as OK in another colour
+            case .busy: PixelIcon("pulse", color: .working)
+            case .unknown: PixelIcon("ring", color: .muted)
+            }
         }
+        .frame(width: 18, height: 18)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(state.word)
+    }
+}
+
+/// A session's state as an 18 pt glyph with its word for VoiceOver: a dot working, "!" waiting, a square stuck, a tick done.
+struct StateGlyph: View {
+    let state: SessionState
+    var body: some View {
+        PixelIcon(state == .stuck ? "sq" : state == .waiting ? "bang" : state == .done ? "check" : "dot", color: Color.state(state))
+            .frame(width: 18, height: 18)
+            .accessibilityElement(children: .ignore).accessibilityLabel(state.label)
     }
 }
 
 // MARK: the first walk and the field notes (D78)
 
-/// The first time an effect shows on the campus: what it is, for a few seconds under the top bar.
+/// The first time an effect shows on the campus: its name, its cause with the project's name, for a few seconds above
+/// Up and zoom. The name is never cut: two lines may.
 struct FieldNoteBanner: View {
     @EnvironmentObject private var model: AppModel
     var body: some View {
@@ -791,16 +888,18 @@ struct FieldNoteBanner: View {
             HStack(alignment: .top, spacing: 10) {
                 Socket(size: 36) { PixelIcon("star", color: .inkText) }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("New on the campus: " + n.title).font(.s15).foregroundStyle(Color.inkText)
-                    Text(n.line).font(.s13).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
-                    Text("Kept in the field guide (Help › Field guide)").font(.s11n).foregroundStyle(Color.muted)
+                    Text(n.title).font(.s15).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    Text(n.line).font(.s13).foregroundStyle(Color.inkText).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    Text("Saved in Help › Field guide").font(.s12).foregroundStyle(Color.muted)
                 }
                 Spacer(minLength: 0)
                 CloseButton(action: { model.fieldNote = nil }, help: "Close")
             }
             .padding(12).frame(width: 460, alignment: .leading).spelFrame()
-            .transition(.move(edge: .top).combined(with: .opacity))
+            // it stays while the pointer is on it (and while VoiceOver runs: AppModel.closeFieldNoteLater)
+            .onHover { model.fieldNoteHovered = $0 }
             .accessibilityElement(children: .combine)
+            .accessibilityLabel("New on the campus: \(n.title). \(n.line)")
         }
     }
 }
@@ -811,7 +910,7 @@ struct FieldNoteBanner: View {
 struct WalkCard: View {
     @EnvironmentObject private var model: AppModel
     static let steps: [(title: String, text: String, goal: String)] = [
-        ("Your campus", "Every Claude Code and Codex chat from the last 8 hours lives here. One tower per tool: Claude and ChatGPT (Codex). One floor per project.", "Open a floor: click one, or scroll in"),
+        ("Your campus", "Every Claude Code and Codex chat from the last 8 hours lives here. One tower per tool: Claude and ChatGPT (Codex). One floor per project.", "Open a floor: click one, or zoom in"),
         ("People are your chats", "The room someone is in is what that chat does now: research, development, testing, or waiting at the front desk for you.", "Click someone to see their last step"),
         ("Needs you", "Chats that stopped to ask you something, and the factories' questions, line up on the left. N takes you to the next one.", "Press N"),
         ("Everything explains itself", "Hover anything that moves to see why it moves. Help keeps every key and a field guide of what you have seen.", "Open Help: press ?"),
@@ -846,12 +945,13 @@ struct WalkCard: View {
         HStack(spacing: 12) {
             guide
             Text("New here? Sol walks you round in a minute.").font(.s15b).foregroundStyle(Color.inkText)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             Button { start() } label: { Text("Take the walk") }.buttonStyle(SpelButtonStyle(kind: .secondary))
             Button { model.endWalk() } label: { Text("Not now") }.buttonStyle(SpelButtonStyle(kind: .ghost))
                 .help("You can start it later from Help (?)")
         }
-        .padding(12).frame(width: Shell.sheet + 40).spelFrame()
+        .padding(12).frame(width: Shell.sheet).spelFrame()
     }
 
     private func stepCard(_ step: Int) -> some View {
@@ -955,23 +1055,32 @@ struct WalkCard: View {
 struct FactoryPicker: View {
     @EnvironmentObject private var model: AppModel
     @State private var picked: String?
+    @AccessibilityFocusState private var titleFocus: Bool
+    /// the guide's face, once drawn (the portraits are no published state)
+    @State private var faces = 0
     private struct Floor: Identifiable { let project: Project; let provider: Provider; let number: Int; var id: String { project.id } }
     private var floors: [Floor] {
         model.world.buildings.flatMap { b in b.projects.enumerated().map { Floor(project: $0.element, provider: b.provider, number: $0.offset + 1) } }
             .filter { !$0.project.isChat }
     }
     var body: some View {
-        let floors = self.floors
+        let floors = self.floors; let _ = faces
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                Portrait(image: model.controller.portrait(WalkCard.guideKey), role: .lead, size: 48)
+            // the same head as every sheet: a 44 pt socket, the eyebrow, the title at 26; the guide's face once drawn,
+            // a tower until then (never an empty square)
+            HStack(alignment: .center, spacing: 12) {
+                if let face = model.controller.portrait(WalkCard.guideKey) { Portrait(image: face, role: .lead, size: 44) }
+                else { Socket(size: 44) { PixelIcon("tower", color: .inkText) } }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) { Eyebrow("Quest · step 1 of 2"); Pips(count: 2, current: 0) }
-                    Text("Start a factory").font(.s19).foregroundStyle(Color.inkText)
+                    Text("Start a factory").font(.s26).foregroundStyle(Color.inkText)
+                        .accessibilityAddTraits(.isHeader).accessibilityFocused($titleFocus)
                 }
                 Spacer(minLength: 0)
-                CloseButton(action: { model.factoryPickerOpen = false })
+                CloseButton(action: { model.factoryPickerOpen = false }).frame(maxHeight: .infinity, alignment: .top)
             }
+            .fixedSize(horizontal: false, vertical: true)
+            .task { await model.controller.ensurePortraits([WalkCard.guideKey]); faces += 1 }
             Text("Which project should get a CEO? It works on that floor; you answer its questions.").font(.s13).foregroundStyle(Color.muted)
                 .fixedSize(horizontal: false, vertical: true)
             ScrollFit {
@@ -987,7 +1096,7 @@ struct FactoryPicker: View {
         }
         .padding(16).frame(width: Shell.sheet).spelFrame()
         .onExitCommand { model.factoryPickerOpen = false }
-        .onAppear { picked = floors.first { !model.isFactory($0.project) }?.id }
+        .onAppear { picked = floors.first { !model.isFactory($0.project) }?.id; DispatchQueue.main.async { titleFocus = true } }
     }
 
     private func row(_ f: Floor) -> some View {
@@ -1003,7 +1112,7 @@ struct FactoryPicker: View {
                         .font(.s13).foregroundStyle(Color.muted)
                 }
                 Spacer(minLength: 0)
-                if factory { Tag(factory ? "Factory already" : "", tone: .done) }
+                if factory { Tag("Already a factory", tone: .done) }
                 else if picked == p.id { PixelIcon("check", color: .selection) }
             }
             .spelCard(selected: picked == p.id, pad: 10)
