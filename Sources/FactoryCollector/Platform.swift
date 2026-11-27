@@ -167,6 +167,12 @@ public enum Files {
     public static func write(_ data: Data, to url: URL, options: Data.WritingOptions = .atomic) throws {
         try Processes.apartFromWriting { try data.write(to: url, options: options) }
     }
+
+    /// `FileManager.createFile` (which writes the same way), with the same care. False when it could not be written.
+    @discardableResult
+    public static func create(_ url: URL, contents: Data?) -> Bool {
+        Processes.apartFromWriting { FileManager.default.createFile(atPath: url.path, contents: contents) }
+    }
 }
 
 extension Data {

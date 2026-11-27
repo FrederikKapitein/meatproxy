@@ -323,7 +323,7 @@ public final class HeartbeatRunner: @unchecked Sendable {
         }
         let log = logURL(root, started: now)
         try? FileManager.default.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: log.path, contents: nil)
+        Files.create(log, contents: nil)
         let p = Process()
         p.executableURL = launch.executable
         p.arguments = launch.arguments

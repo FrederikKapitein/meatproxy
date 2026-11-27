@@ -46,8 +46,8 @@ command line build and are tested on all three:
   file alone (CI checks it). On Windows SwiftTerm needs one package fewer and SwiftPM rewrites the file: leave that
   change out of a commit (`git restore Package.resolved`).
 - **On Windows a write and a starting process never overlap.** Foundation there lets a process that starts take
-  along a file that is being written, and the write fails. `Files.write` (and `write(wholeTo:)`) and
-  `Processes.start` take turns; use them instead of `write(to:options: .atomic)` and `run()`.
+  along a file that is being written, and the write fails. `Files.write` (and `write(wholeTo:)`), `Files.create`
+  and `Processes.start` take turns; use them instead of `write(to:options: .atomic)`, `createFile` and `run()`.
 
 Without a Mac, or to try Linux on one, Docker runs the tests (read-only, so nothing lands in your checkout):
 
