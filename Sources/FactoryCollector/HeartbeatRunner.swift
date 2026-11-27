@@ -50,8 +50,8 @@ public final class HeartbeatRunner: @unchecked Sendable {
     /// or the installers put them (an app started from the Finder has no shell PATH).
     /// The project's allowlist is passed with --settings: Claude Code ignores a folder's own settings until you trust
     /// that folder interactively, but always honours settings given on the command line.
-    /// Where a CLI is (an app started from the Finder has no shell PATH): Homebrew, /usr/local, ~/.local, Claude's own,
-    /// then the PATH. On Windows: ~\.local\bin, Codex's own folder, then the PATH.
+    /// Where a CLI is (an app started from the Finder has no shell PATH): Homebrew, /usr/local, ~/.local, Claude's own.
+    /// On Linux the PATH after those; on Windows ~\.local\bin, Codex's own folder, then the PATH (`Tools`).
     public static func cli(_ name: String) -> String? { Tools.find(name) }
 
     public static let systemLaunch: Resolve = { r in

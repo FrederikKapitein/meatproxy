@@ -7,7 +7,8 @@ import WinSDK
 /// Keychain and the certificate check are next to their own code (`Secrets`, `SiteProbe`).
 
 /// Where the programs are that Meatproxy starts: claude, codex, gh, ssh. The usual places come first, because an app
-/// started from the Finder has no shell PATH; then every folder on the PATH.
+/// started from the Finder has no shell PATH. A Mac looks nowhere else, as before; Linux and Windows then try every
+/// folder on the PATH, which is how programs are found there.
 public enum Tools {
     /// How one system names and finds its programs.
     struct System: Equatable {
@@ -63,7 +64,12 @@ public enum Tools {
 
     /// Where a program is, or nil when it is not installed.
     public static func find(_ name: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        candidates(name, path: variable("PATH", environment), on: system).first(where: isProgram)
+        #if os(macOS)
+        let path: String? = nil
+        #else
+        let path = variable("PATH", environment)
+        #endif
+        return candidates(name, path: path, on: system).first(where: isProgram)
     }
 
     /// A file that is there and may be run. (On Windows Foundation calls anything ending in .exe executable, there
@@ -111,7 +117,7 @@ public enum Processes {
     /// Starts a process that can be stopped again. On Linux a process inherits the signals its starting thread has
     /// blocked, and a background thread blocks nearly all of them: started from there it would never hear
     /// `terminate()`, so a run could not be stopped, taken over or timed out. Here it starts with nothing blocked.
-    /// (Foundation on macOS does that itself, and Windows has no signals.)
+    /// (A Mac does not need it: a run stopped there does stop. Windows has no signals.)
     public static func start(_ process: Process) throws {
         #if os(Linux)
         var none = sigset_t(), before = sigset_t()
