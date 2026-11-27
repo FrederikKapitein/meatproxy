@@ -135,6 +135,10 @@ You need Swift 6 ([swift.org/install](https://www.swift.org/install/)). `--dump 
 - **Tokens** for Sentry and Tracker come from `MEATPROXY_SENTRY_TOKEN` and `MEATPROXY_TRACKER_TOKEN`: there is no
   Keychain, so Meatproxy saves none.
 - **A site's certificate:** an invalid one still fails the check, but the days until it expires only show on a Mac.
+- **Factories and the Server room** (`--heartbeat`, `--ops`) are the same code as on a Mac, and their tests pass on
+  Linux and Windows with stand-in programs. A real CEO run or server check has only ever been done on a Mac.
+- **On Windows** Claude Code and Codex have to be the programs themselves (`claude.exe`, `codex.exe`): Meatproxy
+  starts programs directly, so a `.cmd` wrapper from npm is not found.
 
 ## Privacy
 
