@@ -44,6 +44,9 @@ jobs:
         run: swift test
       - name: The command line runs
         run: swift run meatproxy-core --dump --fixture
+      # the Mac app's versions are in Package.resolved: a build here must leave them alone
+      - name: Package.resolved is unchanged
+        run: git diff --exit-code Package.resolved
 
   windows:
     name: Windows
@@ -64,3 +67,6 @@ jobs:
         run: swift test
       - name: The command line runs
         run: swift run meatproxy-core --dump --fixture
+      # the Mac app's versions are in Package.resolved: a build here must leave them alone
+      - name: Package.resolved is unchanged
+        run: git diff --exit-code Package.resolved

@@ -9,7 +9,7 @@ import Testing
         #expect(PathText.isWindows(#"C:\Users\you\Projects\shop"#))
         #expect(PathText.isWindows("c:/Users/you"))
         #expect(PathText.isWindows("D:"))
-        #expect(PathText.isWindows(#"\\server\share\shop"#))
+        #expect(PathText.isWindows(#"\\server\share\shop"#) && PathText.isWindows("//server/share/shop"))
         #expect(!PathText.isWindows("/Users/you/Projects/shop"))
         #expect(!PathText.isWindows("~/Projects/shop"))
         #expect(!PathText.isWindows("shop"))
@@ -34,23 +34,29 @@ import Testing
     }
 
     @Test func theParentStopsAtTheDriveOrTheShare() {
-        #expect(PathText.parent(#"C:\Users\you\shop"#) == #"C:\Users\you"#)
-        #expect(PathText.parent(#"C:\Users"#) == #"C:\"#)
-        #expect(PathText.parent(#"C:\"#) == #"C:\"#)
-        #expect(PathText.parent(#"\\server\share\shop\code"#) == #"\\server\share\shop"#)
-        #expect(PathText.parent(#"\\server\share"#) == #"\\server\share"#)
+        #expect(PathText.parent(#"C:\Users\you\shop"#) == "C:/Users/you")
+        #expect(PathText.parent("C:/Users") == "C:/")
+        #expect(PathText.parent(#"C:\"#) == "C:/")
+        #expect(PathText.parent(#"\\server\share\shop\code"#) == "//server/share/shop")
+        #expect(PathText.parent("//server/share") == "//server/share")
         #expect(PathText.parent("/Users/you/shop") == "/Users/you")
         #expect(PathText.parent("/Users") == "/")
     }
 
+    /// Foundation on Windows gives a path forward slashes (`URL.path` is `C:/Users/you/shop`): that is the one spelling.
     @Test func oneSpellingForAWindowsFolder() {
-        #expect(PathText.windows("c:/Users/you/Projects/shop/") == #"C:\Users\you\Projects\shop"#)
-        #expect(PathText.windows(#"C:\Users\\you\.\Projects\..\shop"#) == #"C:\Users\you\shop"#)
-        #expect(PathText.windows("c:") == #"C:\"#)
-        #expect(PathText.windows(#"C:\"#) == #"C:\"#)
-        #expect(PathText.windows(#"C:\.."#) == #"C:\"#)
-        #expect(PathText.windows("//server/share/shop/") == #"\\server\share\shop"#)
-        #expect(PathText.windows(#"\\server\share\"#) == #"\\server\share"#)
+        #expect(PathText.windows(#"c:\Users\you\Projects\shop\"#) == "C:/Users/you/Projects/shop")
+        #expect(PathText.windows("C:/Users/you/Projects/shop") == "C:/Users/you/Projects/shop")
+        #expect(PathText.windows(#"C:\Users\\you\.\Projects\..\shop"#) == "C:/Users/you/shop")
+        #expect(PathText.windows("c:") == "C:/")
+        #expect(PathText.windows(#"C:\"#) == "C:/")
+        #expect(PathText.windows(#"C:\.."#) == "C:/")
+        #expect(PathText.windows(#"\\server\share\shop\"#) == "//server/share/shop")
+        #expect(PathText.windows("//server/share/") == "//server/share")
+        // any other folder stays as it is written
+        #expect(PathText.native(#"c:\Users\you"#) == "C:/Users/you")
+        #expect(PathText.native("/Users/you/Projects/shop/") == "/Users/you/Projects/shop/")
+        #expect(PathText.native("~") == "~")
     }
 
     @Test func aFloorIsNamedAfterItsWindowsFolder() {

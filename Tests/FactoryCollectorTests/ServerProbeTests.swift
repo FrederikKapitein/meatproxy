@@ -188,7 +188,7 @@ struct EngineRoomTests {
         #expect(try EngineRoom.file(e, at: dir) == "A-0001" && (try EngineRoom.file(e, at: dir)) == "A-0002")
         #expect(EngineRoom.openAlerts(at: dir).map(\.id) == ["A-0001", "A-0002"])
         try "---\nid: D-0001\ntitle: Prune old images on api-01?\nkind: other\nstatus: open\n---\n\n## Why\nDisk.\n"
-            .write(to: dir.appendingPathComponent("decisions/D-0001-prune.md"), atomically: true, encoding: .utf8)
+            .write(wholeTo: dir.appendingPathComponent("decisions/D-0001-prune.md"))
         let f = EngineRoom.read(at: dir)
         #expect(f.openDecisions.map(\.file) == ["decisions/D-0001-prune.md"])
     }

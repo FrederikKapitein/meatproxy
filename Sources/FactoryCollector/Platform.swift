@@ -63,7 +63,14 @@ public enum Tools {
 
     /// Where a program is, or nil when it is not installed.
     public static func find(_ name: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        candidates(name, path: variable("PATH", environment), on: system).first { FileManager.default.isExecutableFile(atPath: $0) }
+        candidates(name, path: variable("PATH", environment), on: system).first(where: isProgram)
+    }
+
+    /// A file that is there and may be run. (On Windows Foundation calls anything ending in .exe executable, there
+    /// or not; on a Mac and Linux a folder you may enter counts as executable too.)
+    static func isProgram(_ path: String) -> Bool {
+        var folder: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &folder) && !folder.boolValue && FileManager.default.isExecutableFile(atPath: path)
     }
 
     /// ssh and its helpers (ssh-add): the system's own. On Windows that is OpenSSH in System32, the one that reaches
@@ -75,7 +82,7 @@ public enum Tools {
         #else
         let own = "/usr/bin/\(name)"
         #endif
-        if FileManager.default.isExecutableFile(atPath: own) { return own }
+        if isProgram(own) { return own }
         return find(name, environment: environment) ?? own
     }
 
@@ -112,7 +119,21 @@ public enum Processes {
         pthread_sigmask(SIG_SETMASK, &none, &before)
         defer { pthread_sigmask(SIG_SETMASK, &before, nil) }
         #endif
-        try process.run()
+        try apartFromWriting { try process.run() }
+    }
+
+    #if os(Windows)
+    private static let gate = NSLock()
+    #endif
+    /// Starting a process and writing a file, never at the same moment. On Windows a process that starts takes along
+    /// every file this process is writing just then (Foundation opens its temporary file inheritable, and starts a
+    /// process with everything inheritable), and holds it for as long as it runs: the write then fails with a
+    /// sharing violation. A Mac and Linux close such files in the new process, so there this does nothing.
+    static func apartFromWriting<T>(_ body: () throws -> T) rethrows -> T {
+        #if os(Windows)
+        gate.lock(); defer { gate.unlock() }
+        #endif
+        return try body()
     }
 
     /// this process's id
@@ -131,4 +152,23 @@ public enum Processes {
         return kill(pid, 0) == 0
         #endif
     }
+}
+
+/// Writing a file the collector keeps: its settings, a factory's files, a run's state.
+public enum Files {
+    /// The whole file or nothing (Foundation's atomic write, or with `options` what they say), and on Windows never
+    /// while a process starts (`Processes.apartFromWriting`).
+    public static func write(_ data: Data, to url: URL, options: Data.WritingOptions = .atomic) throws {
+        try Processes.apartFromWriting { try data.write(to: url, options: options) }
+    }
+}
+
+extension Data {
+    /// Writes the whole file or nothing: `Files.write`.
+    func write(wholeTo url: URL) throws { try Files.write(self, to: url) }
+}
+
+extension String {
+    /// Writes the whole file or nothing, as UTF-8: `Files.write`.
+    func write(wholeTo url: URL) throws { try Files.write(Data(utf8), to: url) }
 }

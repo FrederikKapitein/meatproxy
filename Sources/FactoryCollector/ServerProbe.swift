@@ -158,7 +158,7 @@ public struct ServerSettingsStore: Sendable {
     public func save(_ servers: [ServerConfig]) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let e = JSONEncoder(); e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try e.encode(File(servers: servers)).write(to: url, options: .atomic)
+        try e.encode(File(servers: servers)).write(wholeTo: url)
     }
 }
 

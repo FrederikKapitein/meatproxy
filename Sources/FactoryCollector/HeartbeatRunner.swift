@@ -174,7 +174,7 @@ public final class HeartbeatRunner: @unchecked Sendable {
     private func writeState(_ root: String, _ s: State) {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601; enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try? enc.encode(s).write(to: stateURL(root), options: .atomic)
+        try? enc.encode(s).write(wholeTo: stateURL(root))
     }
 
     /// The latest run (still running, or how it ended).
@@ -246,7 +246,7 @@ public final class HeartbeatRunner: @unchecked Sendable {
         var m = (try? JSONDecoder().decode([String: Date].self, from: Data(contentsOf: limitsURL))) ?? [:]
         m[runtime.rawValue] = until
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try? JSONEncoder().encode(m).write(to: limitsURL, options: .atomic)
+        try? JSONEncoder().encode(m).write(wholeTo: limitsURL)
     }
 
     /// A run's output says the plan's limit was hit: until when (the reset it names, or an hour from now). Nil otherwise.
@@ -270,7 +270,7 @@ public final class HeartbeatRunner: @unchecked Sendable {
            pid != Processes.own, Processes.isAlive(pid) {
             return false
         }
-        return (try? "\(Processes.own)".write(to: url, atomically: true, encoding: .utf8)) != nil
+        return (try? "\(Processes.own)".write(wholeTo: url)) != nil
     }
     func releaseLock(_ root: String) { try? FileManager.default.removeItem(at: lockURL(root)) }
 
@@ -381,7 +381,7 @@ public final class HeartbeatRunner: @unchecked Sendable {
             return false
         }
         // the lock now names the CEO process itself: if the app closes, the run still holds it until it really ends
-        try? "\(p.processIdentifier)".write(to: lockURL(root), atomically: true, encoding: .utf8)
+        try? "\(p.processIdentifier)".write(wholeTo: lockURL(root))
         DispatchQueue.global().asyncAfter(deadline: .now() + Self.timeout, execute: timer)
         return true
     }

@@ -291,7 +291,8 @@ final class SessionReader {
     }
 
     func session() -> Session? {
-        guard let cwd = startCwd ?? cwd, let last else { return nil }
+        // a Windows folder in one spelling, so it is the same folder as the one a URL names
+        guard let cwd = (startCwd ?? cwd).map(PathText.native), let last else { return nil }
         let raw = title ?? firstPrompt.map { Self.short($0, 60) } ?? ""
         let clean = raw.replacingOccurrences(of: #"[*_`#>]+"#, with: "", options: .regularExpression)
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")

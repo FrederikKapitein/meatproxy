@@ -4,9 +4,9 @@ import Foundation
 /// `/Users/you/Projects/shop` on a Mac or Linux, `C:\Users\you\Projects\shop` on Windows. The Mac and Linux way is
 /// left to Foundation, as before; the Windows way is read here, the same on every platform.
 public enum PathText {
-    /// Written the Windows way: on a drive (`C:\shop`, `c:/shop`, `C:`) or on a share (`\\server\share`).
+    /// Written the Windows way: on a drive (`C:\shop`, `c:/shop`, `C:`) or on a share (`\\server\share`, `//server/share`).
     public static func isWindows(_ path: String) -> Bool {
-        if path.hasPrefix(#"\\"#) { return true }
+        if path.hasPrefix(#"\\"#) || path.hasPrefix("//") { return true }
         let c = Array(path.unicodeScalars.prefix(3))
         guard c.count >= 2, c[0].isASCII, c[0].properties.isAlphabetic, c[1] == ":" else { return false }
         return c.count == 2 || c[2] == #"\"# || c[2] == "/"
@@ -15,42 +15,48 @@ public enum PathText {
     /// The last folder or file of a path ("shop").
     public static func name(_ path: String) -> String {
         guard isWindows(path) else { return (path as NSString).lastPathComponent }
-        return parts(path).last ?? String(windows(path).dropLast())
+        let p = read(path)
+        return p.below.last ?? p.top
     }
 
     /// The folder a path is in. A drive or a share is its own parent.
     public static func parent(_ path: String) -> String {
         guard isWindows(path) else { return (path as NSString).deletingLastPathComponent }
-        let p = windows(path), n = parts(p)
-        guard let last = n.last else { return p }
-        let up = String(p.dropLast(last.count))
-        return n.count == 1 ? up : String(up.dropLast())
+        var p = read(path)
+        if !p.below.isEmpty { p.below.removeLast() }
+        return p.text
     }
 
-    /// One spelling for a Windows folder: backslashes, the drive in capitals, no `.` or `..`, no slash at the end
-    /// (a drive keeps its own: `C:\`).
-    public static func windows(_ path: String) -> String {
-        let flat = path.replacingOccurrences(of: "/", with: #"\"#)
-        let share = flat.hasPrefix(#"\\"#)
-        var words = flat.split(separator: #"\"#, omittingEmptySubsequences: true).map(String.init)
-        // what a path starts with and never loses: `C:` or `\\server\share`
-        let fixed = share ? min(2, words.count) : 1
-        var kept: [String] = []
-        for (k, w) in words.enumerated() {
-            if k < fixed { kept.append(share ? w : w.uppercased()); continue }
-            if w == "." { continue }
-            if w == ".." { if kept.count > fixed { kept.removeLast() }; continue }
-            kept.append(w)
+    /// One spelling for a Windows folder, the one Foundation gives a path there: forward slashes, the drive in
+    /// capitals, no `.` or `..`, no slash at the end (a drive keeps its own: `C:/`). So a folder from a session file
+    /// (`c:\Users\you\shop`) and the same folder from a URL (`C:/Users/you/shop`) are one folder.
+    public static func windows(_ path: String) -> String { read(path).text }
+
+    /// A folder in the one spelling the rest of Meatproxy compares and opens: a Windows folder as `windows` spells
+    /// it, any other as it is.
+    public static func native(_ path: String) -> String { isWindows(path) ? windows(path) : path }
+
+    /// A Windows path taken apart: what it starts with and never loses (`C:` or `//server/share`), and the folders below.
+    private struct Parts {
+        var top: String, below: [String], share: Bool
+        var text: String {
+            if share { return below.isEmpty ? top : top + "/" + below.joined(separator: "/") }
+            return top + "/" + below.joined(separator: "/")
         }
-        words = kept
-        if share { return #"\\"# + words.joined(separator: #"\"#) }
-        return words.count == 1 ? words[0] + #"\"# : words.joined(separator: #"\"#)
     }
 
-    /// The folders below the drive or the share.
-    private static func parts(_ path: String) -> [String] {
-        let p = windows(path)
-        let words = p.split(separator: #"\"#, omittingEmptySubsequences: true).map(String.init)
-        return Array(words.dropFirst(p.hasPrefix(#"\\"#) ? 2 : 1))
+    private static func read(_ path: String) -> Parts {
+        let flat = path.replacingOccurrences(of: #"\"#, with: "/")
+        let share = flat.hasPrefix("//")
+        let words = flat.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        let fixed = share ? min(2, words.count) : min(1, words.count)
+        var below: [String] = []
+        for w in words.dropFirst(fixed) {
+            if w == "." { continue }
+            if w == ".." { if !below.isEmpty { below.removeLast() }; continue }
+            below.append(w)
+        }
+        let top = share ? "//" + words.prefix(fixed).joined(separator: "/") : (words.first ?? "").uppercased()
+        return Parts(top: top, below: below, share: share)
     }
 }

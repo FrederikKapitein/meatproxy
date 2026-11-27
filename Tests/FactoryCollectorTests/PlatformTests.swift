@@ -72,13 +72,31 @@ import FactoryCore
         #expect(r.resolve(#"c:\users\YOU\"#).isChat)
         #expect(r.resolve(#"C:\Users\you\AppData\scratch-workspaces\a1\x"#).isChat)
         // below ~\Projects the project is the folder right below it, with either slash and in any case
+        // (the project is spelled as Foundation spells a folder on Windows, so it is the folder a URL names)
         let shop = r.resolve(#"C:\Users\you\Projects\web-shop\code\api"#)
-        #expect(shop == ProjectKey(root: #"C:\Users\you\Projects\web-shop"#, name: "Web Shop", isChat: false))
-        #expect(r.resolve("c:/Users/you/projects/web-shop/docs") == shop)
-        #expect(r.resolve(#"C:\Users\you\Projects\Tuinstra.DEV\meatproxy\code"#).root == #"C:\Users\you\Projects\Tuinstra.DEV\meatproxy"#)
+        #expect(shop == ProjectKey(root: "C:/Users/you/Projects/web-shop", name: "Web Shop", isChat: false))
+        #expect(r.resolve("c:/Users/you/projects/web-shop/docs").name == "Web Shop")
+        #expect(r.resolve(#"C:\Users\you\Projects\Tuinstra.DEV\meatproxy\code"#).root == "C:/Users/you/Projects/Tuinstra.DEV/meatproxy")
         // anywhere else without git: the folder itself
-        #expect(r.resolve(#"D:\work\harbor-api"#) == ProjectKey(root: #"D:\work\harbor-api"#, name: "Harbor API", isChat: false))
-        #expect(r.resolve(#"\\nas\team\harbor-api\"#).root == #"\\nas\team\harbor-api"#)
+        #expect(r.resolve(#"D:\work\harbor-api"#) == ProjectKey(root: "D:/work/harbor-api", name: "Harbor API", isChat: false))
+        #expect(r.resolve(#"\\nas\team\harbor-api\"#).root == "//nas/team/harbor-api")
+        // the home folder may come either way too
+        #expect(ProjectResolver(home: "C:/Users/you").resolve(#"C:\Users\you\Projects\web-shop"#) == shop)
+    }
+
+    @Test func aSessionsWindowsFolderIsSpelledOnce() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sf-winpath-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("aaaaaaaa-1111-2222-3333-444444444444.jsonl")
+        let line: [String: Any] = ["type": "user", "cwd": #"c:\Users\you\Projects\web-shop\code"#, "timestamp": ISO8601DateFormatter().string(from: Date()),
+                                   "message": ["content": "Fix the cart"]]
+        var data = try JSONSerialization.data(withJSONObject: line); data.append(13); data.append(10)   // Windows ends a line with CR LF
+        try data.write(to: file)
+        let reader = SessionReader(url: file, provider: .claude)
+        try reader.read()
+        let s = try #require(reader.session())
+        #expect(s.cwd == "C:/Users/you/Projects/web-shop/code" && s.title == "Fix the cart")
+        #expect(ProjectResolver(home: #"C:\Users\you"#).resolve(s.cwd).root == "C:/Users/you/Projects/web-shop")
     }
 
     @Test func aHomeInTheScratchFolderStillHasProjects() {

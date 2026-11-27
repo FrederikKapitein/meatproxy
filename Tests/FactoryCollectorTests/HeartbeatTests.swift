@@ -91,11 +91,11 @@ struct HeartbeatTests {
         // the launch agent (another live process) holds the lock
         try fm.createDirectory(at: state, withIntermediateDirectories: true)
         try Stub.whileAnotherProcessLives { pid in
-            try "\(pid)".write(to: runner.lockURL(project.path), atomically: true, encoding: .utf8)
+            try "\(pid)".write(wholeTo: runner.lockURL(project.path))
             #expect(!runner.start(root: project.path, name: "P", heartbeat: Heartbeat(), reason: .runNow))
         }
         // a lock left by a process that is gone is taken over
-        try "999999".write(to: runner.lockURL(project.path), atomically: true, encoding: .utf8)
+        try "999999".write(wholeTo: runner.lockURL(project.path))
         #expect(runner.start(root: project.path, name: "P", heartbeat: Heartbeat(), reason: .runNow))
         runner.wait(project.path)
     }
@@ -172,7 +172,7 @@ struct HeartbeatTests {
 
     @Test func factoriesJSONIsTakenOver() throws {
         let folder = try tempDir()
-        try #"{"factories":["/demo/pebble"]}"#.write(to: folder.appendingPathComponent("factories.json"), atomically: true, encoding: .utf8)
+        try #"{"factories":["/demo/pebble"]}"#.write(wholeTo: folder.appendingPathComponent("factories.json"))
         let store = ProjectSettingsStore(folder: folder)
         let s = store.load()
         #expect(s.factoryRoots == ["/demo/pebble"] && s.pinnedRoots == ["/demo/pebble"])
@@ -366,7 +366,7 @@ struct HeartbeatAllowlistTests {
         let with = fm.temporaryDirectory.appendingPathComponent("sf-allow-\(UUID().uuidString)"), without = fm.temporaryDirectory.appendingPathComponent("sf-allow-\(UUID().uuidString)")
         try fm.createDirectory(at: with.appendingPathComponent(".claude"), withIntermediateDirectories: true)
         try fm.createDirectory(at: without, withIntermediateDirectories: true)
-        try "{}".write(to: with.appendingPathComponent(".claude/settings.json"), atomically: true, encoding: .utf8)
+        try "{}".write(wholeTo: with.appendingPathComponent(".claude/settings.json"))
         nonisolated(unsafe) var seen: [String: URL?] = [:]
         let lock = NSLock()
         let runner = HeartbeatRunner(folder: fm.temporaryDirectory.appendingPathComponent("sf-allow-state-\(UUID().uuidString)"), resolve: { r in
@@ -399,11 +399,11 @@ struct HeartbeatInterruptedTests {
         try enc.encode(S(runs: [HeartbeatRun(started: started, reason: .runNow, outcome: .running)])).write(to: runner.stateURL(project.path))
         // a live process holds the lock: still running
         try Stub.whileAnotherProcessLives { pid in
-            try "\(pid)".write(to: runner.lockURL(project.path), atomically: true, encoding: .utf8)
+            try "\(pid)".write(wholeTo: runner.lockURL(project.path))
             #expect(runner.lastRun(project.path)?.outcome == .running)
         }
         // the process is gone
-        try "999999".write(to: runner.lockURL(project.path), atomically: true, encoding: .utf8)
+        try "999999".write(wholeTo: runner.lockURL(project.path))
         let last = try #require(runner.lastRun(project.path))
         #expect(last.outcome == .failed && last.detail?.contains("closed") == true)
         #expect(!fm.fileExists(atPath: runner.lockURL(project.path).path))
@@ -418,7 +418,7 @@ struct IdeaInboxTests {
         try fm.createDirectory(at: root.appendingPathComponent("factory/ideas"), withIntermediateDirectories: true)
         // an idea already there (the CEO's or an older one) keeps its file; the next gets the next id
         try "---\nid: I-0004\ntitle: Old\nstatus: taken\ndecision: D-0002\n---\n\nOld.\n\n## CEO\nTaken.\n"
-            .write(to: root.appendingPathComponent("factory/ideas/I-0004-old.md"), atomically: true, encoding: .utf8)
+            .write(wholeTo: root.appendingPathComponent("factory/ideas/I-0004-old.md"))
         let id = try IdeaInbox.send(root: root.path, text: "  Hints that explain why\nnot just where  ")
         #expect(id == "I-0005")
         #expect(throws: IdeaInbox.Failure.self) { try IdeaInbox.send(root: root.path, text: "   ") }
@@ -429,7 +429,7 @@ struct IdeaInboxTests {
         #expect(f.ideas.first?.reply == "Taken." && f.problems.isEmpty)
         // without contract.yml a factory is version 1: no ideas box; version 2 takes ideas
         #expect(f.contract == nil && f.contractVersion == 1 && !f.takesIdeas)
-        try "contract: meatproxy-factory\nversion: 2\n".write(to: root.appendingPathComponent("factory/contract.yml"), atomically: true, encoding: .utf8)
+        try "contract: meatproxy-factory\nversion: 2\n".write(wholeTo: root.appendingPathComponent("factory/contract.yml"))
         let v2 = FactoryFinder.read(root: root.path)
         #expect(v2.contractVersion == 2 && v2.takesIdeas && !v2.newerContract)
         #expect(FactoryText.contract("contract: something-else\nversion: 2") == nil)
@@ -484,11 +484,11 @@ struct MandateTests {
         try fm.createDirectory(at: root.appendingPathComponent("factory"), withIntermediateDirectories: true)
         var m = FactoryMandate(); m.set(level: .dark)
         try MandateFile.write(m, root: root.path)
-        try "level: assistant\ngates:\n  plan: ask\n".write(to: root.appendingPathComponent("factory/autonomy.yml"), atomically: true, encoding: .utf8)
-        try "contract: meatproxy-factory\nversion: 2\n".write(to: root.appendingPathComponent("factory/contract.yml"), atomically: true, encoding: .utf8)
+        try "level: assistant\ngates:\n  plan: ask\n".write(wholeTo: root.appendingPathComponent("factory/autonomy.yml"))
+        try "contract: meatproxy-factory\nversion: 2\n".write(wholeTo: root.appendingPathComponent("factory/contract.yml"))
         #expect(!FactoryFinder.read(root: root.path).takesMandate)
         #expect(FactoryFinder.read(root: root.path).autonomy?.level == .assistant)       // v2: the CEO's autonomy.yml
-        try "contract: meatproxy-factory\nversion: 3\n".write(to: root.appendingPathComponent("factory/contract.yml"), atomically: true, encoding: .utf8)
+        try "contract: meatproxy-factory\nversion: 3\n".write(wholeTo: root.appendingPathComponent("factory/contract.yml"))
         let f = FactoryFinder.read(root: root.path)
         #expect(f.takesMandate && f.mandate?.level == .dark && f.autonomy?.level == .dark)  // v3: your mandate sets it
         #expect(Fixture.factory().takesMandate && Fixture.factory().mandate?.level == .hybrid)

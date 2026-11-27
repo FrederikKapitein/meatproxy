@@ -6,7 +6,7 @@ import FactoryCore
 /// root, with every worktree of a repo counted as that repo; without git the folder itself. The home folder or a scratch
 /// folder means the chat is its own project.
 /// A folder written the Windows way (`C:\Users\you\Projects\shop`) follows the same rules, with either slash and in
-/// any case.
+/// any case; its project is spelled as Foundation spells a folder on Windows (`C:/Users/you/Projects/shop`).
 public final class ProjectResolver: @unchecked Sendable {
     private let home: String
     private let fm = FileManager.default
@@ -60,20 +60,20 @@ public final class ProjectResolver: @unchecked Sendable {
 
     /// The same rules for a folder written the Windows way.
     private func computeWindows(_ raw: String) -> ProjectKey {
-        let cwd = PathText.windows(raw), home = PathText.windows(self.home)
+        let cwd = PathText.windows(raw), home = PathText.native(self.home)
         func same(_ a: String, _ b: String) -> Bool { a.lowercased() == b.lowercased() }
-        if same(cwd, home) || cwd.lowercased().contains(#"\scratch-workspaces\"#) { return ProjectKey(root: cwd, name: "", isChat: true) }
-        let projects = home + #"\Projects\"#
+        if same(cwd, home) || cwd.lowercased().contains("/scratch-workspaces/") { return ProjectKey(root: cwd, name: "", isChat: true) }
+        let projects = home + "/Projects/"
         if cwd.lowercased().hasPrefix(projects.lowercased()) {
-            let parts = cwd.dropFirst(projects.count).split(separator: #"\"#).map(String.init)
+            let parts = cwd.dropFirst(projects.count).split(separator: "/").map(String.init)
             if let first = parts.first {
-                if first.lowercased() == "tuinstra.dev" || first.lowercased() == "tuinstra-dev", parts.count > 1 { return key(projects + first + #"\"# + parts[1]) }
+                if first.lowercased() == "tuinstra.dev" || first.lowercased() == "tuinstra-dev", parts.count > 1 { return key(projects + first + "/" + parts[1]) }
                 return key(projects + first)
             }
         }
         var dir = cwd
         while !same(dir, home) {
-            let git = dir.hasSuffix(#"\"#) ? dir + ".git" : dir + #"\.git"#
+            let git = dir.hasSuffix("/") ? dir + ".git" : dir + "/.git"
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: git, isDirectory: &isDir) {
                 let root = isDir.boolValue ? dir : (worktreeMain(gitFile: git, in: dir) ?? dir)
@@ -92,9 +92,8 @@ public final class ProjectResolver: @unchecked Sendable {
               let line = text.split(whereSeparator: \.isNewline).first(where: { $0.hasPrefix("gitdir:") }) else { return nil }
         var gitdir = line.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespaces)
         if PathText.isWindows(dir) {
-            // git on Windows writes "C:/repo/.git/worktrees/<name>", with forward slashes
-            gitdir = PathText.windows(PathText.isWindows(gitdir) ? gitdir : dir + #"\"# + gitdir)
-            guard let r = gitdir.range(of: #"\.git\worktrees\"#) else { return nil }
+            gitdir = PathText.windows(PathText.isWindows(gitdir) ? gitdir : dir + "/" + gitdir)
+            guard let r = gitdir.range(of: "/.git/worktrees/") else { return nil }
             return String(gitdir[..<r.lowerBound])
         }
         if !gitdir.hasPrefix("/") { gitdir = ((dir as NSString).appendingPathComponent(gitdir) as NSString).standardizingPath }
