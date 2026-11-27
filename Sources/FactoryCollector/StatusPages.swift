@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import FactoryCore
 
 /// The status pages you watch (D69): the providers your factories run on, GitHub, and any of your own. Kept in

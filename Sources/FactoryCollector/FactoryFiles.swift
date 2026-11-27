@@ -140,6 +140,11 @@ public enum DecisionAnswer {
 /// that appeared in the meantime is never replaced. False when the name is taken; throws on any other failure.
 public enum NewFile {
     public static func create(_ url: URL, text: String) throws -> Bool {
+        #if os(Windows)
+        // Windows has no O_EXCL; Foundation's own "never overwrite" asks the system for the same (CREATE_NEW)
+        do { try Data(text.utf8).write(to: url, options: .withoutOverwriting); return true }
+        catch let e as CocoaError where e.code == .fileWriteFileExists { return false }
+        #else
         let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o644)
         if fd < 0 {
             if errno == EEXIST { return false }
@@ -150,6 +155,7 @@ public enum NewFile {
         let ok = data.withUnsafeBytes { write(fd, $0.baseAddress, data.count) == data.count }
         if !ok { throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO), userInfo: [NSLocalizedDescriptionKey: "short write"]) }
         return true
+        #endif
     }
 }
 

@@ -194,7 +194,7 @@ struct EngineRoomTests {
     }
 
     @Test func theDevOpsAgentIsOneMoreHeartbeat() throws {
-        let center = HeartbeatCenter(runner: HeartbeatRunner(folder: try temp(), resolve: { _ in HeartbeatRunner.Launch(executable: URL(fileURLWithPath: "/usr/bin/true"), arguments: []) },
+        let center = HeartbeatCenter(runner: HeartbeatRunner(folder: try temp(), resolve: { _ in Stub.succeed },
                                                              directory: { _ in FileManager.default.temporaryDirectory }))
         var settings = ProjectSettings()
         center.wake(EngineRoom.folder.path, .alert(["A-0001"]))
